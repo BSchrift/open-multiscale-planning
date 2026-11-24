@@ -7,7 +7,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Before launch ends, as iOS requires, so a refresh it wakes the app for finds its handler.
+        WidgetRefresh.register()
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+            WidgetRefresh.schedule()
+        }
         return true
     }
 

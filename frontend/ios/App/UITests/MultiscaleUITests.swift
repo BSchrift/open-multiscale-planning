@@ -222,7 +222,7 @@ func allowNotificationsIfAsked() {
 /// Opens one of the app's links, as another app would. iOS asks first, though not every time, and on CI's Simulator the
 /// question can take longer than any fixed wait. So this waits for whichever comes first, the question or `opened`, and
 /// answers the question when that's the one.
-private func openLink(_ link: String, until opened: @escaping () -> Bool) {
+func openLink(_ link: String, until opened: @escaping () -> Bool) {
     XCUIDevice.shared.system.open(URL(string: link)!)
     let open = springboard.alerts.buttons["Open"]
     let either = NSPredicate { _, _ in open.exists || opened() }

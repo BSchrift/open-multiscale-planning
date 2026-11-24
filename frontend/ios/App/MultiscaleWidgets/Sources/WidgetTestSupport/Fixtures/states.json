@@ -1,0 +1,1414 @@
+{
+  "now": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:04:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "start": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "start",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T17:06:00Z",
+      "mode": "start",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "start",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "paused": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "paused",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:04:00Z",
+      "mode": "paused",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "paused",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "next": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:48:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "empty": [
+    {
+      "at": "2026-11-18T17:30:00Z",
+      "mode": "empty",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "empty",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "empty",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "empty",
+      "current": null,
+      "next": null
+    }
+  ],
+  "finished": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:20:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "signedout": [
+    {
+      "at": "2026-11-18T18:04:00Z",
+      "mode": "signedOut",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "signedOut",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "signedOut",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "signedOut",
+      "current": null,
+      "next": null
+    }
+  ],
+  "stale": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:04:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "encrypted": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:04:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ],
+  "inbox": [
+    {
+      "at": "2026-11-18T14:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:44:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T15:45:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "spec"
+    },
+    {
+      "at": "2026-11-18T17:00:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:04:00Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:29:59Z",
+      "mode": "now",
+      "current": "spec",
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:30:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T18:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "dentist"
+    },
+    {
+      "at": "2026-11-18T19:00:00Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:14:59Z",
+      "mode": "start",
+      "current": "dentist",
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T19:15:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T20:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "prs"
+    },
+    {
+      "at": "2026-11-18T21:00:00Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T21:59:59Z",
+      "mode": "start",
+      "current": "prs",
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-18T22:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:29:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "piano"
+    },
+    {
+      "at": "2026-11-19T01:30:00Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T01:59:59Z",
+      "mode": "start",
+      "current": "piano",
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T02:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T08:00:00Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T16:59:59Z",
+      "mode": "free",
+      "current": null,
+      "next": "notes"
+    },
+    {
+      "at": "2026-11-19T17:00:00Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T17:59:59Z",
+      "mode": "start",
+      "current": "notes",
+      "next": null
+    },
+    {
+      "at": "2026-11-19T18:00:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    },
+    {
+      "at": "2026-11-20T07:59:00Z",
+      "mode": "finished",
+      "current": null,
+      "next": null
+    }
+  ]
+}

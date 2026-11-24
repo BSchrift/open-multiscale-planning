@@ -377,6 +377,17 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The iPhone widgets' Swift package: the snapshot, the timeline, the action queue and the contract fixtures the frontend
+  # job's tests check, on macOS with no Simulator. Skipped, which counts as passing, with the ios job.
+  widgets:
+    runs-on: macos-15
+    needs: [changes]
+    if: needs.changes.outputs.ios == 'true'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-widgets
+
   # The workflows themselves, with shellcheck on their scripts.
   workflow-lint:
     runs-on: ubuntu-latest

@@ -15,6 +15,7 @@ import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useKeyboardInset } from './keyboard';
 import { useReminders } from './reminders';
 import { useShareImport } from './shareImport';
+import { WidgetSync } from './widgets';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
 import { preloadScreens, ScreenBoundary } from './screenLoad';
@@ -45,10 +46,11 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const label = tabLabel(route.area);
 
-  // Move focus with the page, so keyboards and screen readers land on what just changed.
+  // Move focus with the page, so keyboards and screen readers land on what just changed, unless something on the page
+  // took it as it showed, such as the block a widget's link opened Today at.
   const wasVisible = useRef(visible);
   useEffect(() => {
-    if (visible && !wasVisible.current) ref.current?.focus({ preventScroll: true });
+    if (visible && !wasVisible.current && !ref.current?.contains(document.activeElement)) ref.current?.focus({ preventScroll: true });
     wasVisible.current = visible;
   }, [visible]);
 
@@ -341,6 +343,7 @@ function Frame() {
       </main>
       {layout === 'phone' && <PhoneNav />}
       <OverlayScreen />
+      <WidgetSync />
     </>
   );
 }

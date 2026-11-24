@@ -137,16 +137,20 @@ for extensions in $runs; do
   app="$derived/Build/Products/Debug-iphonesimulator/App.app"
   # A Simulator build carries its entitlements in the executable rather than in a signature.
   if grep -aq com.apple.security.application-groups "$app/App"; then group=YES; else group=NO; fi
+  # The widgets read the snapshot from the App Group, so their extension has it exactly when the app does.
+  if grep -aq com.apple.security.application-groups "$app/PlugIns/MultiscaleCapture.appex/MultiscaleCapture"; then widgets=YES; else widgets=NO; fi
   if [ "$extensions" = NO ]; then
     # What a free personal team would be asked to sign: the Control Center button, which needs no entitlements, and no
     # share sheet or App Group.
     if [ -e "$app/PlugIns/MultiscaleShare.appex" ]; then echo "App has the share extension while extensions are off"; exit 1; fi
     if [ "$group" = YES ]; then echo "App has an App Group while extensions are off"; exit 1; fi
+    if [ "$widgets" = YES ]; then echo "The widget extension has an App Group while extensions are off"; exit 1; fi
   else
     for appex in MultiscaleShare MultiscaleCapture; do
       if [ ! -d "$app/PlugIns/$appex.appex" ]; then echo "$appex is missing with extensions on"; exit 1; fi
     done
     if [ "$group" = NO ]; then echo "App has no App Group with extensions on"; exit 1; fi
+    if [ "$widgets" = NO ]; then echo "The widget extension has no App Group with extensions on"; exit 1; fi
   fi
   xcrun simctl bootstatus "$device" >/dev/null
   # A new Simulator's first web view takes 5 to 30 s to start WebKit and draw its page, against about a second for

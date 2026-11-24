@@ -16,6 +16,7 @@ class BridgeViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
+        bridge?.registerPluginInstance(WidgetsPlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
         bridge?.registerPluginInstance(EnergyPlugin())

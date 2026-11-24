@@ -208,6 +208,7 @@ export function startAppSync(
     onWake?(listener: () => void): () => void;
     notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
     shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
+    widgets?: { clear(): Promise<void> };
     files: FileBytes & { clear(): Promise<void> };
     kind?: string;
     diagnostics?: Diagnostics;
@@ -284,7 +285,8 @@ export function startAppSync(
     return () => window.removeEventListener('online', listener);
   };
   /**
-   * Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text and reminders.
+   * Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text, reminders, and
+   * what the widgets show and queued.
    * reason is the sync error to show afterwards, written with the erase so an app closed part way still shows it.
    */
   const eraseLocal = async (account: string | null, reason?: SyncErrorCode) => {
@@ -304,6 +306,7 @@ export function startAppSync(
     await platform.files.clear();
     const share = platform.shareImport;
     if (share) await share.remove((await share.peek()).map((item) => item.id));
+    await platform.widgets?.clear();
     // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when
     // tapped; remove delivered ones too if that matters.
     await platform.notifications.replaceAll([]);

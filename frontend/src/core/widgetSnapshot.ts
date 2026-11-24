@@ -3,15 +3,22 @@
 // it (frontend/ios/App/MultiscaleWidgets). Built here by a pure function from the same queries Today uses, beside the
 // reminders. The shape is a contract with the Swift side: widgetFixtures.test.ts writes the JSON both sides test against.
 
+import { plannedByKind, weeklyAims } from './capacity';
 import type { Clock } from './clock';
-import { addDays, dayRange, instantMs, toInstant, today, weekStart } from './dates';
+import { addDays, dayRange, instantMs, toInstant, today, weekDates, weekRange, weekStart } from './dates';
 import type { Sql } from './db';
+import { gatherPlans, plannable } from './plan';
+import type { PlanContext } from './plan';
 import { blocksInRange, inboxCount } from './queries';
 import type { BlockRow } from './queries';
 import { busyEvents } from './queue';
-import { CALENDAR_ID, getRecord, listRecords } from './records';
+import { CALENDAR_ID, getRecord, getSettings, listRecords } from './records';
+import { isLive, slotContext, weeklySessions } from './slots';
+import { status } from './status';
+import type { StatusTone } from './status';
 import { isSignedOut, syncStatus } from './sync';
-import type { BlockResult, CalendarEvent, Instant, LocalDate, Minutes } from './types';
+import { ONE_OFFS_BUCKET } from './types';
+import type { BlockResult, CalendarEvent, Instant, LocalDate, Minutes, WeekPlan } from './types';
 
 /** Bumped only for a change an older widget would misread. A widget that finds a newer one says "Open Multiscale". */
 export const WIDGET_SNAPSHOT_VERSION = 1;
@@ -20,6 +27,9 @@ export const WIDGET_SNAPSHOT_MAX_BYTES = 64 * 1024;
 export const WIDGET_TITLE_MAX = 120;
 export const WIDGET_MAX_BLOCKS = 60;
 export const WIDGET_MAX_EVENTS = 60;
+/** More than the large This week widget draws, so the widget picks what fits. */
+export const WIDGET_MAX_AIMS = 10;
+export const WIDGET_MAX_PRACTICES = 10;
 /** How long the widget offers Undo after a start made from it. */
 export const WIDGET_UNDO_MS = 5 * 60_000;
 
@@ -54,6 +64,38 @@ export interface WidgetEvent {
   title: string | null;
 }
 
+/** A weekly aim: a project's, or One offs'. Its planned time is the week's blocks for it, as planning's aim meter counts. */
+export interface WidgetAim {
+  /** Null for a project in an encrypted space, as a block's title is. */
+  name: string | null;
+  space: WidgetSpace | null;
+  kind: 'project' | 'oneoff';
+  plannedMinutes: Minutes;
+  aimMinutes: Minutes;
+  /** The project's status pill, as on its card (core/status.ts). One offs have none. */
+  status: { pill: string; tone: StatusTone } | null;
+}
+
+/** A practice's sessions this week: those answered Done or Partly, of the sessions it wants. */
+export interface WidgetPractice {
+  name: string | null;
+  space: WidgetSpace | null;
+  done: number;
+  of: number;
+}
+
+/** What the This week widget draws, for the week today is in. Whether it's planned is in days[0].weekPlanned. */
+export interface WidgetWeek {
+  /** Its Monday. */
+  start: LocalDate;
+  /** Each day's blocks, Monday first, planning left out, as Week counts planned time. */
+  plannedMinutes: Minutes[];
+  /** In planning's order, soonest date first, then One offs. Only aims set and not skipped this week. */
+  aims: WidgetAim[];
+  /** By name. Only practices under way and not skipped this week. */
+  practices: WidgetPractice[];
+}
+
 /** A start made from the widget in the last few minutes, which the widget still offers to undo. */
 export interface WidgetRecent {
   id: string;
@@ -77,6 +119,8 @@ export interface WidgetSnapshot {
   events: WidgetEvent[];
   inbox: { count: number } | null;
   fromWidget: WidgetRecent[];
+  /** Added after the first widgets, which ignore it, so the version stays 1. None once signed out. */
+  week?: WidgetWeek;
 }
 
 /** Everything the snapshot is built from, read by loadWidgetData. */
@@ -88,6 +132,11 @@ export interface WidgetData {
   blocks: (BlockRow & { space?: WidgetSpace | null })[];
   events: (CalendarEvent & { space?: WidgetSpace | null })[];
   inbox: number;
+  /** Names in full, each aim and practice with its space once spaces exist; the builder cuts and hides them. */
+  week: Omit<WidgetWeek, 'aims' | 'practices'> & {
+    aims: (Omit<WidgetAim, 'name' | 'space'> & { name: string; space?: WidgetSpace | null })[];
+    practices: (Omit<WidgetPractice, 'name' | 'space'> & { name: string; space?: WidgetSpace | null })[];
+  };
 }
 
 /** Today's and tomorrow's blocks and events, the Inbox count, whether each day's week is planned, and sign-in. */
@@ -108,6 +157,62 @@ export async function loadWidgetData(sql: Sql, clock: Clock): Promise<WidgetData
     blocks: await blocksInRange(sql, range),
     events: busyEvents(calendar, await listRecords(sql, 'calendar_source')).filter((e) => instantMs(e.start) < to && from < instantMs(e.end)),
     inbox: await inboxCount(sql),
+    week: await loadWeek(sql, clock, plans),
+  };
+}
+
+// shortcut: reads every project, milestone and task on each change, as Week does; add narrower queries if it slows.
+async function loadWeek(sql: Sql, clock: Clock, plans: readonly WeekPlan[]): Promise<WidgetData['week']> {
+  const week = weekStart(today(clock));
+  const [blocks, settings, projects, milestones, tasks, practices, away] = await Promise.all([
+    blocksInRange(sql, weekRange(week, clock.zone())),
+    getSettings(sql),
+    listRecords(sql, 'project'),
+    listRecords(sql, 'milestone'),
+    listRecords(sql, 'task'),
+    listRecords(sql, 'practice'),
+    listRecords(sql, 'away_period'),
+  ]);
+  // Blocks cut at midnight, as Week places them. Only the blocks are wanted, so no hours or calendars.
+  const { placed } = slotContext({ week, availability: [], avoided: [], sources: [], calendar: null, blocks, clock });
+  const weekPlan = plans.find((p) => p.week_start === week) ?? null;
+
+  // Planned time by aim, as planning's aim meter counts it: each block's minutes go to its task's project, else One offs.
+  const taskOf = new Map(blocks.map((b) => [b.id, b.task_id]));
+  const bucketOf = new Map(tasks.map((t) => [t.id, t.project_id ?? ONE_OFFS_BUCKET]));
+  const got: Record<string, Minutes> = {};
+  for (const s of placed) {
+    const bucket = bucketOf.get(taskOf.get(s.id!) ?? '');
+    if (bucket) got[bucket] = (got[bucket] ?? 0) + s.end - s.start;
+  }
+  const ctx: PlanContext = { settings, clock, away };
+  const ranked = plannable(gatherPlans(projects, milestones, tasks), ctx);
+  const plan = new Map(ranked.map((p) => [p.project.id, p]));
+  const aims = weeklyAims({ projects: ranked.map((p) => p.project), oneOffsAim: settings.one_offs_weekly_aim, weekPlan, got })
+    .filter((r) => r.aim > 0 && !r.skipped)
+    .map((r) => {
+      const p = plan.get(r.bucket);
+      const st = p ? status(p, ctx) : null;
+      return {
+        name: p ? p.project.title : 'One offs',
+        kind: p ? ('project' as const) : ('oneoff' as const),
+        plannedMinutes: r.got,
+        aimMinutes: r.aim,
+        status: st ? { pill: st.pill, tone: st.tone } : null,
+      };
+    });
+
+  // A session counts once answered Done or Partly, as analytics counts delivered time.
+  const answered = blocks.filter((b) => b.practice_id && (b.result === 'done' || b.result === 'partly'));
+  const skipped = weekPlan?.skipped_practices ?? [];
+  return {
+    start: week,
+    plannedMinutes: weekDates(week).map((d) => plannedByKind(placed.filter((s) => s.date === d)).total),
+    aims,
+    practices: practices
+      .filter((p) => isLive(p, skipped))
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .map((p) => ({ name: p.title, done: answered.filter((b) => b.practice_id === p.id).length, of: weeklySessions(p) })),
   };
 }
 
@@ -178,6 +283,11 @@ export function buildWidgetSnapshot(data: WidgetData, options: { clock: Clock; f
       .slice(0, WIDGET_MAX_EVENTS)
       .map((e) => ({ start: e.start, end: e.end, title: shownTitle(e.title, e.space) })),
     inbox: { count: data.inbox },
+    week: {
+      ...data.week,
+      aims: data.week.aims.slice(0, WIDGET_MAX_AIMS).map(({ space, ...a }) => ({ ...a, name: shownTitle(a.name, space), space: shownSpace(space) })),
+      practices: data.week.practices.slice(0, WIDGET_MAX_PRACTICES).map(({ space, ...p }) => ({ ...p, name: shownTitle(p.name, space), space: shownSpace(space) })),
+    },
     // Only while Undo is still offered, and only for a block still started as the widget started it.
     fromWidget: (options.fromWidget ?? []).filter((r) => started.get(r.blockId) === r.at && instantMs(r.at) + WIDGET_UNDO_MS > clock.now()),
   };

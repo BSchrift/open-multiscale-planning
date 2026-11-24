@@ -19,5 +19,19 @@
   "inbox": {
     "count": 0
   },
+  "week": {
+    "start": "2026-11-16",
+    "plannedMinutes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "aims": [],
+    "practices": []
+  },
   "fromWidget": []
 }

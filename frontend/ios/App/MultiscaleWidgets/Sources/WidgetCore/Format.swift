@@ -41,8 +41,36 @@ public enum Format {
         calendar.timeZone = zone
         let parts = calendar.dateComponents([.weekday, .month, .day], from: date)
         let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         return "\(weekdays[(parts.weekday ?? 1) - 1]), \(months[(parts.month ?? 1) - 1]) \(parts.day ?? 1)"
+    }
+
+    /// The days of a week from its Monday, "2026-11-16" to "2026-11-22", as weekDates.
+    public static func weekDays(from start: String) -> [String] {
+        let utc = TimeZone(identifier: "UTC")!
+        guard let monday = ISO8601DateFormatter().date(from: "\(start)T12:00:00Z") else { return [] }
+        return (0..<7).map { day(monday.addingTimeInterval(TimeInterval($0) * 86_400), in: utc) }
+    }
+
+    /// The Monday of the week a moment falls in, in the given zone.
+    public static func weekStart(_ date: Date, in zone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let weekday = calendar.component(.weekday, from: date)
+        return Format.day(calendar.date(byAdding: .day, value: -((weekday + 5) % 7), to: date) ?? date, in: zone)
+    }
+
+    /// "Nov 16 to 22", or "Nov 30 to Dec 6" across months, as formatWeekRange.
+    public static func weekRange(_ start: String) -> String {
+        let days = weekDays(from: start)
+        guard let end = days.last else { return start }
+        func date(_ d: String) -> String { "\(monthName(d)) \(Int(d.suffix(2)) ?? 0)" }
+        return "\(date(start)) to \(end.dropLast(3) == start.dropLast(3) ? String(Int(end.suffix(2)) ?? 0) : date(end))"
+    }
+
+    private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    private static func monthName(_ day: String) -> String {
+        let m = Int(day.dropFirst(5).prefix(2)) ?? 1
+        return months[max(0, min(11, m - 1))]
     }
 
     /// The next local midnight after a moment.

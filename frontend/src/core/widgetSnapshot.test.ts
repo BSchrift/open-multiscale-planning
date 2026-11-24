@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { fixedClock } from './clock';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
+import { outcomeId, transact, updateSettings, weekPlanId } from './records';
+import type { Writer } from './records';
 import { pst, widgetScenario, ZONE } from './widget-testing';
 import type { WidgetScenario } from './widget-testing';
 import {
   blockRev,
   buildWidgetSnapshot,
   loadWidgetData,
+  WIDGET_MAX_AIMS,
   WIDGET_MAX_BLOCKS,
+  WIDGET_MAX_PRACTICES,
   WIDGET_SNAPSHOT_MAX_BYTES,
   WIDGET_TITLE_MAX,
   widgetSnapshotBytes,
@@ -108,6 +112,109 @@ describe('the widget snapshot', () => {
   });
 });
 
+describe('the week in the widget snapshot', () => {
+  /** The scenario's database, changed first, as This week would see it. */
+  async function weekOf(name: WidgetScenario, edit?: (w: Writer) => Promise<unknown>, change: (d: WidgetData) => WidgetData = (d) => d) {
+    const { db, clock } = await widgetScenario(name, nodeSqliteDriver());
+    if (edit) await transact(db, clock, edit);
+    return buildWidgetSnapshot(change(await loadWidgetData(db, clock)), { clock }).week!;
+  }
+
+  it('holds what This week draws: each day’s planned time, the aims with their pills, and the practices’ sessions', async () => {
+    expect(await weekOf('now')).toEqual({
+      start: '2026-11-16',
+      plannedMinutes: [255, 105, 240, 60, 0, 60, 0],
+      aims: [
+        { name: 'Garden', space: null, kind: 'project', plannedMinutes: 60, aimMinutes: 120, status: { pill: 'Behind', tone: 'amber' } },
+        { name: 'Multiscale', space: null, kind: 'project', plannedMinutes: 450, aimMinutes: 480, status: { pill: 'On track', tone: 'green' } },
+        { name: 'One offs', space: null, kind: 'oneoff', plannedMinutes: 60, aimMinutes: 120, status: null },
+      ],
+      practices: [
+        { name: 'Piano', space: null, done: 1, of: 2 },
+        { name: 'Run', space: null, done: 2, of: 3 },
+      ],
+    });
+  });
+
+  it('is the same week whatever the moment in it, and says so for a week with nothing in it', async () => {
+    expect(await weekOf('finished')).toEqual(await weekOf('now'));
+    expect(await weekOf('empty')).toEqual({ start: '2026-11-16', plannedMinutes: [0, 0, 0, 0, 0, 0, 0], aims: [], practices: [] });
+  });
+
+  it('counts blocks only, by the day each part falls on, leaving out planning and other calendars', async () => {
+    const week = await weekOf('now', async (w) => {
+      await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 16', plans: ['week:2026-11-16'] }, 'planning-task');
+      await w.create('time_block', { task_id: 'planning-task', start: pst('8:00', 20), end: pst('8:30', 20), tz: ZONE }, 'planning');
+      // Friday 11pm to Saturday 1am: an hour on each.
+      await w.create('time_block', { task_id: 'spec-task', start: pst('23:00', 20), end: pst('1:00', 21), tz: ZONE }, 'late');
+      // Sunday 11pm into next Monday: only Sunday's hour is this week's.
+      await w.create('time_block', { task_id: 'spec-task', start: pst('23:00', 22), end: pst('1:00', 23), tz: ZONE }, 'sunday');
+      await w.create('time_block', { task_id: 'spec-task', start: pst('9:00', 23), end: pst('10:00', 23), tz: ZONE }, 'next-week');
+      await w.set('time_block', 'prs', { cancelled: true });
+    });
+    expect(week.plannedMinutes).toEqual([255, 105, 180, 60, 60, 120, 60]);
+    expect(week.aims.find((a) => a.name === 'Multiscale')!.plannedMinutes).toBe(450 - 60 + 180);
+  });
+
+  it('counts a practice’s sessions answered Done or Partly, not those not done or still to answer', async () => {
+    const week = await weekOf('finished', async (w) => {
+      await w.create('block_outcome', { result: 'not', answered_at: pst('18:01') }, outcomeId('piano'));
+      await w.create('time_block', { practice_id: 'run-practice', start: pst('7:00', 20), end: pst('7:45', 20), tz: ZONE }, 'run-fri');
+    });
+    expect(week.practices).toEqual([
+      { name: 'Piano', space: null, done: 1, of: 2 },
+      { name: 'Run', space: null, done: 2, of: 3 },
+    ]);
+  });
+
+  it('gives a daily practice a session for each of its days, and leaves out practices skipped, paused or ended', async () => {
+    const week = await weekOf('now', async (w) => {
+      await w.create('practice', { title: 'Stretch', target_min: 10, per: 'day', days: [0, 2, 4], state: 'active' }, 'stretch');
+      await w.create('practice', { title: 'Guitar', target_min: 60, per: 'week', state: 'paused' }, 'guitar');
+      await w.create('practice', { title: 'Swim', target_min: 60, per: 'week', state: 'ended' }, 'swim');
+      await w.create('practice', { title: 'Read', target_min: 60, per: 'week', state: 'active' }, 'read');
+      await w.set('week_plan', weekPlanId('2026-11-16'), { skipped_practices: ['read'] });
+    });
+    expect(week.practices.map((p) => [p.name, p.done, p.of])).toEqual([
+      ['Piano', 1, 2],
+      ['Run', 2, 3],
+      ['Stretch', 0, 3],
+    ]);
+  });
+
+  it('shows an aim only when there is one this week: none set, skipped this week, or on a project not under way', async () => {
+    const week = await weekOf('now', async (w) => {
+      await w.create('project', { title: 'Taxes', state: 'active', start: '2026-11-01', end: '2026-12-31' }, 'taxes');
+      await w.create('project', { title: 'Kitchen', state: 'paused', start: '2026-11-01', end: '2026-12-31', weekly_aim: 120 }, 'kitchen');
+      await w.create('project', { title: 'Next year', state: 'active', start: '2027-01-04', end: '2027-03-31', weekly_aim: 120 }, 'later');
+      await w.set('week_plan', weekPlanId('2026-11-16'), { skipped_aims: ['garden'], aims: { multiscale: 600 } });
+      await updateSettings(w, { one_offs_weekly_aim: null });
+    });
+    expect(week.aims).toEqual([{ name: 'Multiscale', space: null, kind: 'project', plannedMinutes: 450, aimMinutes: 600, status: { pill: 'On track', tone: 'green' } }]);
+  });
+
+  it('has none once signed out, as nothing else of the account stays', async () => {
+    const { db, clock } = await widgetScenario('signedout', nodeSqliteDriver());
+    expect(buildWidgetSnapshot(await loadWidgetData(db, clock), { clock })).not.toHaveProperty('week');
+  });
+
+  it('cuts names to 120 characters, and keeps the first aims and practices', async () => {
+    const long = '😀'.repeat(200);
+    const week = await weekOf('now', undefined, (d) => ({
+      ...d,
+      week: d.week && {
+        ...d.week,
+        aims: Array.from({ length: 30 }, (_, i) => ({ ...d.week!.aims[0]!, name: long, plannedMinutes: i })),
+        practices: Array.from({ length: 30 }, (_, i) => ({ ...d.week!.practices[0]!, name: long, done: i })),
+      },
+    }));
+    expect(week.aims.map((a) => a.plannedMinutes)).toEqual(Array.from({ length: WIDGET_MAX_AIMS }, (_, i) => i));
+    expect(week.practices.map((p) => p.done)).toEqual(Array.from({ length: WIDGET_MAX_PRACTICES }, (_, i) => i));
+    expect(week.aims[0]!.name).toBe('😀'.repeat(WIDGET_TITLE_MAX));
+    expect(week.practices[0]!.name).toBe('😀'.repeat(WIDGET_TITLE_MAX));
+  });
+});
+
 describe('privacy in the widget snapshot', () => {
   const acme = { name: 'Acme work', encrypted: true };
   const inAcme = (d: WidgetData): WidgetData => ({
@@ -125,6 +232,23 @@ describe('privacy in the widget snapshot', () => {
     expect(json).not.toContain('Standup');
   });
 
+  it('never holds the name of a project or practice in an encrypted space, in This week’s aims and practices', async () => {
+    const s = await snapshotOf('now', (d) => ({
+      ...d,
+      week: d.week && {
+        ...d.week,
+        aims: d.week.aims.map((a) => (a.name === 'Multiscale' ? { ...a, space: acme } : a)),
+        practices: d.week.practices.map((p) => (p.name === 'Run' ? { ...p, space: acme } : p)),
+      },
+    }));
+    expect(s.week!.aims.find((a) => a.plannedMinutes === 450)).toMatchObject({ name: null, space: acme, aimMinutes: 480, status: { pill: 'On track' } });
+    expect(s.week!.practices.find((p) => p.of === 3)).toMatchObject({ name: null, space: acme, done: 2 });
+    expect(s.week!.aims.find((a) => a.plannedMinutes === 60 && a.kind === 'project')).toMatchObject({ name: 'Garden', space: null });
+    const json = JSON.stringify(s.week);
+    expect(json).not.toContain('Multiscale');
+    expect(json).not.toContain('Run');
+  });
+
   it('keeps the names in a space that isn’t encrypted', async () => {
     const s = await snapshotOf('now', (d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === 'spec' ? { ...b, space: { name: 'Home', encrypted: false } } : b)) }));
     expect(block(s, 'spec')).toMatchObject({ title: 'Write widget spec', space: { name: 'Home', encrypted: false } });
@@ -140,8 +264,9 @@ describe('privacy in the widget snapshot', () => {
     };
     walk(s, '');
     // The Lock Screen shows these behind privacySensitive(), so iOS can hide them (WidgetText in the Swift package).
-    const names = [...keys].filter((k) => !/(At|^start|\.start|\.end|^zone|\.rev|\.id|\.kind|\.date|\.answer)$/.test(k));
-    expect(names.sort()).toEqual(['blocks[].title', 'events[].title']);
+    // A status pill and its tone are the app's fixed words ("On track", "amber"), not anyone's text.
+    const names = [...keys].filter((k) => !/(At|^start|\.start|\.end|^zone|\.rev|\.id|\.kind|\.date|\.answer|\.pill|\.tone)$/.test(k));
+    expect(names.sort()).toEqual(['blocks[].title', 'events[].title', 'week.aims[].name', 'week.practices[].name']);
   });
 });
 

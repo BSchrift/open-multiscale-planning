@@ -47,11 +47,32 @@ async function signInAs(p: Page, user: { username: string; password: string }) {
   const opened = p.waitForEvent('popup');
   await p.getByRole('button', { name: 'Sign in' }).first().click();
   const popup = await opened;
-  // The hosted sign-in page has a wide and a narrow form, and shows one.
-  await popup.locator('input[name=username]:visible').fill(user.username);
-  await popup.locator('input[name=password]:visible').fill(user.password);
-  await popup.locator('input[name=signInSubmitButton]:visible').click();
-  await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+  try {
+    // The hosted sign-in page has a wide and a narrow form, and shows one, in well under a second. Its head waits on two
+    // stylesheets and a script from the sign-in service's asset host before the form, so one that never answers leaves
+    // no form at all. On 24 November prod's phone run waited the whole test for a form that never showed, and logged only
+    // the app's page: so the wait is NETWORK's, and a failure logs the sign-in page and what it still waits on.
+    await popup.locator('input[name=username]:visible').fill(user.username, NETWORK);
+    await popup.locator('input[name=password]:visible').fill(user.password);
+    await popup.locator('input[name=signInSubmitButton]:visible').click();
+    await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+  } catch (e) {
+    console.log(`The hosted sign-in page didn't finish. ${await stateOf(popup)}`);
+    throw e;
+  }
+}
+
+// Each request the context has sent that hasn't been answered, and when it went.
+const unanswered = new Map<Request, number>();
+
+/** Where a page is, the requests it still waits on, and what it shows: CodeBuild keeps no trace. */
+async function stateOf(p: Page): Promise<string> {
+  if (p.isClosed()) return 'It had closed.';
+  const waiting = [...unanswered]
+    .filter(([r]) => !r.serviceWorker() && r.frame().page() === p && !r.redirectedTo())
+    .map(([r, at]) => `${new URL(r.url()).host}${new URL(r.url()).pathname} for ${Math.round((Date.now() - at) / 1000)} s`);
+  const shown = await p.locator('body').ariaSnapshot({ timeout: 5000 }).catch(() => '(no body yet)');
+  return `It was at ${p.url().split('?')[0]}, still waiting on ${waiting.join(', ') || 'no request'}, and showed:\n${shown}`;
 }
 
 /** Counts the pages of records a page's syncs pull, as they arrive. */
@@ -76,6 +97,9 @@ test.beforeAll(async ({ browser }, info) => {
   await context.addInitScript(() =>
     document.addEventListener('securitypolicyviolation', (e) => console.error(`CSP blocked ${e.violatedDirective} ${e.blockedURI}`)),
   );
+  context.on('request', (r) => unanswered.set(r, Date.now()));
+  context.on('requestfinished', (r) => unanswered.delete(r));
+  context.on('requestfailed', (r) => unanswered.delete(r));
   context.on('page', (p) => {
     p.on('console', (m) => {
       // A second tab is refused on purpose, below. The SQLite pool also logs each try that finds another page's file

@@ -163,6 +163,10 @@ export default function WidgetSync(): null {
                   const ids = new Set(result.outcomes.flatMap((o) => (o.kind === 'applied' ? [o.action.id] : [])));
                   writeWidgetHistory(readWidgetHistory().map((h) => (ids.has(h.id) ? { ...h, undone: true as const } : h)));
                   await undo.run(reverses);
+                  // As after applying: the widget shows the plan as it now is, before the app may leave the screen.
+                  clearTimeout(timer.current);
+                  timer.current = undefined;
+                  await write();
                 },
               }
             : {}),

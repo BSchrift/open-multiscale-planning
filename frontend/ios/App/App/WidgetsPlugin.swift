@@ -52,9 +52,13 @@ class WidgetsPlugin: CAPPlugin, CAPBridgedPlugin {
         // Reloads asked for while the app is in front don't count against the widgets' daily budget.
         WidgetCenter.shared.reloadAllTimelines()
         #if DEBUG
-        // XCUITest waits for this to know the app wrote the snapshot after a change.
-        let name = CFNotificationName("io.github.bschrift.multiscale.widget-snapshot" as CFString)
-        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
+        // XCUITest waits for these to know the app wrote the snapshot after a change, and with how many blocks started,
+        // so it can wait for the one write a change leads to rather than any write.
+        let started = LoadedSnapshot.decode(Data(json.utf8)).snapshot?.blocks.filter { $0.startedAt != nil }.count ?? 0
+        for suffix in ["", ".started-\(started)"] {
+            let name = CFNotificationName("io.github.bschrift.multiscale.widget-snapshot\(suffix)" as CFString)
+            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
+        }
         #endif
         call.resolve()
     }

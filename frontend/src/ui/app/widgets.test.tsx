@@ -86,6 +86,8 @@ describe('what the widget’s buttons queued', () => {
     await waitFor(() => expect(last(widgets).fromWidget).toEqual([]), { timeout: 3000 });
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'now'))!.started_at).toBeNull());
+    // And the widget shows it at once, long before the second a change otherwise waits.
+    await waitFor(() => expect(last(widgets).blocks[0]!.startedAt).toBeNull(), { timeout: 500 });
   }, 30_000);
 
   it('still shows the widget its Undo while the five minutes last', async () => {

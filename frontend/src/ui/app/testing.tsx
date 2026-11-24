@@ -54,6 +54,8 @@ export interface HarnessOptions {
   filesBlocked?: true;
   /** As in the Mac app, where macOS draws a block's menu. */
   showMenu?: Platform['showMenu'];
+  /** When the running bundle was built, in seconds, as main.tsx passes it. */
+  build?: number;
 }
 
 export interface Harness extends RenderResult {
@@ -89,7 +91,7 @@ function harness(
 ): Harness {
   const { platform, clock, write } = prepared;
   const result = render(
-    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})}>
+    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})} {...(options.build ? { build: options.build } : {})}>
       {ui}
     </AppProvider>,
   );

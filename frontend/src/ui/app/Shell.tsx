@@ -1,6 +1,6 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { inputTime, perf } from '../../core/perf';
 import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
@@ -21,11 +21,23 @@ import { preloadScreens, ScreenBoundary } from './screenLoad';
 import { useApp, useQuery } from './store';
 import { useCaptureShortcut } from './captureShortcut';
 import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
+import type { Platform } from '../../platform/types';
 import { Icon } from '../components/ds/Icon';
 import type { IconName } from '../components/ds/Icon';
 import { Button } from '../components/ds/Button';
 
 const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', inbox: 'inbox', goals: 'goals', more: 'more' };
+
+declare global {
+  interface Window {
+    /** Set by e2e/whats-new.spec.ts, so the browser at phone size stands in for the iPhone. Dev builds only. */
+    multiscaleWhatsNew?: boolean;
+  }
+}
+
+const WhatsNew = lazy(() => import('./WhatsNew').then((m) => ({ default: m.WhatsNew })));
+/** What's new shows in the iPhone app only, for now. */
+const showsWhatsNew = (platform: Platform) => platform.kind === 'ios' || (import.meta.env.DEV && window.multiscaleWhatsNew === true);
 
 function AreaScreen(props: { area: AreaId; params: RouteParams; presentation: Presentation; close(): void }) {
   const { layout } = useApp();
@@ -341,6 +353,11 @@ function Frame() {
       </main>
       {layout === 'phone' && <PhoneNav />}
       <OverlayScreen />
+      {showsWhatsNew(platform) && (
+        <Suspense fallback={null}>
+          <WhatsNew />
+        </Suspense>
+      )}
     </>
   );
 }
@@ -371,6 +388,11 @@ export function Shell(props: { initial?: Route }) {
   // The browser fetches each screen's code from the server, so fetch it all once the app has drawn: a screen first
   // opened offline then still opens. The apps carry their code.
   useEffect(() => (started && platform.kind === 'web' ? preloadScreens(Object.values(AREAS).map((a) => a.Screen)) : undefined), [started, platform]);
+  // A new install starts at setup, and has seen every What's new line: they're for updates.
+  const firstRun = !!settings.data && !settings.data.setup_done_at;
+  useEffect(() => {
+    if (firstRun && showsWhatsNew(platform)) void import('./WhatsNew').then((m) => m.markAllSeen());
+  }, [firstRun, platform]);
   if (!settings.data) {
     return settings.error ? <div className="boot">Couldn't open your data. Restart the app to try again.</div> : null;
   }

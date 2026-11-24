@@ -653,6 +653,29 @@ skips one it can't run, saying it needs a new version of the app (`frontend/src/
 **Staging** reads the same record, since there's no staging TestFlight build, so its switch rehearses prod's. An iPhone
 app built for staging comes from Xcode: run it from Xcode again.
 
+### What's new
+
+The first time an update with something new runs on an iPhone, the app shows a What's new sheet: the date of the update
+and a one-sentence line for each change, never a version or a commit. Each phone shows each line once.
+
+- **The lines** are in [`frontend/src/whatsNew.ts`](../frontend/src/whatsNew.ts), newest first. A pull request that
+  changes what someone can do on the iPhone adds its line at the top, with the next id. One plain sentence in the app's
+  voice: sentence case, what the person can now do, no jargon, no pull request numbers. Ids are never reused or
+  changed, and `core/whatsNew.test.ts` checks the rules. A line ships with the bundle, so it reaches a phone with the
+  change it describes, whether over the air or in a new TestFlight app.
+- **When it shows.** Each launch, and each switch to a downloaded bundle, which reloads the page, compares the newest
+  line in the running bundle with the newest this phone has seen, kept in the web view's local storage and never synced.
+  It shows the newer lines together, at most six, once the app is idle on a screen: never during setup, a flow such as
+  planning, Capture, Process, a prompt or another sheet. Got it, Esc, the backdrop or a swipe down puts it away and
+  records the newest line as seen.
+- **A new install** records every line as seen during first-run setup, and shows none. A phone that ran the app before
+  What's new existed has recorded none, so it shows the newest lines once. The UI tests' Erase records them as a new
+  install would, since their seeds skip setup.
+- **The date** is the running bundle's build, its commit's time (`build` in `version.json`), as a day in the phone's
+  time zone, such as Nov 24. A commit reaches staging within the hour and prod after its canary, usually the same day.
+- **Only the iPhone, for now.** The Mac app and the web app don't show it. `e2e/whats-new.spec.ts` checks it at phone
+  size in the browser, which stands in for the iPhone in dev builds only.
+
 ### Setting up TestFlight from GitHub Actions
 
 Once, after [Setting up the Mac release](#setting-up-the-mac-release), whose inbox and environment it shares, and

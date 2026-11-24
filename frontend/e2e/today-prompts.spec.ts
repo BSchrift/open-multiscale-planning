@@ -1,6 +1,7 @@
 // The Now card's other answers and the questions a block asks as it happens: Do next block instead, Start early, Mark
-// done now with nothing after, Stop for now, "Have you started?" and the end-of-block prompt's Not done, Answer later
-// and Still going. today.spec.ts has Start, the ring, Mark done now with a block after, and Partly.
+// done now with nothing after, Stop for now, Start now on another block, "Have you started?" and the end-of-block
+// prompt's Not done, Answer later and Still going. today.spec.ts has Start, the ring, Mark done now with a block after,
+// and Partly.
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
@@ -123,6 +124,46 @@ test('Stop for now asks how much is left, ends the block with that, and Undo bri
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
   await expect(now.getByRole('timer')).toHaveText('38:00');
+  expect(errors).toEqual([]);
+});
+
+test('Start now on another block stops the one counting, Undo puts both back, and the stopped one asks how it went', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, project, report, fence, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') }), block('b2', 't2', '16:00', '17:00')]);
+  const now = page.getByRole('region', { name: 'Current block' });
+  await expect(now.getByRole('timer')).toHaveText('38:00');
+  const later = page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 4pm to 5pm/ });
+  await later.scrollIntoViewIfNeeded();
+  await (phone ? later.tap() : later.click());
+  const popup = page.getByRole('dialog', { name: 'Paint the fence' });
+  const start = popup.getByRole('region', { name: 'Time block' }).getByRole('button', { name: 'Start now' });
+  if (phone) await expectTapTarget(start);
+  await start.click();
+  const said = page.getByText('Started Paint the fence. It now runs 2pm to 3pm. Stopped Write the report at 2pm.');
+  await expect(said).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  // The report counts again where it was, and the fence is back at 4pm, not started.
+  await expect(start).toBeVisible();
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(now.getByRole('heading', { name: 'Write the report' })).toBeVisible();
+  await expect(now.getByRole('timer')).toHaveText('38:00');
+  await expect(later).toBeVisible();
+
+  await (phone ? later.tap() : later.click());
+  await start.click();
+  await expect(said).toBeVisible();
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  // Once the popup closes, the stopped block asks how it went, as the end of a block does.
+  const prompt = page.getByRole('dialog', { name: 'Block finished' });
+  await expect(prompt.getByText('Write the report')).toBeVisible();
+  await expect(prompt.getByText('22m spent.')).toBeVisible();
+  await prompt.getByRole('button', { name: 'Partly' }).click();
+  // 3h estimated, 22m spent.
+  await expect(page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '2h 38m');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
+  await expect(now.getByRole('heading', { name: 'Paint the fence' })).toBeVisible();
+  await expect(now.getByText('Now, 2pm to 3pm')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

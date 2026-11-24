@@ -34,18 +34,30 @@ export const busy = () =>
   !!document.querySelector('[aria-modal="true"]') ||
   !!document.activeElement?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]');
 
+/** How often a prompt waiting while you're busy looks again. */
+const BUSY_CHECK_MS = 250;
+
 /**
  * The corner panel on desktop, a sheet on phone, or with `sheet` a sheet on both, with that class. It waits while you're
- * busy, looking again each time it re-renders.
+ * busy, looking again each time it re-renders and every BUSY_CHECK_MS while it waits.
  */
 export function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; sheet?: string; children: ReactNode }) {
   const { layout } = useApp();
   const [ready, setReady] = useState(false);
   // Read only to render again when Capture or Process closes, which renders nothing else here.
   useOverlay();
-  // After commit, so a prompt this one replaces has already gone.
+  // After commit, so a prompt this one replaces has already gone. Closing a block's popup renders nothing here, so it
+  // also looks again on a timer while it waits.
   useEffect(() => {
-    if (!ready && !busy()) setReady(true);
+    if (ready) return;
+    if (!busy()) {
+      setReady(true);
+      return;
+    }
+    const timer = setInterval(() => {
+      if (!busy()) setReady(true);
+    }, BUSY_CHECK_MS);
+    return () => clearInterval(timer);
   });
   if (!ready) return null;
   if (layout === 'phone' || props.sheet) {
@@ -205,7 +217,9 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
               Resume, {formatMinutes(Math.round(timeLeftMs(block, now) / 60_000))} left
             </button>
           ) : (
-            !paused && (
+            // Not for one stopped when another started: it isn't still going.
+            !paused &&
+            !block.ended_at && (
               <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.stillGoing(block).then(props.onClose)}>
                 Still going, add {formatMinutes(STILL_GOING_MIN)}
               </button>

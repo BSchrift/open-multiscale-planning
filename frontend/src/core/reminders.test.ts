@@ -263,14 +263,19 @@ describe('several missed blocks', () => {
     expect(missedBlocks(answered, [], at).map((b) => b.id)).toEqual(['b', 'c']);
   });
 
-  it('leaves out blocks still running or to come, ended early, and practices, which just pass', () => {
+  it('leaves out blocks still running or to come, ended early with an answer, and practices, which just pass', () => {
     const others = [
       task('running', '21:00', '21:30'),
       task('next', '22:00', '23:00'),
-      task('ended', '16:00', '17:00', { ended_at: day('16:30') }),
+      task('ended', '16:00', '17:00', { ended_at: day('16:30'), result: 'done' }),
       task('practice', '15:00', '15:30', { task_id: null, practice_id: 'pr1' }),
     ];
     expect(missedBlocks([...three, ...others], [], at).map((b) => b.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('includes a block ended early with no answer, as starting another block leaves it, before its end', () => {
+    const stopped = task('s', '20:00', '23:00', { started_at: day('20:00'), ended_at: day('20:30') });
+    expect(missedBlocks([stopped], [], at).map((b) => b.id)).toEqual(['s']);
   });
 
   it('includes a block that was started but never answered', () => {

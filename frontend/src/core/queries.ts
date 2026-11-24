@@ -50,11 +50,14 @@ export const SQL = {
         WHERE k.week_start = :week_start AND k.task_id = b.task_id
           AND k.deleted_at IS NULL)`,
 
+  // The join names an answer by its block both ways, so whichever SQLite starts from, the other is found by its id. With
+  // only b.id = o.block_id, starting from open tasks, as the statistics of a long history lead it to, read every answer
+  // again for each block.
   queue: `
     SELECT t.id, t.title, t.kind, t.project_id, b.id AS block_id, b.start AS block_start, b.end AS block_end,
            o.answered_at, o.result, o.remaining_min
     FROM block_outcome o
-    JOIN time_block b ON b.id = o.block_id
+    JOIN time_block b ON b.id = o.block_id AND o.id = 'outcome:' || b.id
     JOIN task t ON t.id = b.task_id
     WHERE o.result IN ('partly', 'not')
       AND o.deleted_at IS NULL AND o.dropped_at IS NULL
@@ -219,7 +222,8 @@ export const QUERY_INDEX = {
   inboxCount: ['task_kind'],
   blocks: ['block_start'],
   placed: ['block_start', 'pick_week'],
-  queue: ['outcome_result', 'block_task', 'completion_task'],
+  // Which side it starts from is the planner's choice, by the statistics: answers by their result, or blocks, or open tasks.
+  queue: ['block_task', 'completion_task'],
   finished: [],
   finishedCount: [],
   taskAttachments: [],

@@ -24,6 +24,12 @@ extension XCUIApplication {
     func webText(_ text: String) -> XCUIElement { page.staticTexts[text] }
     /// Any kind of element, for controls whose type differs between iOS versions, such as a checkbox or a select.
     func webElement(_ label: String) -> XCUIElement { page.descendants(matching: .any)[label] }
+    /// Capture's field on a calendar's draft, where it's also a search of your tasks: a combobox, which WebKit may give
+    /// iOS as a text field, a combo box or a search field. Never the label above it, which is static text.
+    var draftCaptureField: XCUIElement {
+        let types = [XCUIElement.ElementType.textField, .comboBox, .searchField].map(\.rawValue)
+        return page.descendants(matching: .any).matching(NSPredicate(format: "label == 'Capture to Inbox' AND elementType IN %@", types)).firstMatch
+    }
     /// For labels that go on with a count or a time.
     func webButton(startingWith prefix: String) -> XCUIElement {
         page.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
@@ -351,8 +357,9 @@ final class ShellUITests: XCTestCase {
         app.type("Morning run", into: app.page.textFields["Name"])
         app.tapWeb("Add practice", until: app.webButton(startingWith: "Morning run"))
 
-        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full.
-        app.tapWeb(startingWith: "Morning run")
+        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full. The row's tap waits for
+        // the editor, since on CI's Simulator a tap now and then is lost.
+        app.tapWeb(startingWith: "Morning run", until: app.webButton("Weekdays"))
         app.tapWeb("Weekdays")
         for day in ["Wednesday", "Thursday"] {
             let chip = app.page.descendants(matching: .any).matching(NSPredicate(format: "label == %@", day)).firstMatch
@@ -365,8 +372,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webText("Saved Morning run: 30m on Mon, Tue and Fri, around 7am."))
         // Undo puts back every day.
         app.tapWeb("Undo")
-        app.tapWeb(startingWith: "Morning run")
-        exists(app.webText("Summary: 30 minutes every day, around 7 AM"))
+        app.tapWeb(startingWith: "Morning run", until: app.webText("Summary: 30 minutes every day, around 7 AM"))
         app.tapWeb("Cancel")
     }
 
@@ -485,7 +491,7 @@ final class ShellUITests: XCTestCase {
         // Capture opens on the draft, saying its day and time.
         let when = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch
         exists(when)
-        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.type("Book the dentist", into: app.draftCaptureField)
         app.tapWeb("Save")
         // Saved there as an Inbox item, its block drawn as one: a slider, since it's still to come.
         exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
@@ -562,7 +568,7 @@ final class ShellUITests: XCTestCase {
 
         // Capture opens on the draft, saying its day and time, and Save puts it there as an Inbox item.
         exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch)
-        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.type("Book the dentist", into: app.draftCaptureField)
         app.tapWeb("Save")
         exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
     }

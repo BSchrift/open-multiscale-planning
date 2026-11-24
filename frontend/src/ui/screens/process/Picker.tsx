@@ -8,6 +8,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import { LateWarning, lateSaid } from '../../components/LateWarning';
+import { count, mark } from '../../components/SearchList';
 import { Sheet } from '../../components/Sheet';
 import type { Destination, PickGroup } from './data';
 import { Button } from '../../components/ds/Button';
@@ -23,21 +24,6 @@ export const placeName = (p: Place) => (p ? p.title : 'One offs');
 const LABEL = 'Add to a project or One offs';
 
 type Row = { key: string; kind: 'new' | 'one' } | { key: string; kind: 'project'; dest: Destination };
-
-/** The letters typed, bold where they match. */
-function mark(text: string, q: string): ReactNode {
-  const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
-  if (i < 0) return text;
-  return (
-    <>
-      {text.slice(0, i)}
-      <b>{text.slice(i, i + q.length)}</b>
-      {text.slice(i + q.length)}
-    </>
-  );
-}
-
-const count = (n: number) => (n === 0 ? 'No matches' : n === 1 ? '1 match' : `${n} matches`);
 
 export function Picker(props: {
   phone: boolean;

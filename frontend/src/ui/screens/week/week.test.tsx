@@ -11,6 +11,14 @@ import type { PlanningPlace } from '../../components/planning/usePlanning';
 
 afterEach(cleanup);
 
+// Whether planning's estimate has been read, which a test can hold back.
+const estimate = vi.hoisted(() => ({ read: true }));
+vi.mock('../../components/planning/usePlanning', async (actual) => {
+  const real = await actual<typeof import('../../components/planning/usePlanning')>();
+  return { ...real, usePlanningTimes: (...args: Parameters<typeof real.usePlanningTimes>) => (estimate.read ? real.usePlanningTimes(...args) : null) };
+});
+afterEach(() => void (estimate.read = true));
+
 // The harness clock reads Monday, Nov 2 at 2pm in Chicago.
 const ZONE = 'America/Chicago';
 const MON = '2026-11-02';
@@ -77,6 +85,16 @@ describe.each(['desktop', 'phone'] as const)('this week before it is planned, on
     expect(screen.queryByRole('button', { name: "Edit this week's plan" })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
     expect(t.nav().flow).toMatchObject({ area: 'planning' });
+  });
+
+  it('asks before its estimate is read, so nothing under the question moves when the estimate arrives', async () => {
+    // The estimate is its own read, which on a long history waits behind Week's: on 19 November it came seconds after
+    // To schedule, and the question it brought moved a card from under the mouse.
+    estimate.read = false;
+    await open({ layout });
+    expect(await screen.findByText("This week isn't planned yet.")).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Start planning' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Choose a time to plan this week' })).toBeVisible();
   });
 
   it('Skip for now puts it away for the week on every device, and offers Edit again', async () => {

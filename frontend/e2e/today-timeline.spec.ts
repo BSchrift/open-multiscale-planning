@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, holdMouse, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, settled as screensLoaded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -103,6 +103,21 @@ test('the timeline switches to a list of the day in order, which opens a practic
   await expect(page.getByRole('region', { name: "Today's timeline" }).locator('.tllist > *')).toHaveCount(4);
   await page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'Calendar' }).click();
   await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Calendar zoom' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Calendar | List keeps its height once every screen's code has loaded, so the timeline under it doesn't jump", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, fence, block('b2', { task_id: 't2' }, '16:00', '17:00')]);
+  await settled(page);
+  const view = page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Timeline view' });
+  const height = async () => (await view.boundingBox())!.height;
+  const first = await height();
+  // The app loads each screen's code after it draws, and each brings its styles; Process's once made this 10px taller.
+  await screensLoaded(page);
+  expect(await height()).toBe(first);
+  // A compact button and the control's padding on desktop; a full tap target on phone.
+  expect(first).toBe(phone ? 52 : 44);
   expect(errors).toEqual([]);
 });
 

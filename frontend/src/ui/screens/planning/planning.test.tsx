@@ -79,6 +79,9 @@ describe('the planning frame', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add a task, one off, milestone or project' }));
     await userEvent.click(within(screen.getByRole('dialog', { name: 'Add' })).getByRole('button', { name: 'Task to Inbox' }));
     expect(t.nav().overlay?.area).toBe('capture');
+    // On Schedule, + is New task at a time; back on Inbox it captures again.
+    await userEvent.click(within(steps).getByRole('button', { name: 'Schedule' }));
+    expect(await screen.findByRole('button', { name: 'New task' })).toBeInTheDocument();
     await userEvent.click(within(steps).getByRole('button', { name: 'Inbox' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Capture a task' }));
     expect(t.nav().overlay?.area).toBe('capture');

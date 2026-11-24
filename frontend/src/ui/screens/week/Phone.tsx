@@ -891,6 +891,8 @@ export function DragDay(props: {
    * selected or being placed; it's off while one is held or being placed here.
    */
   holdToCreate?: boolean;
+  /** New task, from the caller: an hour from this minute, with Capture open on it, as a hold drafts one, hold on or off. */
+  newAt?: { date: LocalDate; minute: number } | null;
 }) {
   const { date, ctx, floor, moving, ghosts = [], hour = HOUR_PX } = props;
   const y = (m: number) => ((m - DAY_FROM) * hour) / 60;
@@ -922,6 +924,12 @@ export function DragDay(props: {
     off: !props.holdToCreate || !!moving || !!lifted || !!preview || !!props.selected,
   });
   const held = holdNew.draft?.slot.date === date ? holdNew.draft.slot : undefined;
+  const newAt = props.newAt;
+  useEffect(() => {
+    if (newAt?.date === date) holdNew.create(date, newAt.minute);
+    // Each New task is a new request; the day changing with it is part of the same one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newAt]);
   /** What the draft would share its time with: blocks and calendar events on the day. */
   const sharing = held ? [...props.blocks, ...ctx.busy].filter((o) => o.date === date && o.start < held.end && held.start < o.end) : [];
   // Measured from the drawn track each move, so zoom and scrolling during the drag can't shift the block.

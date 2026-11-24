@@ -152,7 +152,11 @@ export function useHoldToCreate(opts: {
     const el = draftRef.current;
     if (!open || layout !== 'phone' || !el) return;
     const stuck = document.querySelector('.weektop')?.getBoundingClientRect().bottom ?? 0;
-    el.style.scrollMarginTop = `${Math.max(0, stuck) + 8}px`;
+    // A scroll margin counts from the top of what scrolls, which in the planning flow sits under the step's bar.
+    let scroller = el.parentElement;
+    while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+    const from = Math.max(0, scroller?.getBoundingClientRect().top ?? 0);
+    el.style.scrollMarginTop = `${Math.max(0, stuck - from) + 8}px`;
     el.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
   }, [open, layout]);
 
@@ -275,5 +279,16 @@ export function useHoldToCreate(opts: {
         }
       : undefined;
 
-  return { draft, ring, draftRef, press, slot, close: () => setDraft(null) };
+  /**
+   * Drafts an hour from the quarter hour of this minute and opens Capture on it, as letting go of a hold does, even while
+   * a hold would draft nothing: for New task, from a menu or a button. Time gone by drafts nothing, and returns false.
+   */
+  const create = (date: LocalDate, minute: number) => {
+    const at = holdSlot(date, minute, live.current.earliest, to());
+    if (!at) return false;
+    setDraft({ slot: { date, start: at.start, end: at.end }, moved: at.moved, name: '', open: true, fresh: true });
+    return true;
+  };
+
+  return { draft, ring, draftRef, press, slot, create, close: () => setDraft(null) };
 }

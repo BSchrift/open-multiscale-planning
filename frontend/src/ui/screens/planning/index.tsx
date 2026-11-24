@@ -65,9 +65,20 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
   const [addItems, setAddItems] = useState<readonly AddItem[] | null>(null);
   const [menu, setMenu] = useState(false);
   const addRef = useRef<HTMLButtonElement>(null);
+  // What the phone's + does on a step that makes a new task at a time, as Schedule does.
+  const [newTask, setNewTask] = useState<(() => void) | null>(null);
   // The phone's Continue, named in full by a step that has more to say, such as Pick's "6 need you".
   const [nextName, setNextName] = useState<NextName | null>(null);
-  const fitHooks = useMemo(() => ({ preview: setPreview, show: (open: (() => void) | null) => setOnShow(() => open), add: setAddItems, next: setNextName }), []);
+  const fitHooks = useMemo(
+    () => ({
+      preview: setPreview,
+      show: (open: (() => void) | null) => setOnShow(() => open),
+      add: setAddItems,
+      newTask: (open: (() => void) | null) => setNewTask(() => open),
+      next: setNextName,
+    }),
+    [],
+  );
   // Each step starts at its top. Focus left behind, by the screen underneath or a step's own button that went away,
   // goes to the current step's tab, which names the step.
   useEffect(() => {
@@ -186,14 +197,14 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
           >
             {NEXT[step]}
           </Button>
-          {/* On a step with things to add, + is Add; elsewhere it captures to the Inbox. */}
+          {/* On a step with things to add, + is Add; on one that makes a new task at a time, New task; elsewhere it captures to the Inbox. */}
           <button
             ref={addRef}
             className="flowcap"
             type="button"
             aria-haspopup={addItems ? 'dialog' : undefined}
-            aria-label={addItems ? 'Add a task, one off, milestone or project' : 'Capture a task'}
-            onClick={() => (addItems ? setMenu(true) : nav.openOverlay('capture'))}
+            aria-label={addItems ? 'Add a task, one off, milestone or project' : newTask ? 'New task' : 'Capture a task'}
+            onClick={() => (addItems ? setMenu(true) : newTask ? newTask() : nav.openOverlay('capture'))}
           >
             <Icon name="plus" />
           </button>

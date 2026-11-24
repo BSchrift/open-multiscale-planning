@@ -384,13 +384,97 @@ describe('the Now card', () => {
     });
   });
 
-  it('on phone, Mark done now appears once the block is started', async () => {
+  it('on phone, Mark done now and Stop for now appear once the block is started', async () => {
     await open(day, { layout: 'phone' });
     const now = await screen.findByRole('region', { name: 'Current block' });
     await within(now).findByRole('heading', { name: 'Write the report' });
     expect(within(now).queryByRole('button', { name: 'Mark done now' })).toBeNull();
+    expect(within(now).queryByRole('button', { name: 'Stop for now' })).toBeNull();
     await userEvent.click(within(now).getByRole('button', { name: 'Start' }));
     expect(await within(now).findByRole('button', { name: 'Mark done now' })).toBeVisible();
+    expect(within(now).getByRole('button', { name: 'Stop for now' })).toBeVisible();
+  });
+
+  describe('Stop for now', () => {
+    const running = async (w: Writer, extra: Record<string, unknown> = {}) => {
+      await day(w);
+      await w.set('time_block', 'b1', { started_at: at('13:00'), ...extra });
+    };
+
+    it('asks how much is left, from the estimate less the time spent, then ends the block with Partly; Undo puts both back', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: 'Stop for now' }));
+      const prompt = await dialog('How much is left?');
+      // 3h estimated, 1h spent.
+      const slider = within(prompt).getByRole('slider', { name: 'Time left' });
+      expect(slider).toHaveAttribute('aria-valuetext', '2h');
+      expect(within(prompt).getByRole('button', { name: 'Not done' })).toBeVisible();
+      // Nothing has changed until it's answered.
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.ended_at).toBeFalsy();
+      slideTo(slider, 90);
+      await userEvent.click(within(prompt).getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByText('Stopped after 1h. Added to Needs a new time. No need to decide now.')).toBeVisible();
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      // The button that had focus is gone, so focus lands on Undo rather than the page.
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus());
+      expect(await within(now).findByText('Free until 4pm')).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.ended_at).toBe(NOW);
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toMatchObject({ result: 'partly', remaining_min: 90 });
+      const task = await getRecord(t.db, 'task', 't1');
+      expect(task?.remaining_min).toBe(90);
+      expect(task?.done_at).toBeFalsy();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(await within(now).findByText('Now, 1pm to 3pm')).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.ended_at).toBeNull();
+      expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.deleted_at).toBe(NOW);
+      expect((await getRecord(t.db, 'task', 't1'))?.remaining_min).toBeNull();
+    });
+
+    it('on a paused block counts the pause out, and Not done ends it too', async () => {
+      const t = await open((w) => running(w, { paused_at: at('13:40') }));
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: 'Stop for now' }));
+      const prompt = await dialog('How much is left?');
+      expect(within(prompt).getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '2h 20m');
+      await userEvent.click(within(prompt).getByRole('button', { name: 'Not done' }));
+      expect(await screen.findByText('Stopped after 40m. Added to Needs a new time. No need to decide now.')).toBeVisible();
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ ended_at: NOW, paused_at: null, paused_min: 20 });
+      expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not');
+    });
+
+    it('closed without an answer, leaves the block going', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      const stop = within(now).getByRole('button', { name: 'Stop for now' });
+      await userEvent.click(stop);
+      await dialog('How much is left?');
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(stop).toHaveFocus();
+      expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.ended_at).toBeFalsy();
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
+    });
+
+    it('is not there before Start', async () => {
+      await open(day);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await within(now).findByRole('button', { name: 'Start' });
+      expect(within(now).queryByRole('button', { name: 'Stop for now' })).toBeNull();
+    });
+
+    it("is not on a practice's block, whose Mark done now already logs just the time spent", async () => {
+      await open(async (w) => {
+        await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr');
+        await w.create('time_block', { practice_id: 'pr', start: at('13:30'), end: at('14:30'), tz: ZONE, started_at: at('13:30') }, 'b3');
+      });
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await within(now).findByRole('button', { name: 'Mark done now' });
+      expect(within(now).queryByRole('button', { name: 'Stop for now' })).toBeNull();
+    });
   });
 });
 
@@ -771,6 +855,23 @@ describe('when the week is not planned', () => {
       await block(w, 'b1', 't1', '12:00', '13:00');
     });
     expect(await screen.findByRole('heading', { name: 'Plan your week' })).toBeVisible();
+    expect(await dialog('Block finished')).toBeVisible();
+  });
+
+  // The prompt shows on every tab, so one that comes back as planning is skipped takes the key or tap meant for another
+  // screen: the deployed clean-up's Enter on a block's × on Week went to it.
+  it('keeps a question put away for the session put away once planning is skipped', async () => {
+    await unplanned(async (w) => {
+      await work(w);
+      await block(w, 'b1', 't1', '12:00', '13:00');
+    });
+    await userEvent.click(within(await dialog('Block finished')).getByRole('button', { name: 'Answer later' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Skip planning this week' }));
+    expect(await screen.findByText("This week isn't planned")).toBeVisible();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Still there to answer, from the day's Review row.
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
     expect(await dialog('Block finished')).toBeVisible();
   });
 

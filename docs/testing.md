@@ -15,6 +15,7 @@ feature gets a row, and a test that covers a cell gets named in it.
 | The last release beside this one | `frontend/e2e/compat/` | Web desktop | `scripts/e2e.sh compat`, CI's e2e-compat, every PR and push to main |
 | Sync and the last release, with staging's retention | `frontend/e2e/stack/`, `frontend/e2e/compat/` | Web desktop | `RETENTION=staging scripts/e2e.sh stack compat`, CI's e2e-staging-retention, every PR and push to main. Staging runs both suites on every release with its retention of minutes ([config/retention.yaml](../config/retention.yaml)), where the local stack and CI's other jobs keep records for years, so a test that needs an old record to stay fails here first |
 | iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main: each build, extensions off and on, on a Mac of its own (`ios-simulator`), with the shell's tests run once, with the extensions on, and the offline ones with them off. Its signed-in tests (`SignedInUITests`) need a backend, and GitHub's Macs have no Docker for the local stack, so CI's ios skips them; `.github/workflows/ios-staging.yml` runs them against staging every night |
+| iPhone widgets | `frontend/ios/App/MultiscaleWidgets/` (a Swift package); the contract fixtures it shares with `frontend/src/core/widgetFixtures.test.ts` | macOS, no Simulator | `make test-widgets`, CI's widgets, every PR and push to main. The fixtures are written by the app's own code and checked by the frontend job, so the app and the widgets can't drift |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
 | Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`); the server's routes and sync against staging each night, from the release pipeline |
@@ -293,6 +294,27 @@ A practice's session and a planning block open one popup, in the task popup's fr
 | A reminder's Not done writes what the in-app prompt writes | n/a | n/a | covered (sync: "a reminder for a block near now is scheduled, and its Not done…") | partly (testABlocksNotificationActionAnswersItInToday) |
 | A reminder clicked, not a button, opens the app | n/a | n/a | covered (desktop: "a reminder clicked, not one of its buttons…") | missing |
 | Which reminders are on (Settings) | covered (settings: "edits settings in place"; settings-sections: "Reminders: Notify at block start, Ask at block end and the planning reminder…") | covered (same) | missing | missing |
+
+### iPhone widgets
+
+The widgets draw only from the snapshot the app writes to the App Group, so each layer tests one side of it: Vitest the
+app's side, the Swift package the widgets' side, the fixtures both, and XCUITest everything around the widget itself.
+
+| Feature | Layer | Covered by |
+| --- | --- | --- |
+| The snapshot for every state the spec draws: in progress, time to start, paused, free, nothing planned, day finished, signed out, stale | Vitest | `widgetSnapshot.test.ts` |
+| This week's part of the snapshot: each day's planned time (blocks cut at midnight, planning left out), aims with planned time and the project's pill (none set, skipped or not under way left out), practices' sessions done of those wanted (paused, ended and skipped left out), and an empty week | Vitest | `widgetSnapshot.test.ts` ("the week in the widget snapshot") |
+| An encrypted space's task, project and practice names never reach the snapshot; only names are free text, for the Lock Screen to hide | Vitest, Swift | `widgetSnapshot.test.ts` ("privacy in the widget snapshot"); `WordsTests` (testOnlyNamesAreMarkedPrivate, testALockedPhoneHidingNamesReadsThePlaceholdersInstead) |
+| The snapshot's caps: 120-character titles and names, 60 blocks, 10 aims and 10 practices, 64 KB | Vitest | `widgetSnapshot.test.ts` |
+| Start, Start early, Pause and Resume from the widget apply at the tap, with Undo; stale, duplicate, moved, answered and ended ones are dropped and say why | Vitest | `widgetActions.test.ts`; `widgets.test.tsx` (the toast and its Undo, on opening and on coming back) |
+| The widgets' links open Today, Today at a block, the Inbox, Week and Plan your week | Vitest, XCUITest | `appLinks.test.ts`, `widgets.test.tsx`, `capacitor.test.ts`; testEachWidgetLinkOpensItsScreen |
+| The app and the widgets agree: the snapshot decodes, the block under the clock and the next match the app's own at every edge of both days, action files and what a tap leaves match, times, weeks ("Nov 16 to 22") and lengths read alike, the week decodes and a snapshot from before it still does | Fixtures | `widgetFixtures.test.ts` writes them, `FixtureTests` reads them |
+| Timeline entries only where the widget changes, Smart Stack relevance, the countdown, the bar and the pause | Swift | `TimelineTests`, `StateTests` |
+| A button's intent queues its tap, checked against the plan at the tap; Undo of an unapplied start takes it off the queue | Swift | `TapTests`, `StoreTests` |
+| VoiceOver: one label per widget in order of importance, end times, buttons named in full | Swift | `WordsTests` |
+| The app writes the snapshot after a plan change; queued actions apply on opening with an Undo toast; background refresh reaches the page | XCUITest | `WidgetUITests` |
+| The App Group: the widget extension has it exactly when the app does, and a free personal team's build has neither | Script, Vitest | `scripts/test-ios.sh`; `ios-project.test.ts` |
+| A widget on the real Home Screen, Lock Screen or StandBy | not automatable | XCUITest can't add a widget to the Home Screen or tap one there: Home Screen editing isn't scriptable, and WidgetKit draws widgets in SpringBoard, outside any app's tree. The closest checks: every layer either side of the widget above |
 
 ### The Mac app's own
 

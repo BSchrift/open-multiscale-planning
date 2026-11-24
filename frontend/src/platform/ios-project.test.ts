@@ -34,7 +34,9 @@ describe('the iOS project', () => {
   it('asks only for an App Group once on, and nothing a phone install would need extra provisioning for', () => {
     const entitlements = read('Shared/AppGroup.entitlements');
     expect([...entitlements.matchAll(/<key>(.*)<\/key>/g)].map((m) => m[1])).toEqual(['com.apple.security.application-groups']);
-    expect(info).not.toContain('UIBackgroundModes');
+    // Background fetch, for the widgets' refresh, is a mode, not an entitlement, so it needs no provisioning.
+    expect(info).toMatch(/<key>UIBackgroundModes<\/key>\s*<array>\s*<string>fetch<\/string>\s*<\/array>/);
+    expect(info).toMatch(/<key>BGTaskSchedulerPermittedIdentifiers<\/key>\s*<array>\s*<string>\$\(PRODUCT_BUNDLE_IDENTIFIER\)\.widget-refresh<\/string>\s*<\/array>/);
     expect(project).not.toMatch(/SystemCapabilities|com\.apple\.(Push|InAppPurchase|Keychain)/);
   });
 
@@ -45,13 +47,20 @@ describe('the iOS project', () => {
     expect(project).not.toContain('Embed App Extensions');
   });
 
-  // It only opens the app, in the app's own process, so it needs no App Group and a free personal team can sign it.
+  // The control only opens the app, in the app's own process, so it needs no App Group and a free personal team can sign
+  // it. The widgets beside it read the App Group, so they and its entitlement are built in only with the extensions on.
   it('builds in the Control Center capture button by default, signed and embedded with no entitlements', () => {
     expect(setting(config, 'MULTISCALE_CONTROL')).toBe('YES');
     expect(project.match(/CODE_SIGNING_ALLOWED = "\$\(MULTISCALE_SIGN_EXTENSIONS_\$\(MULTISCALE_CONTROL\)\)"/g)).toHaveLength(2);
     const widget = [...project.matchAll(/buildSettings = \{([^}]*)\};/g)].map((m) => m[1]!).filter((b) => b.includes('CaptureWidget/Info.plist'));
     expect(widget).toHaveLength(2);
-    for (const b of widget) expect(b).not.toContain('CODE_SIGN_ENTITLEMENTS');
+    for (const b of widget) {
+      expect(b).toContain('CODE_SIGN_ENTITLEMENTS = "$(MULTISCALE_ENTITLEMENTS_$(MULTISCALE_EXTENSIONS))"');
+      expect(b).toMatch(/SWIFT_ACTIVE_COMPILATION_CONDITIONS = "(DEBUG )?\$\(MULTISCALE_WIDGETS_\$\(MULTISCALE_EXTENSIONS\)\)"/);
+    }
+    expect(setting(config, 'MULTISCALE_WIDGETS_YES')).toBe('MULTISCALE_APP_GROUP');
+    expect(setting(config, 'MULTISCALE_WIDGETS_NO')).toBe('');
+    expect(read('CaptureWidget/Info.plist')).toMatch(/<key>MultiscaleAppGroup<\/key>\s*<string>\$\(MULTISCALE_APP_GROUP\)<\/string>/);
     expect(project).toContain('MultiscaleCapture.appex');
     expect(project).toMatch(/MULTISCALE_CONTROL\\" = YES \]; then\\n  cp -RH \\"\$BUILT_PRODUCTS_DIR\/MultiscaleCapture\.appex/);
     // An archive leaves each extension as a symlink there, and an app with one in it App Store Connect refuses.

@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-perf test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-widgets test-history test-perf test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -29,6 +29,11 @@ test-compat:
 
 test-ios:
 	@scripts/test-ios.sh
+
+# The iPhone widgets' Swift package on this Mac, with no Simulator: the snapshot, the timeline, the action queue and the
+# contract fixtures the app's tests write.
+test-widgets:
+	cd frontend/ios/App/MultiscaleWidgets && swift test
 
 # A seeded five-year account, timed on the browser, the Mac app and the iPhone Simulator against the budgets in
 # docs/performance.md. Slow, so it runs on demand and before releases. ENV=local (default) or staging.

@@ -63,12 +63,12 @@ test("the deployed suite's journey, from Capture to the calendar and back, works
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
   await workJourney(d.page, `Deployed check ${new Date().toISOString().slice(11, 19)}`);
 
-  // Then the clean-up the deployed suite runs after it, which deletes the second check the journey leaves in the Inbox,
-  // at full speed, as staging runs it: slowed down, the page couldn't press again before the Inbox had read the delete
-  // back. Staging's history user failed on 11 of its first 14 runs because the clean-up pressed the deleted check's row
-  // while it still showed. Process opened on an item it no longer had, so on the rest of the Inbox once it had read it,
-  // over the page after the clean-up had moved on, and took the next test's first press. Process can draw some seconds
-  // after the press, so it's looked for again after a sync.
+  // Then the clean-up the deployed suite runs after it, at full speed as staging runs it, which deletes the second check
+  // the journey leaves in the Inbox. On staging's history user it left Process open over the page on 11 of the first 14
+  // runs, on the Inbox's first item with nothing done in it, and the next test's first press never landed. CI's runner
+  // hasn't shown that, here or slowed down: its database worker reads the delete back sooner, and the page's slowing
+  // never reaches the worker. So this checks what the clean-up leaves: no Process, and the history's Inbox, nothing of
+  // it deleted. Process can draw some seconds after a press, so it's looked for again after a sync.
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await clearLeftChecks(d.page);
   await syncNow(d.page);

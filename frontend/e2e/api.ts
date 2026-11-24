@@ -25,12 +25,17 @@ function sentEvents(body: string | null): SentEvent[] {
 }
 
 /**
- * A stand-in for the API, on its own origin as the real one is, with nothing new for each sync. It counts the syncs and
- * keeps the telemetry the app sends.
+ * A stand-in for the API, on its own origin as the real one is, with nothing new for each sync. It counts the syncs the
+ * app was answered and keeps the telemetry the app sends.
  */
 export async function standInApi(context: BrowserContext, baseURL: string) {
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type' };
   const api = { syncs: 0, events: [] as SentEvent[] };
+  // Counted as the page gets each answer, not as the stand-in sends it. Playwright's clock also runs the app's request
+  // timeout, so a clock run past it gives up on a sync still in flight, which the app then never counts as answered.
+  context.on('response', (response) => {
+    if (response.request().method() === 'POST' && response.url().endsWith('/sync')) api.syncs++;
+  });
   await context.route(
     (url) => url.origin !== new URL(baseURL).origin,
     (route) => {
@@ -40,7 +45,6 @@ export async function standInApi(context: BrowserContext, baseURL: string) {
         api.events.push(...sentEvents(request.postData()));
         return route.fulfill({ headers: cors, contentType: 'application/json', body: '{}' });
       }
-      if (request.url().endsWith('/sync')) api.syncs++;
       return route.fulfill({ headers: cors, contentType: 'application/json', body: JSON.stringify({ cursor: 0, more: false, changes: [] }) });
     },
   );

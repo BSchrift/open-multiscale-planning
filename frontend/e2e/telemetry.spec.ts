@@ -31,7 +31,7 @@ test('signed in, it reports each minute the syncs it made and their bytes', asyn
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
   await expect.poll(() => api.syncs).toBe(1);
   const reported = () => api.events.filter((event) => event.name === 'app.sync.count');
-  // The minutes' counts add up to the syncs the server saw, once the last one's batch has gone: never more, never fewer.
+  // The minutes' counts add up to the syncs whose answers reached the app, once the last one's batch has gone: never more, never fewer.
   await minutesUntil(page, () => total(reported(), 'sync.count') === api.syncs);
   // Each request and reply, as JSON.
   expect(total(reported(), 'sync.bytes')).toBeGreaterThan(40);

@@ -11,12 +11,19 @@
   <main class="text">
     <p><a href="/">Multiscale</a></p>
     <h1>Privacy policy</h1>
-    <p>Last updated November 5, 2026.</p>
+    <p>Last updated November 17, 2026.</p>
 
     <h2>What Multiscale keeps</h2>
-    <p>Your plan: goals, projects, milestones, tasks, practices, time blocks, how they went, and your settings. It lives
-      on your devices, and once you sign in, it is also stored on Amazon Web Services so your devices can sync. Signing in
-      uses your email address and a password.</p>
+    <p>Your plan: goals, projects, milestones, tasks with their descriptions and attachments, practices, time blocks, how
+      they went, notes with their attachments, and your settings. It lives on your devices, and once you sign in, it is
+      also stored on Amazon Web Services so your devices can sync, encrypted there but not end to end. Your devices' copies
+      aren't encrypted by the app, and can be included in your device's backups. Signing in uses your email address and a
+      password.</p>
+
+    <h2>How long it's kept</h2>
+    <p>Notes, open tasks, practices and your settings are kept until you delete them. History, such as time blocks and
+      finished tasks, is kept for a set time, then removed. Anything you delete is removed within about 30 days, and from
+      the server's backups within 35 days after that. Settings &gt; Data retention in the app lists each period.</p>
 
     <h2>Google Calendar</h2>
     <p>Connecting Google Calendar is optional. If you connect it, Multiscale asks for three permissions and uses them
@@ -47,12 +54,20 @@
     <p>No ads, no trackers, no selling or sharing your data. Nobody reads your plan. Logs record that requests happened,
       never what your records or events say.</p>
 
-    <h2>Removing your data</h2>
+    <h2>Your data, and removing it</h2>
+    <p><strong>Export my data</strong>, in Multiscale's Settings under Account, downloads everything your account holds as a
+      zip: every record as JSON, your notes as Markdown, and your photos and files, with a short guide to the format. The
+      zip is kept for you to download for up to 2 days, then deleted.</p>
+    <p><strong>Delete my account and data</strong>, beside it, deletes your account and everything synced to it: your plan,
+      notes, photos and files, settings, your Google Calendar connection, whose Time blocks calendar is removed from your
+      Google account, and your sign-in. It asks you to sign in again first, and can't be undone. It happens at once, and
+      every device you're signed in on erases its copy the next time it opens or syncs. A copy of the app from before
+      this update shows it's signed out instead, and keeps its copy until someone signs in on it. Copies in our backups are kept
+      for 35 days, then they're gone too; nothing is restored from them into an account. Request logs, which hold a
+      one-way code for your account and never what you wrote, are kept for 30 days, and the database's record of recent
+      changes for 24 hours.</p>
     <p>Disconnect Google Calendar in Multiscale's Settings, or remove its access at any time under
-      <a href="https://myaccount.google.com/connections">Third-party apps &amp; services</a> in your Google account. To have your
-      account and everything synced to it deleted, open an issue on the
-      <a href="https://github.com/BSchrift/open-multiscale-planning/issues">project's GitHub page</a> asking for it, and
-      say nothing private there: we'll follow up to confirm it's you.</p>
+      <a href="https://myaccount.google.com/connections">Third-party apps &amp; services</a> in your Google account.</p>
   </main>
 </body>
 </html>

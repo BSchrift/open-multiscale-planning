@@ -175,7 +175,8 @@ export class MultiscaleStack extends Stack {
       billingMode: BillingMode.PAY_PER_REQUEST,
       stream: StreamViewType.OLD_IMAGE,
       timeToLiveAttribute: 'expires_at',
-      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      // 35 days, as the privacy policy and the deletion screen say a deleted account stays in backups.
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true, recoveryPeriodInDays: 35 },
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
@@ -231,6 +232,7 @@ export class MultiscaleStack extends Stack {
     const calendarLogs = functionLogs('CalendarLogs');
     const retentionLogs = functionLogs('RetentionLogs');
     const canaryLogs = functionLogs('CanaryLogs');
+    const accountLogs = functionLogs('AccountLogs');
     const accessLogs = functionLogs('AccessLogs');
 
     const httpApi = new HttpApi(this, 'HttpApi', {
@@ -273,14 +275,14 @@ export class MultiscaleStack extends Stack {
       },
     });
 
-    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string) =>
+    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string, memorySize = 256) =>
       new LambdaFunction(this, functionId, {
         functionName,
         runtime: Runtime.PROVIDED_AL2023,
         architecture: Architecture.ARM_64,
         handler: 'bootstrap',
         code: goCode(name),
-        memorySize: 256,
+        memorySize,
         timeout,
         logGroup,
         environment: { TABLE_NAME: table.tableName, ENV_NAME: envName, SSM_PREFIX: ssmPrefix, ...environment },
@@ -297,8 +299,29 @@ export class MultiscaleStack extends Stack {
     const calendarLiveArn = `${calendarFunction.functionArn}:${calendarAlias.aliasName}`;
     const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
     const retentionAlias = live(retentionFunction);
+    // Exports and account deletions (internal/account): an export of a five-year history with its photos, or a large
+    // account's deletion, outlasts any request, so the API starts them here. Its 15 minutes are Lambda's most.
+    // 1 GB, for the zip's upload and the CPU that comes with it, and no retries: the app asks for an export again and the
+    // schedule carries a deletion on. No reserved concurrency: AWS keeps 100 unreserved, and an account whose limit is
+    // lower, as staging's is, refuses any reservation. Each person builds one export at a time, which bounds it instead.
+    // shortcut: a burst of exports from many people shares the account's concurrency with the API; raise the account's
+    // Lambda quota before the beta, then reserve some here.
+    const protectedEmails = [config.integration?.testUser, secondUser(config) ? config.integration?.secondTestUser : undefined].filter((e): e is string => !!e);
+    // The Google key and queue, since deleting an account ends its Google connection through the same code.
+    const accountFunction = goFunction('AccountFunction', 'account', accountLogs, Duration.minutes(15), { USER_POOL_ID: userPool.userPoolId, ...google }, undefined, 1024);
+    const accountAlias = live(accountFunction);
+    accountAlias.configureAsyncInvoke({ retryAttempts: 0 });
+    // By ARN rather than the alias resource: CloudFormation makes the alias wait on its deployment group, whose alarms watch
+    // the API, so the API's grant on the alias resource would make a loop it refuses (test/cycles.test.ts).
+    const accountLiveArn = `${accountFunction.functionArn}:${accountAlias.aliasName}`;
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
+      ACCOUNT_FUNCTION_NAME: accountLiveArn,
+      // For a lapsed token's question whether its account was deleted: the pool's keys and the clients it may be from.
+      USER_POOL_ID: userPool.userPoolId,
+      USER_POOL_CLIENT_IDS: [appClient.userPoolClientId, testClient.userPoolClientId].join(','),
+      // The integration suite's users, which no request deletes.
+      ...(protectedEmails.length ? { PROTECTED_EMAILS: protectedEmails.join(',') } : {}),
       ...google,
     });
     const apiAlias = live(apiFunction);
@@ -315,8 +338,14 @@ export class MultiscaleStack extends Stack {
     httpApi.addRoutes({ path: '/files/upload', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/files/download', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/files/usage', methods: [HttpMethod.GET], integration });
+    // Export my data, and Delete my account and data.
+    httpApi.addRoutes({ path: '/account/export', methods: [HttpMethod.GET, HttpMethod.POST], integration });
+    httpApi.addRoutes({ path: '/account/delete', methods: [HttpMethod.POST], integration });
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
+    // A device whose token has lapsed asks whether its account was deleted. The gateway refuses a lapsed token, so the
+    // API checks its signature itself.
+    httpApi.addRoutes({ path: '/account/status', methods: [HttpMethod.POST], integration, authorizer: new HttpNoneAuthorizer() });
 
     // Permissions. TransactWriteItems is not an IAM action: a sync transaction needs Put and Update, the actions inside it.
     // The consent state is a PutItem and a conditional UpdateItem.
@@ -341,9 +370,35 @@ export class MultiscaleStack extends Stack {
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
     });
     for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(deleteLegacy);
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [accountLiveArn] }));
+    // Whether an account is being deleted, and its export, are single items.
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['dynamodb:GetItem'], resources: [table.tableArn] }));
+    // Whether a lapsed token's sign-in still exists. The account function deletes it; the API never can.
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['cognito-idp:ListUsers'], resources: [userPool.userPoolArn] }));
+
+    // The account function works in one person's partition at a time: it reads their records for an export, ends their
+    // Google connection, deletes their sign-in and everything in their partition, and keeps the list of deletions under
+    // way. Their files are below.
+    accountFunction.addToRolePolicy(new PolicyStatement({
+      actions: ['dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+      resources: [table.tableArn],
+    }));
+    accountFunction.addToRolePolicy(readSecrets(['client-id', 'client-secret', 'refresh-token']));
+    accountFunction.addToRolePolicy(new PolicyStatement({
+      actions: ['ssm:DeleteParameter'],
+      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
+    }));
+    accountFunction.addToRolePolicy(new PolicyStatement({ actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminDeleteUser'], resources: [userPool.userPoolArn] }));
+    // Every few minutes it carries on each deletion under way, and finishes those whose tokens have all lapsed.
+    new Schedule(this, 'AccountSchedule', {
+      schedule: ScheduleExpression.rate(Duration.minutes(5)),
+      target: new LambdaInvoke(accountAlias),
+    });
+
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
     // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
-    // consent; both open them, only this environment's and for that purpose, with this key alone.
+    // consent; it, the worker and the account function, which ends a deleted account's connection, open them, only this
+    // environment's and for that purpose, with this key alone.
     const connectionItems = new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
       resources: [table.tableArn],
@@ -353,15 +408,16 @@ export class MultiscaleStack extends Stack {
       fn.addToRolePolicy(connectionItems);
       calendarQueue.grantSendMessages(fn);
     }
+    accountFunction.addToRolePolicy(connectionItems);
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
-    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    for (const fn of [apiFunction, calendarFunction, accountFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     // By role, not by function version: every version of a function shares its role, so the old and the new alike may use the
     // key through a canary, and a rollback.
     tokenKey.addToResourcePolicy(new PolicyStatement({
       sid: 'Seal', principals: [apiFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
     }));
     tokenKey.addToResourcePolicy(new PolicyStatement({
-      sid: 'Open', principals: [apiFunction.role!, calendarFunction.role!], actions: ['kms:Decrypt'], resources: ['*'], conditions: tokenPurpose,
+      sid: 'Open', principals: [apiFunction.role!, calendarFunction.role!, accountFunction.role!], actions: ['kms:Decrypt'], resources: ['*'], conditions: tokenPurpose,
     }));
 
     // What runs the worker
@@ -591,6 +647,26 @@ export class MultiscaleStack extends Stack {
       comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: TreatMissingData.IGNORE,
     }).addAlarmAction(alarmAction);
+    // The account function crashing or timing out, as an export too large for its 15 minutes would. Not a release alarm:
+    // one person's export says little about the backend a deploy would roll back.
+    new Alarm(this, 'AccountFunctionErrors', {
+      alarmDescription: 'The account function crashed or timed out on an export or a deletion. Its log lines say which.',
+      metric: accountFunction.metricErrors({ period: fiveMinutes }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
+    // A deletion that keeps failing: the schedule tries again every 5 minutes, so three runs in a row mean someone looks.
+    // Not a release alarm: one person's deletion says little about the backend a deploy would roll back.
+    new Alarm(this, 'AccountDeletionFailing', {
+      alarmDescription: "An account's deletion failed on three runs in a row. It keeps trying; its log lines say which step. See docs/retention.md.",
+      metric: custom('AccountDeletionFailures'),
+      threshold: 1,
+      evaluationPeriods: 3,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
     // A Mac app reports app-signature when Squirrel refused an app whose zip matched its signed SHA-512: the published app
     // is bad, so someone looks at once. Not a release alarm: it says nothing about the backend a deploy would roll back.
     new MetricFilter(this, 'AppSignatureFilter', {
@@ -642,6 +718,7 @@ export class MultiscaleStack extends Stack {
     apiAlias.node.addDependency(canaryFunction);
     deployment('Calendar', calendarAlias);
     deployment('Retention', retentionAlias);
+    deployment('Account', accountAlias);
 
     // Dashboard
 
@@ -668,6 +745,11 @@ export class MultiscaleStack extends Stack {
             right: [calendarFunction.metricDuration({ period: fiveMinutes }), calendarQueue.metricApproximateAgeOfOldestMessage({ period: fiveMinutes })],
           }),
           new GraphWidget({ title: 'Largest user (GB of the 10 GB cap)', width, left: [largestUser] }),
+        ],
+        [
+          // Counts only: the account function's lines never say whose.
+          new GraphWidget({ title: 'Exports', width, left: [custom('AccountExports'), custom('AccountExportFailures')] }),
+          new GraphWidget({ title: 'Account deletions', width, left: [custom('AccountDeletionsStarted'), custom('AccountsDeleted'), custom('AccountDeletionFailures')] }),
         ],
         [
           appEvents('App memory (MB), by platform and version', LogQueryVisualizationType.LINE,
@@ -746,9 +828,13 @@ export class MultiscaleStack extends Stack {
       enforceSSL: true,
       // So a delete is final: a file goes when its record does (docs/retention.md).
       versioned: false,
-      // A guard only, since an upload is one PUT. No expiry, since the record decides when its file goes, and no move to
-      // Infrequent Access, whose 128 KB minimum and retrieval fees cost more than they save at these sizes.
-      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(1) }],
+      // A guard against unfinished uploads, which an export's streamed upload can leave. No expiry for attachments' files,
+      // since the record decides when one goes, and no move to Infrequent Access, whose 128 KB minimum and retrieval fees
+      // cost more than they save at these sizes. An export goes a day after it's built: its link lasts minutes.
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: Duration.days(1) },
+        { prefix: 'exports/', expiration: Duration.days(1) },
+      ],
       // PUT for the presigned uploads, which go straight from the apps. GET and HEAD for downloads: CloudFront forwards
       // Origin, which is in its cache key, and S3 answers CORS, as for the release feed, since CloudFront's own CORS
       // headers turned out to be missing from some cached copies.
@@ -921,6 +1007,25 @@ export class MultiscaleStack extends Stack {
       }));
       // A file goes when its record does.
       retentionFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:DeleteObject'], resources: [filesBucket.arnForObjects('u/*')] }));
+      // An export reads a person's files and puts its zip under exports/; a deletion lists and deletes both. Each
+      // person's are under their own prefix, which the function names from their sub.
+      accountFunction.addEnvironment('FILES_BUCKET', filesBucket.bucketName);
+      accountFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [filesBucket.bucketArn],
+        // IfExists: a GetObject of a key that isn't there checks ListBucket with no prefix, and only then answers 404
+        // rather than 403, as an export of a file whose upload never finished needs.
+        conditions: { StringLikeIfExists: { 's3:prefix': ['u/*', 'exports/*'] } },
+      }));
+      accountFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:GetObject'], resources: [filesBucket.arnForObjects('u/*')] }));
+      accountFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['s3:PutObject', 's3:AbortMultipartUpload'],
+        resources: [filesBucket.arnForObjects('exports/*')],
+      }));
+      accountFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['s3:DeleteObject'],
+        resources: [filesBucket.arnForObjects('u/*'), filesBucket.arnForObjects('exports/*')],
+      }));
     }
 
     // What the release pipeline (lib/pipeline-stack.ts) signs in as to test this environment and publish to it: the

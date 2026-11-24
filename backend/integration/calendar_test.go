@@ -926,15 +926,18 @@ func TestOnlyAConnectedPersonsRefreshRunsTheirWorker(t *testing.T) {
 func TestTwoPeopleConnectedAtOnceEachSyncTheirOwn(t *testing.T) {
 	needs(t, fakeGoogle, fakeClock, secondUser)
 	clock := holdClock(t)
-	a := connectedUser(t)
+	a := signIn(t)
 	b := signInOther(t)
-	connectCalendar(t, b)
+	// Their calendars are there before they connect, so the run that connecting starts writes their calendar_source
+	// records. A run that found them first, such as the stream's, would write them then, and those records wake the
+	// worker again a window later: the next tick would run the stream, or the schedule, depending on whether the
+	// background tick read them before the clock moved.
 	homeA, homeB := addGoogleCalendar(t, a, "Home"), addGoogleCalendar(t, b, "Work")
+	connectCalendar(t, a)
+	connectCalendar(t, b)
 	start := clock.now.Add(2 * time.Hour)
 	a.pushBlock(fresh("a"), "A's block", start, start.Add(time.Hour))
 	b.pushBlock(fresh("b"), "B's block", start, start.Add(time.Hour))
-	addGoogleEvent(t, a, homeA, "A's lunch", start, start.Add(time.Hour))
-	addGoogleEvent(t, b, homeB, "B's lunch", start, start.Add(time.Hour))
 
 	// The stream wakes both, each for their own blocks, once its window has passed.
 	if ran := tick(t); ran != "" {
@@ -951,7 +954,13 @@ func TestTwoPeopleConnectedAtOnceEachSyncTheirOwn(t *testing.T) {
 			t.Fatalf("%s: %+v", who.username, event)
 		}
 	}
-	// The schedule reads each one's own calendars into their own record.
+	// The schedule reads each one's own calendars into their own record: their events arrive in Google after the
+	// stream's runs, so only the schedule can have read them.
+	addGoogleEvent(t, a, homeA, "A's lunch", start, start.Add(time.Hour))
+	addGoogleEvent(t, b, homeB, "B's lunch", start, start.Add(time.Hour))
+	if len(mirrored(t, a, homeA)) != 0 || len(mirrored(t, b, homeB)) != 0 {
+		t.Fatalf("mirrored before the schedule: %v %v", mirrored(t, a, homeA), mirrored(t, b, homeB))
+	}
 	clock.advance(31 * time.Minute)
 	a.reSignIn()
 	b.reSignIn()

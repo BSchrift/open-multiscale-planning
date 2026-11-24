@@ -1,5 +1,9 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+import { assertInstalled } from './scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(import.meta.dirname);
 
 // Pure code runs under Node; anything that renders runs under jsdom. Test files go next to their code.
 export default defineConfig({

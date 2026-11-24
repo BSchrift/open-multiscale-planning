@@ -107,6 +107,13 @@ const PATHS = {
       <path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" />
     </>
   ),
+  // A note, as Notes keeps them: a page with a folded corner, apart from notes above, which is a task's description.
+  note: (
+    <>
+      <path d="M6 3.5h8l4 4v13H6z" />
+      <path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
+    </>
+  ),
   'zoom-in': (
     <>
       <circle cx="10.5" cy="10.5" r="6" />

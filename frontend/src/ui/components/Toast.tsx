@@ -5,7 +5,7 @@
 //   toast.show('Task moved', { undo: () => restore() });
 //   toast.check('Inbox clear', '12 items processed', true);
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 const PLAIN_MS = 3500;
@@ -34,6 +34,26 @@ interface ToastApi {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
+/**
+ * Listens for taps that begin while it listens, and calls back as each finishes, on its click. Not the click that ends a
+ * press begun before, such as the drag whose drop showed a toast, nor one from Enter or Space, which comes with no press:
+ * keys never put a toast away. Returns what stops it.
+ */
+function onTaps(tap: (target: Element) => void): () => void {
+  let pressed = false;
+  const down = () => void (pressed = true);
+  const click = (event: MouseEvent) => {
+    if (pressed) tap(event.target as Element);
+    pressed = false;
+  };
+  document.addEventListener('pointerdown', down, true);
+  document.addEventListener('click', click, true);
+  return () => {
+    document.removeEventListener('pointerdown', down, true);
+    document.removeEventListener('click', click, true);
+  };
+}
+
 export function useToast(): ToastApi {
   const toast = useContext(ToastContext);
   if (!toast) throw new Error('useToast needs a ToastProvider');
@@ -60,19 +80,20 @@ export function ToastProvider(props: { children: ReactNode }) {
   const [held, setHeld] = useState({ focus: false, hover: false });
   const counter = useRef(0);
   const cameFrom = useRef<HTMLElement | null>(null);
+  const toastEl = useRef<HTMLDivElement>(null);
+  const undoEl = useRef<HTMLButtonElement>(null);
 
   const api = useMemo<ToastApi>(
     () => ({
-      show: (message, options = {}) => {
-        setHeld({ focus: false, hover: false });
-        setCurrent({ ...options, message, key: ++counter.current });
-      },
+      show: (message, options = {}) => setCurrent({ ...options, message, key: ++counter.current }),
       check: (title, detail, done) => setCheck({ title, detail, done, leaving: false }),
     }),
     [],
   );
 
-  // The check holds, then fades. A tap or Esc puts it away sooner; it never takes focus.
+  // The check holds, then fades. A tap or Esc puts it away sooner; it never takes focus. A tap counts once it finishes,
+  // its click: put away as the finger went down, the toast waiting behind the check came in and moved the page, so the
+  // release landed on something else.
   useEffect(() => {
     if (!check) return;
     if (check.leaving) {
@@ -83,11 +104,11 @@ export function ToastProvider(props: { children: ReactNode }) {
     const leave = () => setCheck((c) => c && { ...c, leaving: true });
     const timer = setTimeout(leave, CHECK_MS);
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && leave();
-    document.addEventListener('pointerdown', leave, true);
+    const stopTaps = onTaps(leave);
     document.addEventListener('keydown', onKey, true);
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('pointerdown', leave, true);
+      stopTaps();
       document.removeEventListener('keydown', onKey, true);
     };
   }, [check]);
@@ -95,13 +116,45 @@ export function ToastProvider(props: { children: ReactNode }) {
   useEffect(() => {
     // A toast waiting for the check isn't showing yet, so nothing puts it away.
     if (!current || check) return;
-    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click.
-    const away = (event: PointerEvent) => {
-      if (!(event.target as Element).closest?.('.toastact')) setCurrent(null);
-    };
-    document.addEventListener('pointerdown', away, true);
-    return () => document.removeEventListener('pointerdown', away, true);
+    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click. Once the tap finishes,
+    // on its click: on phone the toast holds space above the bottom bar, and put away as the finger went down, the page
+    // moved under it, so the release pressed whatever had moved there.
+    return onTaps((target) => {
+      if (!target.closest?.('.toastact')) setCurrent(null);
+    });
   }, [current, !!check]);
+
+  // A toast that takes another's place is the same element with a new message, so the mouse resting on it and focus on
+  // its Undo go on holding it. Focus is read afresh with each message, since a focused Undo that goes, or the toast
+  // going, sends no blur; and the mouse is let go with the toast, which sends no leave.
+  const showing = !!current && !check;
+  useLayoutEffect(() => {
+    if (!showing) {
+      setHeld((h) => (h.focus || h.hover ? { focus: false, hover: false } : h));
+      return;
+    }
+    if (current.focusUndo) undoEl.current?.focus();
+    const focus = !!toastEl.current?.contains(document.activeElement);
+    setHeld((h) => (h.focus === focus ? h : { ...h, focus }));
+  }, [current, showing]);
+
+  // The browser's own pointerenter and pointerleave, not React's. React makes its enter from a pointerout on what the
+  // mouse was over before, and when a change took that away, as Week takes away the card or button just pressed, the
+  // browser sends none: the mouse reaches the toast and React says nothing. WebKit reports a finger as a pointer that
+  // never leaves, so only a mouse holds it. Listening from before the toast is painted, for a mouse already where it shows.
+  useLayoutEffect(() => {
+    const el = toastEl.current;
+    if (!showing || !el) return;
+    const hover = (on: boolean) => (event: PointerEvent) => event.pointerType === 'mouse' && setHeld((h) => (h.hover === on ? h : { ...h, hover: on }));
+    const enter = hover(true);
+    const leave = hover(false);
+    el.addEventListener('pointerenter', enter);
+    el.addEventListener('pointerleave', leave);
+    return () => {
+      el.removeEventListener('pointerenter', enter);
+      el.removeEventListener('pointerleave', leave);
+    };
+  }, [showing]);
 
   const paused = held.focus || held.hover;
   useEffect(() => {
@@ -129,17 +182,15 @@ export function ToastProvider(props: { children: ReactNode }) {
         )}
         {current && !check && (
           <div
-            key={current.key}
+            ref={toastEl}
             className={current.undo ? 'toast withaction' : 'toast'}
             onFocus={() => setHeld((h) => ({ ...h, focus: true }))}
             onBlur={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget)) setHeld((h) => ({ ...h, focus: false }));
             }}
-            // WebKit reports a finger as a pointer that never leaves, so only a mouse holds it.
-            onPointerEnter={(e) => e.pointerType === 'mouse' && setHeld((h) => ({ ...h, hover: true }))}
-            onPointerLeave={(e) => e.pointerType === 'mouse' && setHeld((h) => ({ ...h, hover: false }))}
           >
-            <span>
+            {/* A new element for each message, so screen readers announce it even when it repeats the last. */}
+            <span key={current.key}>
               {current.message}
               {current.spoken && <span className="sr"> {current.spoken}</span>}
             </span>
@@ -147,7 +198,7 @@ export function ToastProvider(props: { children: ReactNode }) {
               <button
                 className="toastact"
                 type="button"
-                autoFocus={current.focusUndo}
+                ref={undoEl}
                 // Reached by Tab from a dialog's last control, Tab goes back there, either way.
                 onFocus={(e) => void (cameFrom.current = e.relatedTarget as HTMLElement | null)}
                 onKeyDown={(e) => {

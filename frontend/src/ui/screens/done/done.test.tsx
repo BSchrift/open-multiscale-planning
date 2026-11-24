@@ -1,12 +1,14 @@
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import { localToInstant } from '../../../core/dates';
-import { getRecord, outcomeId } from '../../../core/records';
+import { loadAnalyticsData, weekAnalytics } from '../../../core/analytics';
+import { instantMs, localToInstant } from '../../../core/dates';
+import { getRecord, listRecords, outcomeId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { BlockResult } from '../../../core/types';
 import type { Layout } from '../../app/registry';
 import { renderScreen } from '../../app/testing';
+import { EST_STEPS } from '../../components/EstimateSlider';
 
 afterEach(cleanup);
 
@@ -166,5 +168,93 @@ describe('Done', () => {
     await open();
     await userEvent.click(await screen.findByRole('button', { name: 'Draft the summary' }));
     expect(await screen.findByRole('dialog', { name: /Draft the summary/ })).toBeVisible();
+  });
+
+  describe('Add something you did', () => {
+    const field = () => screen.getByRole('textbox', { name: 'What you did' });
+    const added = async (db: Parameters<typeof listRecords>[0], title: string) => (await listRecords(db, 'task')).find((x) => x.title === title);
+
+    it('adds a one off finished now to today with Enter, and the toast’s Undo takes it away', async () => {
+      const t = await open();
+      await userEvent.click(await screen.findByRole('button', { name: 'Add something you did' }));
+      expect(field()).toHaveFocus();
+      await userEvent.type(field(), 'Called the plumber{Enter}');
+      expect(await screen.findByText('Added Called the plumber to Done on Thursday, Nov 12.')).toBeVisible();
+      await waitFor(() => expect(rows('Finished').at(-1)).toBe('5:40pmCalled the plumberOne off'));
+      expect(section('Totals')).toHaveTextContent('5 finished · 4h 30m worked');
+      // An ordinary finished one off, as any app shows one, with its finish logged as a tick logs it.
+      const task = (await added(t.db, 'Called the plumber'))!;
+      expect(task).toMatchObject({ kind: 'one_off', project_id: null, estimate_min: null });
+      expect(instantMs(task.done_at!)).toBe(Date.parse(NOW));
+      expect((await listRecords(t.db, 'task_completion')).filter((c) => c.task_id === task.id)).toHaveLength(1);
+      // The field has gone, and focus is back where it opens, for the next one.
+      expect(screen.queryByRole('textbox', { name: 'What you did' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Add something you did' })).toHaveFocus();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(rows('Finished')).not.toContain('5:40pmCalled the plumberOne off'));
+      expect(section('Totals')).toHaveTextContent('4 finished · 4h 30m worked');
+      expect((await getRecord(t.db, 'task', task.id))?.deleted_at).toBeTruthy();
+    });
+
+    it('on a day gone by, with the time it took: finished at the end of that day, after a block that long answered Done', async () => {
+      const t = await open('desktop', { day: WED });
+      const oneOffs = async () => weekAnalytics(await loadAnalyticsData(t.db), t.clock, '2026-11-09').time.rows.find((r) => r.name === 'One offs')?.delivered_min;
+      const before = await oneOffs();
+      await userEvent.click(await screen.findByRole('button', { name: 'Add something you did' }));
+      await userEvent.type(field(), 'Fixed the gate');
+      fireEvent.change(screen.getByRole('slider', { name: 'Time it took' }), { target: { value: String(EST_STEPS.indexOf(60)) } });
+      await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+      expect(await screen.findByText('Added Fixed the gate to Done on Wednesday, Nov 11.')).toBeVisible();
+      await waitFor(() => expect(rows('Finished')).toEqual(['6:10pmEmail the landlorddeletedOne off', '11:59pmFixed the gateOne off10:59pm to 11:59pm · 1h']));
+      expect(section('Totals')).toHaveTextContent('2 finished · 1h worked');
+      // Its hour counts in Analytics, as any block's does.
+      expect(await oneOffs()).toBe(before! + 60);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(rows('Finished')).toEqual(['6:10pmEmail the landlorddeletedOne off']));
+      expect(section('Totals')).toHaveTextContent('1 finished');
+      expect(section('Totals')).not.toHaveTextContent('worked');
+      expect(await oneOffs()).toBe(before);
+    });
+
+    it('on a day with nothing finished, adds the first, and focus comes back to the row as the list appears', async () => {
+      await open('desktop', { day: '2026-11-10' });
+      expect(await screen.findByText('Nothing finished on Tuesday')).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Add something you did' }));
+      await userEvent.type(field(), 'Took the car in{Enter}');
+      await waitFor(() => expect(rows('Finished')).toEqual(['11:59pmTook the car inOne off']));
+      expect(section('Totals')).toHaveTextContent('1 finished');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Add something you did' })).toHaveFocus());
+    });
+
+    it('today, keeps its block within the day when the time it took is longer than the day so far', async () => {
+      const t = await open('desktop');
+      await userEvent.click(await screen.findByRole('button', { name: 'Add something you did' }));
+      await userEvent.type(field(), 'Drove to the coast');
+      fireEvent.change(screen.getByRole('slider', { name: 'Time it took' }), { target: { value: String(EST_STEPS.indexOf(960)) } });
+      t.clock.set(at('03:00'));
+      await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+      await waitFor(() => expect(rows('Finished')[0]).toBe('3amDrove to the coastOne off12am to 3am · 16h'));
+    });
+
+    it('on phone, Esc puts the field away with nothing added, an empty name adds nothing, and Enter adds', async () => {
+      const t = await open('phone');
+      await userEvent.click(await screen.findByRole('button', { name: 'Add something you did' }));
+      await userEvent.type(field(), 'Booked the dentist{Escape}');
+      expect(screen.queryByRole('textbox', { name: 'What you did' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Add something you did' })).toHaveFocus();
+      expect(await added(t.db, 'Booked the dentist')).toBeUndefined();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add something you did' }));
+      expect(field()).toHaveValue('');
+      await userEvent.type(field(), '   {Enter}');
+      expect(field()).toBeVisible();
+      expect(rows('Finished')).toHaveLength(4);
+      await userEvent.clear(field());
+      await userEvent.type(field(), 'Booked the dentist{Enter}');
+      expect(await screen.findByText('Added Booked the dentist to Done on Thursday, Nov 12.')).toBeVisible();
+      await waitFor(() => expect(rows('Finished').at(-1)).toBe('5:40pmBooked the dentistOne off'));
+    });
   });
 });

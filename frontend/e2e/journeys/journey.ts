@@ -55,7 +55,7 @@ export async function tab(page: Page, phone: boolean, name: string) {
   await expect(pane(page, name).getByRole('heading').first()).toBeVisible();
 }
 
-/** Sets an estimate or aim slider to a step: 15-minute steps to 2h, so 4 is 1h and 6 is 1h 30m. */
+/** Sets an estimate or aim slider to a step: 5-minute steps to 2h, so 12 is 1h and 18 is 1h 30m. */
 export async function slide(slider: Locator, step: number, text: string) {
   await slider.fill(String(step));
   await expect(slider).toHaveAttribute('aria-valuetext', text);

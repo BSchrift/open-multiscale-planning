@@ -4,8 +4,8 @@
 // to place on the left, and the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning
 // from Choose another time waits on the grid with Place here above it, and the week arrows carry it to another week.
 
-import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, localMinutes, today, weekStart } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, DRAWN_DAY, GRID, otherOffers, slotNotes } from '../../../core/slots';
@@ -23,15 +23,17 @@ import { planningWeekOf } from '../../../core/planning';
 import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
-import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
+import { dayName, dragCard, slotRange } from '../../components/weekgrid';
+import { HoldWeekGrid } from '../../components/weekgrid/HoldWeekGrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
-import type { LaneItem, Placeable } from './data';
+import type { AddRow, LaneItem, Placeable } from './data';
 import { LaneActions, LaneCard, laneCount, laneWords } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { TaskPopupFor } from '../task';
@@ -66,6 +68,8 @@ export function DesktopWeek(props: WeekProps) {
   const [selected, setSelected] = useState<string | null>(props.place);
   const [draft, setDraft] = useState<Slot | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // Landing on placed blocks asks first: keep both, replace them, or leave it.
+  const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   // A task's block made shorter asks what about the rest, until answered or another block is chosen.
   const [split, setSplit] = useState<Shortened | null>(null);
   const [moved, setMoved] = useState<string | null>(null);
@@ -130,6 +134,10 @@ export function DesktopWeek(props: WeekProps) {
     setAsk(null);
     setSplit(null);
   };
+  // The same function on every render, so the list's rows draw again only when they change.
+  const chosen = useRef(choose);
+  chosen.current = choose;
+  const chooseLive = useCallback((id: string | null) => chosen.current(id), []);
   const stopEditing = () => {
     choose(null);
     setMoved(null);
@@ -138,31 +146,44 @@ export function DesktopWeek(props: WeekProps) {
     props.setEditing(false);
   };
 
-  const onChange = (id: string, slot: Slot) => {
+  const onChange = async (id: string, slot: Slot) => {
     if (id === 'draft') return setDraft(slot);
     if (id === PLANNING) return setPlanAt(slot);
     const b = model.blocks.find((x) => x.id === id);
     if (!b) return;
+    // A day with another of a practice's sessions refuses it before anything asks. Cancelled, the save resolves to
+    // nothing, and the grid puts the block back.
+    const refused = !!b.practice_id && slot.date !== b.date && model.blocks.some((x) => x.id !== b.id && x.practice_id === b.practice_id && x.date === slot.date);
+    const { go, off } = refused ? { go: true, off: [] } : await landing(b.title, slot, id, b);
+    if (!go) return undefined;
     // A session moved to another day is for this week only, so nothing asks about future weeks.
     if (b.practice_id && slot.date !== b.date) {
       setAsk(null);
-      return act.moveSessionDay(b, slot, model.blocks);
+      const moved = await act.moveSessionDay(b, slot, model.blocks);
+      if (moved) takeOff(off);
+      return moved;
     }
-    const saved = act.move(id, slot);
+    const saved = await act.move(id, slot);
+    // A failed save resolves to nothing, and the grid puts the block back; nothing else changes.
+    if (!saved) return undefined;
     setMoved(id);
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
+    takeOff(off);
     setSplit(shortened(b, slot, { task: isTaskBlock(b.kind), underWay: !!b.now, week: data.week, title: b.title, open: split }));
     return saved;
   };
   const place = async (what: Placeable, slot: Slot) => {
-    if (await act.place(what, slot)) {
+    const { go, off } = await landing(what.title, slot);
+    if (go && (await act.place(what, slot))) {
+      takeOff(off);
       choose(null);
       props.donePlacing();
     }
   };
-  const placeItem = (item: LaneItem, slot: Slot) => {
+  const placeItem = async (item: LaneItem, slot: Slot) => {
     setOpenItem(null);
-    void act.place(item, slot);
+    const { go, off } = await landing(item.title, slot);
+    if (go && (await act.place(item, slot))) takeOff(off);
   };
   const toggleItem = (id: string) => {
     // Planning opens its times, as it does on Today.
@@ -197,16 +218,20 @@ export function DesktopWeek(props: WeekProps) {
   const opened = openBlock ? data.blocks.find((b) => b.id === openBlock) : undefined;
   const popRow = pop && data.blocks.find((b) => b.id === pop.block);
   const popPlaced = pop && model.blocks.find((b) => b.id === pop.block);
-  // As on phone: from now on, this week or later, it can come off; this week, it moves while editing.
+  // As on phone: from now on, this week or later, it can come off; this week, it moves, and Choose a time places it while
+  // editing.
   const popActions =
     popPlaced && offset >= 0 && !popPlaced.past
       ? {
           onRemove: () => void act.remove(popPlaced.id, popPlaced.title),
           ...(isThis
             ? {
-                onMove: () => {
-                  moving.current = popPlaced.id;
-                  props.setEditing(true);
+                move: {
+                  ctx: model.ctx,
+                  choose: () => {
+                    moving.current = popPlaced.id;
+                    props.setEditing(true);
+                  },
                 },
               }
             : {}),
@@ -296,24 +321,10 @@ export function DesktopWeek(props: WeekProps) {
                 <div key={g.name} className="stack8">
                   <h3>{g.name}</h3>
                   <ol className="schedlist">
-                    {g.rows.map((r) => {
-                      const on = r === cur;
-                      const last = r.placed[r.placed.length - 1];
-                      const sub = last
-                        ? `${dayName(last.date).slice(0, 3)} ${formatTimeOfDay(last.start)}${r.placed.length > 1 ? `, and ${r.placed.length - 1} more` : ''}`
-                        : formatMinutes(r.left);
-                      return (
-                        <li key={r.task.id} className={`schedrow${on ? ' cur' : ''}${r.work.kind === 'one_off' ? ' is-maint' : ''}`}>
-                          <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} aria-expanded={on} onClick={() => choose(on ? null : r.task.id)}>
-                            <span className="schedmark" aria-hidden="true">
-                              <Icon name={on ? 'chevron-right' : last ? 'done' : 'plus'} size={16} />
-                            </span>
-                            <span>
-                              <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
-                              {!on && <span className="subline small">{sub}</span>}
-                            </span>
-                          </button>
-                          {on && draft && (
+                    {g.rows.map((r) =>
+                      r === cur ? (
+                        <AddRowItem key={r.task.id} row={r} on onChoose={chooseLive}>
+                          {draft && (
                             <Placing
                               context={r.context}
                               draft={draft}
@@ -325,9 +336,11 @@ export function DesktopWeek(props: WeekProps) {
                               onCancel={() => choose(null)}
                             />
                           )}
-                        </li>
-                      );
-                    })}
+                        </AddRowItem>
+                      ) : (
+                        <AddRowItem key={r.task.id} row={r} on={false} onChoose={chooseLive} />
+                      ),
+                    )}
                   </ol>
                 </div>
               ))}
@@ -430,7 +443,7 @@ export function DesktopWeek(props: WeekProps) {
                 )}
               </section>
             )}
-            <WeekGrid
+            <HoldWeekGrid
               ctx={model.ctx}
               blocks={gridBlocks}
               info={model.info}
@@ -440,6 +453,8 @@ export function DesktopWeek(props: WeekProps) {
               ghosts={ghosts}
               editing={editing || !!plan}
               lockPast={editing || !!plan}
+              // Hold to create: never while a block is open or being placed, or a card's suggested times are showing.
+              holdOff={!!plan || !!drafted || !!openBlock || !!openItem}
               lane={model.unscheduled.flatMap((x) =>
                 // The planning being placed is the block, not a card waiting above its days.
                 x.dates && x.id !== props.place
@@ -478,6 +493,7 @@ export function DesktopWeek(props: WeekProps) {
                 else if (!editing) setOpenBlock(openBlock === id ? null : id);
               }}
             />
+            {asking}
             {pop && <TaskPopupFor id={pop.task} close={() => setPop(null)} block={popRow && <BlockSection block={popRow} {...popActions} />} />}
             {!editing && (
               <div className="legend wklegend">
@@ -513,6 +529,31 @@ export function DesktopWeek(props: WeekProps) {
     </div>
   );
 }
+
+/**
+ * A task in the list to add to the week, open with what's in it when it's the one being placed. Memoised: a long
+ * history lists hundreds, and Week draws again for every toast and every change elsewhere, while a row changes only
+ * with Week's data.
+ */
+const AddRowItem = memo(function AddRowItem(props: { row: AddRow; on: boolean; onChoose(id: string | null): void; children?: ReactNode }) {
+  const { row: r, on } = props;
+  const last = r.placed[r.placed.length - 1];
+  const sub = last ? `${dayName(last.date).slice(0, 3)} ${formatTimeOfDay(last.start)}${r.placed.length > 1 ? `, and ${r.placed.length - 1} more` : ''}` : formatMinutes(r.left);
+  return (
+    <li className={`schedrow${on ? ' cur' : ''}${r.work.kind === 'one_off' ? ' is-maint' : ''}`}>
+      <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} aria-expanded={on} onClick={() => props.onChoose(on ? null : r.task.id)}>
+        <span className="schedmark" aria-hidden="true">
+          <Icon name={on ? 'chevron-right' : last ? 'done' : 'plus'} size={16} />
+        </span>
+        <span>
+          <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
+          {!on && <span className="subline small">{sub}</span>}
+        </span>
+      </button>
+      {props.children}
+    </li>
+  );
+});
 
 /**
  * A task or planning being placed: where its block sits, what's off about that spot, and Place here. left: a task's

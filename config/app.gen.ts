@@ -12,7 +12,8 @@ export const protocol = {
   },
   "records": {
     "idPattern": "^[\\x21-\\x7e]{1,200}$",
-    "maxNotesChars": 20000
+    "maxNotesChars": 20000,
+    "maxTitleChars": 2000
   },
   "clock": {
     "pattern": "^(\\d{13})-(\\d{6})-([\\x21-\\x7e]+)$",
@@ -46,6 +47,9 @@ export const protocol = {
       "application/vnd.oasis.opendocument.spreadsheet",
       "application/vnd.oasis.opendocument.presentation"
     ]
+  },
+  "account": {
+    "maxSignInAgeMinutes": 10
   }
 } as const;
 
@@ -82,7 +86,7 @@ export const envs = {
     "stack": {
       "terminationProtection": true,
       "canaryPercent": 10,
-      "canaryMinutes": 90,
+      "canaryMinutes": 5,
       "throttleReleaseAlarm": true,
       "performanceDashboard": false
     },

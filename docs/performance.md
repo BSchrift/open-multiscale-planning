@@ -13,11 +13,18 @@ reports, as `make test-deployed` does on staging.
 | An edit saved | Web | 50 ms |
 | Today query | Web, Mac, iPhone Simulator | 100 ms |
 | Week query | Web, Mac, iPhone Simulator | 100 ms |
+| Week figures (report only) | Web, Mac, iPhone Simulator | 100 ms |
 | Pick estimate drag, slowest step (report only) | Web, Mac | 50 ms |
 | Done query (report only) | Web, Mac, iPhone Simulator | 100 ms |
+| Notes list (report only) | Web, Mac, iPhone Simulator | 100 ms |
+| Notes search (report only) | Web, Mac, iPhone Simulator | 100 ms |
 
 `frontend/scripts/history-report.ts` holds the same budgets and checks every run against them. A report-only budget is
 shown in the report but never fails a run, missed or not measured, until it has a baseline of its own.
+
+Week figures is what Week works out from its query before it draws (`weekModel` in `frontend/src/ui/screens/week/data.ts`),
+in the page, which it does again on every change. Until 19 November 2026 it worked out how much was pushed back lately
+from every block in the history, four times over, which `src/platform/history-checks.test.ts` now keeps from coming back.
 
 ## Baseline
 
@@ -51,7 +58,10 @@ What the runs showed beside the numbers:
   96 ms, the first after the sync slower than the rest. The edit budget is met only on a quiet Mac, by 0.2 ms.
 - **Today and Week** both read whole tables on every change, as the `shortcut:` comments in
   `frontend/src/ui/screens/today/data.ts` and `frontend/src/ui/screens/week/data.ts` say: every task, project, pick and
-  week plan, and for Week the analytics data too.
+  week plan, and for Week the analytics data too. Every query on a screen still mounted reads again on every change;
+  since 19 November 2026 a read that finds what the last one did draws nothing (`useQuery` in
+  `frontend/src/ui/app/store.tsx`), where before each one drew its screen again, which on a long history took a
+  slowed-down browser seconds for one change.
 
 The baseline run took 5 minutes 11 seconds: about a minute to start the stack and build the app, a minute and a half
 to seed the account (35 s) and time the browser and the Mac app, and under three for the iPhone, two of them its first
@@ -99,10 +109,18 @@ device's database, as a sync would apply it, so no sync is timed but `sync.first
 - **Empty:** `emptyAccount(now)`, a new account past first-run setup.
 - **One year:** `historyChanges({ weeks: 52, now })`, the history-scale account's weekly mix over 52 weeks, about 7,800
   records, ending when the run starts, so Today and Week have this week's blocks.
-- **Five years:** `historyChanges({ weeks: 260, now })`, the same 38,836 records as the history-scale test, ending now.
+- **Five years:** `historyChanges({ weeks: 260, now })`, the same 41,685 records as the history-scale test, ending now.
 
 The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
 perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
+
+Their records carry no expiry, as an account's from before retention don't. So the first launch on them works out
+every record's expiry and removes what retention no longer keeps (`core/expiry.ts`): a fifth of a year's records, and
+over half of five years', which leaves about 18,500. Today stays empty until that's done: about 35 seconds in CI's
+desktop Chromium on five years, and over two minutes with the phone's CPU slowed. A device does that once, the first
+time it launches with records from before retention, so it isn't a KPI. The runner launches each build once on the data
+at full speed and waits for a record that launch removes to be gone (`openLaunched` in `e2e/perf/harness.ts`), and the
+KPIs time the actions and launches after it, as the Mac app's do.
 
 ### The runner
 
@@ -178,7 +196,31 @@ rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more 
 baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
 in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
 
-**Results** go to the `perf-data` branch, which only the main and nightly workflows write (`scripts/perf-data.sh`):
+**The iPhone** (`.github/workflows/perf-ios.yml`, `scripts/test-perf-ios.sh`): nightly at 05:00 UTC when `frontend/`
+changed since the last run, and on a PR when someone adds the `perf-ios` label, never on every PR. `PerfUITests`
+loads a year of history from the test page as a sync would, launches the app 5 times (the first after install cold,
+the rest warm, each from the test's clock to Today interactive on the page's), then captures and goes through the
+screens 30 times each and comes back to the app 5 times. The app keeps its measures where the test page reads them
+back, since XCUITest can't read the app's page: a debug switch the test page sets, which nothing else does. The app's
+peak memory and memory warnings come from the diagnostics plugin's report of that session, and the web view's peak from
+the Mac's side, where the Simulator's processes run (its resident size, near enough its footprint). Then the same on
+an iPhone SE (3rd generation) Simulator, for its small screen and older WebKit; a Simulator runs at the Mac's speed,
+so it's not a slow phone. The nightly's results go to `perf-data`.
+
+**Once a week** (`.github/workflows/perf-mac.yml`, Sunday at 06:00 UTC): the Mac app's KPIs on a macOS runner, 200
+samples and 20 cold and warm starts after emptying the file cache, set beside the Linux numbers in main's baseline in
+the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25
+minutes, 60 at most.
+
+**Staging, each night main moved**, in the release pipeline's nightly run before its suites: the request mix the
+per-route targets are for (`TestNightlyRequestMix` in the integration suite, which a deployment runs only with `MULTISCALE_REQUEST_MIX=1` and the local suite always): 10
+pushes of 99 records, 10 pulls of the two pages they make, 20 telemetry batches, 20 calls to `/files/usage` and 5 to
+`/calendar/refresh`, as the test user, whose records it then empties and deletes as every test does. Then sync
+between two browsers against staging as that user (`PERF_SYNC=staging scripts/test-perf.sh`), whose `sync.send`,
+`sync.push` and `sync.pull` go straight to the dashboard as a staging run, since that run can't write to `perf-data`.
+Neither stops the suites. Together they add about five minutes to the nightly.
+
+**Results** go to the `perf-data` branch, which only the scheduled and main performance workflows write (`scripts/perf-data.sh`):
 one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
 `baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The
 targets stay here, in `config/perf.ts` and this file.
@@ -228,15 +270,17 @@ it against staging, and its own user there.
 ending on a Wednesday noon in Chicago, 4 November 2026. Each week has about 35 time blocks and their 35 answers, 40
 tasks (20 for projects, 10 one offs with now and then a repeating one, and 10 Inbox captures, sorted later or still
 waiting), 20 picks, 10 finishes of repeating tasks, and 10 of a week plan, a project, its 6 milestones and 2 goals, time
-off, practices or calendars. One settings record ends it. That's 38,836 records, 7,747 of them (20%) deleted, at 400
-bytes each on average, measured as the sync API does: a record's fields with their clocks, as JSON. They're seeded in
+off, practices or calendars, and 10 notes: most 50 to 300 characters, one in fifty a full 20,000, a tenth with a link.
+One settings record ends it. That's 41,685 records, 8,301 of them (20%) deleted, at 423 bytes each on average, measured
+as the sync API does: a record's fields with their clocks, as JSON. The notes came on 17 November 2026, from randomness
+of their own, so the 38,836 records before them are unchanged. They're seeded in
 the order they were last written, oldest first and settings last, so a first sync brings them down in that order too.
 
 **Seeding** goes through the sync API as a device does, in batches of up to 99 records and 4 MB, paced on a deployment
 to 500 write units a second, half of what one user's partition takes. Every record has a fixed id and fixed clocks, so a
 rerun writes nothing and the account never grows. Locally the stack starts empty and is seeded each run, unpaced. It
 sends as an up-to-date app does, and leaves out the deleted records whose deleted period has passed, since the server
-drops those ([retention.md](retention.md)). That leaves about 31,000 records with few or none deleted: locally only
+drops those ([retention.md](retention.md)). That leaves about 33,500 records with few or none deleted: locally only
 those deleted in the last 30 days, and on staging, whose period is minutes, none. The rest carry no expiry, as records
 from before retention do, so the account still spans five years.
 
@@ -249,6 +293,12 @@ iPhone app is erased first.
 **An edit saved** is Notify at block start in Settings, turned off and on twice, the median of the four: from the click
 until the edit's transaction has committed in the web app's database worker, which keeps the database on the browser's
 private file system (OPFS), so a committed change is on disk.
+
+**Notes list and Notes search** are read on each device's own database after its first sync, as Today, Week and Done
+are, the median of five runs: the list is what the Notes screen loads, every live note with its attachments counted, and
+search is a keystroke's work, the JavaScript filter over that list, ignoring case and accents. Both are report only until
+they have a baseline. Where sql.js runs, every edit rewrites the whole database to IndexedDB, and notes, never purged
+and some 20,000 characters long, make that file larger for every edit.
 
 **Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. **Done** is
 `loadDoneDay` for the account's last day, which reads only that day's records, through indexes. Each is the median

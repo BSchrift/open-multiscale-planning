@@ -171,6 +171,8 @@ struct SpentBar: View {
 /// The countdown to the block's end, which iOS keeps ticking without waking the widget, and stops where a pause did.
 struct Countdown: View {
     let state: WidgetState
+    /// At the accessibility sizes: no "left", and the number narrows rather than be cut short.
+    var compact = false
     @Environment(\.palette) private var palette
     @Environment(\.drawnStill) private var still
 
@@ -187,8 +189,9 @@ struct Countdown: View {
                 .font(Type.countdown)
                 .foregroundStyle(state.mode == .paused ? palette.ink3 : palette.ink)
                 .lineLimit(1)
+                .minimumScaleFactor(compact ? 0.5 : 1)
                 .widgetAccentable()
-                Text("left").font(Type.caption).foregroundStyle(palette.ink2).lineLimit(1)
+                if !compact { Text("left").font(Type.caption).foregroundStyle(palette.ink2).lineLimit(1) }
             }
         }
     }
@@ -351,15 +354,17 @@ struct AnswerBadge: View {
 @available(iOS 17.0, macOS 14.0, *)
 /// A message in place of the day: an icon, what's the matter, and what to do.
 struct Message: View {
-    let icon: IconName
+    /// None at the accessibility sizes, where the words need the room.
+    let icon: IconName?
     let head: String
     var sub: String? = nil
     @Environment(\.palette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Icon(name: icon, size: 20).foregroundStyle(palette.ink3)
-            Text(head).font(Type.heading).foregroundStyle(palette.ink).fixedSize(horizontal: false, vertical: true)
+            if let icon { Icon(name: icon, size: 20).foregroundStyle(palette.ink3) }
+            Text(head).font(Type.heading).foregroundStyle(palette.ink).lineLimit(icon == nil ? 4 : nil).minimumScaleFactor(icon == nil ? 0.7 : 1)
+                .fixedSize(horizontal: false, vertical: icon != nil)
             if let sub { Text(sub).font(Type.caption).foregroundStyle(palette.ink2).fixedSize(horizontal: false, vertical: true) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

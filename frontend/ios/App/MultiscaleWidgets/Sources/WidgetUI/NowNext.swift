@@ -12,11 +12,15 @@ public struct NowNextView: View {
     let size: Size
     @Environment(\.palette) private var palette
     @Environment(\.redactionReasons) private var redaction
+    @Environment(\.dynamicTypeSize) private var textSize
 
     public init(state: WidgetState, size: Size) {
         self.state = state
         self.size = size
     }
+
+    /// The accessibility text sizes, where a widget keeps only its title and the one thing about it that matters now.
+    private var large: Bool { textSize.isAccessibilitySize }
 
     /// A locked phone with Lock Screen widget access off hides names, and VoiceOver then reads the placeholders.
     private var redacted: Bool { redaction.contains(.privacy) }
@@ -28,23 +32,30 @@ public struct NowNextView: View {
 
     public var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            ViewThatFits(in: .vertical) {
-                main(detail: .full)
-                main(detail: .noBar)
-                main(detail: .least)
-                // Only when even the least won't fit, at the very largest sizes, does the text stop growing.
-                main(detail: .least).dynamicTypeSize(...DynamicTypeSize.accessibility2)
-                main(detail: .least).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            Group {
+                if large {
+                    accessibleMain
+                } else {
+                    ViewThatFits(in: .vertical) {
+                        main(detail: .full)
+                        main(detail: .noBar)
+                        main(detail: .least)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(state.nowNextLabel(medium: size == .medium, redacted: redacted))
             if size == .medium, let side = sideKind {
-                ViewThatFits(in: .vertical) {
-                    self.side(side, withNext: true)
-                    self.side(side, withNext: false)
-                    self.side(side, withNext: false).dynamicTypeSize(...DynamicTypeSize.accessibility2)
-                    self.side(side, withNext: false).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                Group {
+                    if large {
+                        self.side(side, withNext: false, compact: true)
+                    } else {
+                        ViewThatFits(in: .vertical) {
+                            self.side(side, withNext: true)
+                            self.side(side, withNext: false)
+                        }
+                    }
                 }
                 .frame(width: side == .wide ? 150 : 128)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -115,6 +126,42 @@ public struct NowNextView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// At the accessibility sizes: the title on up to two lines, then the countdown or what's next, and nothing else. The
+    /// text stops growing at AX1, the largest at which a title and a countdown both fit a small widget whole.
+    @ViewBuilder
+    private var accessibleMain: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch state.mode {
+            case .now, .paused:
+                title(state.current!, lines: 2).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Countdown(state: state, compact: true)
+            case .start:
+                title(state.current!, lines: 2).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Text("Not started").font(Type.meta).foregroundStyle(palette.ink2).lineLimit(1).minimumScaleFactor(0.7)
+            case .free:
+                let n = state.nextToday!
+                title(n, current: false, lines: 2).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Text(state.minutesToNext.map { "Starts in \($0) min" } ?? "Starts at \(time(n.start))")
+                    .font(Type.meta).foregroundStyle(palette.ink2).lineLimit(1).minimumScaleFactor(0.6)
+            case .empty:
+                Message(icon: nil, head: "Nothing planned today")
+            case .finished:
+                Message(icon: nil, head: "Nothing else planned today")
+            case .signedOut:
+                Message(icon: nil, head: "Sign in to see your day")
+            case .noData:
+                Message(icon: nil, head: "Open Multiscale once to show your day here")
+            case .tooNew:
+                Message(icon: nil, head: "Open Multiscale to update this widget")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+    }
+
     private func title(_ block: Snapshot.Block, current: Bool = true, lines: Int) -> some View {
         Words(text: name(block, current: current).shown)
             .font(Type.heading)
@@ -155,7 +202,26 @@ public struct NowNextView: View {
     }
 
     @ViewBuilder
-    private func side(_ side: Side, withNext: Bool) -> some View {
+    private func side(_ side: Side, withNext: Bool, compact: Bool = false) -> some View {
+        if compact {
+            // At the accessibility sizes, only the button or the link, at the most AX1.
+            VStack {
+                Spacer(minLength: 0)
+                switch side {
+                case .button: if let button = state.button { ActionButton(button: button, name: buttonName(button)) }
+                case .tomorrow: LinkButton(title: "Open Today", url: WidgetLink.today, filled: false)
+                case .wide: LinkButton(title: "Plan your week", url: WidgetLink.plan, filled: true)
+                case .signIn: LinkButton(title: "Sign in", url: WidgetLink.today, filled: true)
+                }
+            }
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        } else {
+            fullSide(side, withNext: withNext)
+        }
+    }
+
+    @ViewBuilder
+    private func fullSide(_ side: Side, withNext: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             switch side {
             case .button:

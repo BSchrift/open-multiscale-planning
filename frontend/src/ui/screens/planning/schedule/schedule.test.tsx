@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../../core/dates';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { openPlanning } from '../testing';
-import { holdDown } from '../../../app/testing';
+import { holdDown, holdTimers, pass } from '../../../app/testing';
 import type { HarnessOptions } from '../../../app/testing';
 
 afterEach(cleanup);
@@ -814,7 +814,8 @@ describe('Schedule on phone', () => {
 });
 
 describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s', (layout) => {
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  beforeEach(holdTimers);
+  afterEach(() => void vi.useRealTimers());
   const draft = () => document.querySelector<HTMLElement>('.holddraft');
   const pointerType = layout === 'phone' ? 'touch' : 'mouse';
   // jsdom has no layout. Desktop: Thursday's column on the editing grid, from 6am at 40px an hour. Phone: the day shown,
@@ -823,7 +824,7 @@ describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s'
   const y = (minutes: number) => ((minutes - 360) * (layout === 'phone' ? 48 : 40)) / 60 + 1;
   const hold = async (minutes: number) => {
     fireEvent.pointerDown(target(), { clientX: 20, clientY: y(minutes), button: 0, pointerType, pointerId: 1 });
-    await wait(450);
+    await pass(450);
   };
   const letGo = (minutes: number) => fireEvent.pointerUp(window, { clientX: 20, clientY: y(minutes), pointerType, pointerId: 1 });
   // One task, its hour already on Tuesday morning: nothing waits to be placed.

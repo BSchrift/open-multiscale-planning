@@ -382,8 +382,11 @@ function repoOf(commits: { at: number; files?: Record<string, string | null> }[]
   return { dir, hashes, checkouts: () => run(['worktree', 'list']).split('\n').length };
 }
 const macBuild = { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [], downloadsOrigin: null };
+// A test here makes repositories and checks out commits, a dozen or more git and Node processes, which take far longer
+// than vitest's five seconds on a busy Mac.
+const MAKES_REPOS = { timeout: 30_000 };
 
-describe('iosShellAt', () => {
+describe('iosShellAt', MAKES_REPOS, () => {
   it("hashes a commit's iPhone native code as that commit's build named it, and leaves no checkout behind", () => {
     const repo = repoOf([{ at: 1794000000 }]);
     expect(iosShellAt(repo.dir, repo.hashes[0]!)).toBe(shellHashes(join(repo.dir, 'frontend'), macBuild).ios);
@@ -415,7 +418,7 @@ describe('iosShellAt', () => {
   });
 });
 
-describe('builtFrom', () => {
+describe('builtFrom', MAKES_REPOS, () => {
   it('finds the main commit a TestFlight build came from, with its iPhone native code', () => {
     const repo = repoOf([{ at: 1794000000 }, { at: 1794000100, files: { 'frontend/ios/App/App/AppDelegate.swift': 'two\n' } }]);
     expect(builtFrom(repo.dir, 1794000000, 'main')).toEqual({ commit: repo.hashes[0], shell: iosShellAt(repo.dir, repo.hashes[0]!) });

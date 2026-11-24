@@ -669,6 +669,20 @@ describe('createHttpSend', () => {
     await expect(send({ cursor: 0, changes: [] })).rejects.toMatchObject({ code: 'offline' });
   });
 
+  it('counts each request answered, with what it sent and received, for telemetry', async () => {
+    const counted: number[] = [];
+    const respond = (response: Response) =>
+      createHttpSend({ apiUrl: 'https://api.example.test', auth: auth(), fetch: async () => response }, (bytes) => counted.push(bytes))({ cursor: 3, changes: [] });
+    await respond(json(200, body));
+    await expect(respond(json(500, { error: 'anything' }))).rejects.toMatchObject({ code: 'error' });
+    const sent = JSON.stringify({ cursor: 3, changes: [] }).length;
+    expect(counted).toEqual([sent + JSON.stringify(body).length, sent + JSON.stringify({ error: 'anything' }).length]);
+    // One that never reached the server sent nothing.
+    const offline = createHttpSend({ apiUrl: 'https://api.example.test', auth: auth(), fetch: () => Promise.reject(new TypeError('fetch failed')) }, (bytes) => counted.push(bytes));
+    await expect(offline({ cursor: 0, changes: [] })).rejects.toMatchObject({ code: 'offline' });
+    expect(counted).toHaveLength(2);
+  });
+
   it('reports the clock refusal by its code, and any other failure as a server error', async () => {
     const respond = (response: Response) =>
       createHttpSend({ apiUrl: 'https://api.example.test', auth: auth(), fetch: async () => response })({ cursor: 0, changes: [] });

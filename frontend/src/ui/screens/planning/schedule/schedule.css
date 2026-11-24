@@ -4,6 +4,8 @@
 [data-layout] .schlink { color: var(--accent-text); }
 [data-layout] .schday { margin-top: var(--space-1); }
 [data-layout='phone'] .schlen { flex-wrap: nowrap; }
+/* A placed task's three choices sit two to a row, so none is squeezed onto three lines. */
+[data-layout='phone'] .schacts > .btn.grow { flex: 1 1 40%; }
 [data-layout='phone'] .schlen > label, [data-layout='phone'] .schlen > span { flex: none; }
 [data-layout='phone'] .schlen > input { flex: 1; min-width: 0; min-height: 44px; }
 [data-layout='phone'] .schmark { flex: none; width: 20px; text-align: center; }

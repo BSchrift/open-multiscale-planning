@@ -191,12 +191,13 @@ test("a past week can be read but not changed: its blocks don't move, open their
     await expect(b).toBeVisible();
     await b.click();
   }
-  // Its task opens, with how the block went, and nothing in the block's section to press or slide.
+  // Its task opens, with how the block went, and nothing in the block's section to change the block: only Mark done,
+  // for its task, which is still open.
   const popup = page.getByRole('dialog', { name: 'Draft the summary' });
   const section = popup.getByRole('region', { name: 'Time block' });
   await expect(section.getByText('Tue Oct 27, 10am to 11am')).toBeVisible();
   await expect(section.getByText('Done', { exact: true })).toBeVisible();
-  await expect(section.getByRole('button')).toHaveCount(0);
+  await expect(section.getByRole('button')).toHaveText(['Mark done']);
   await expect(section.getByRole('slider')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`week-past-${info.project.name}.png`) });
   await popup.getByRole('button', { name: 'Cancel' }).click();

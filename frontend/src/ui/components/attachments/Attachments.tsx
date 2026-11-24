@@ -297,6 +297,8 @@ function photoLine(a: Attachment, state: UploadState | null, local: boolean, zon
       return { text: `Waiting to upload, from ${formatTime(state.from, zone)}` };
     case 'full':
       return { text: 'Not uploaded: storage full', alert: true };
+    case 'tooMany':
+      return { text: `Not uploaded: more than ${MAX_PER_TASK} attachments here. Remove one, then retry.`, alert: true };
     case 'refused':
       return { text: 'Not uploaded', alert: true };
     default:
@@ -377,7 +379,7 @@ function AttachmentRow(props: { attachment: Attachment; onRemove(): void }) {
         )}
         <span className={`small ${line.alert ? 'attachalert' : 'quiet'}`}>{problem || line.text}</span>
       </span>
-      {state?.kind === 'full' && files && (
+      {(state?.kind === 'full' || state?.kind === 'tooMany') && files && (
         <button className="link small" type="button" aria-label={`Retry uploading ${a.name}`} onClick={() => void files.retry(a.id)}>
           Retry
         </button>

@@ -84,7 +84,7 @@ func newEnv(t *testing.T) *env {
 		Uploads:  &files.PutSigner{Endpoint: srv.URL + "/bucket", Region: "us-west-2", Credentials: credentials.StaticCredentialsProvider{Value: creds}},
 		FilesURL: srv.URL + "/edge", KeyID: "K1", Key: files.StaticKey{Signer: key},
 		Limits: files.Limits{
-			MaxFileBytes: 1000, MaxIDsPerDownload: 4, ContentTypes: []string{"image/jpeg", "image/png", "application/pdf"},
+			MaxFileBytes: 1000, MaxPerTask: 10, MaxIDsPerDownload: 4, ContentTypes: []string{"image/jpeg", "image/png", "application/pdf"},
 			DefaultQuotaBytes: 2500, UploadsPerHour: 4, DownloadBytesPerHour: 3000,
 		},
 		Now: clock,
@@ -325,6 +325,43 @@ func TestAskingAgainSignsAFreshLinkWithoutCountingTwice(t *testing.T) {
 	e.attach("abc", "a1", []byte("other photo"))
 	_, err := e.service.GrantUpload(context.Background(), "abc", "a1")
 	refusal(t, err, http.StatusConflict, "attachment_changed")
+}
+
+// A task or a note takes as many attachments as config/protocol.yaml allows, links among them, as the apps count them.
+// One past that, as two devices adding at once can make, gets no file until another is removed, while one already
+// granted still gets a fresh link.
+func TestATaskTakesOnlySoManyAttachments(t *testing.T) {
+	e := newEnv(t)
+	e.service.Limits.MaxPerTask = 3
+	ctx := context.Background()
+	e.attach("abc", "link", nil, "kind", "link", "url", "https://example.com")
+	e.attach("abc", "a1", []byte("one"))
+	e.attach("abc", "a2", []byte("two"))
+	// Not another task's, a removed or expired one, or another person's.
+	e.attach("abc", "elsewhere", []byte("x"), "task_id", "t2")
+	e.attach("abc", "removed", []byte("x"), "deleted_at", "2030-06-01T10:00:00Z")
+	e.attach("abc", "expired", []byte("x"), "expires_at", "2030-06-01T10:00:00Z")
+	e.attach("other", "theirs", []byte("x"))
+	e.grant("abc", "a1")
+	e.grant("abc", "a2")
+
+	e.attach("abc", "a3", []byte("three"))
+	_, err := e.service.GrantUpload(ctx, "abc", "a3")
+	refusal(t, err, http.StatusBadRequest, "too_many_attachments")
+	if u := e.usage("abc"); u.UsedBytes != 6 {
+		t.Errorf("the refusal counted: %+v", u)
+	}
+	e.grant("abc", "a2")
+
+	*e.now = e.now.Add(time.Minute)
+	e.attach("abc", "link", nil, "kind", "link", "url", "https://example.com", "deleted_at", "2030-06-01T10:21:00Z")
+	e.grant("abc", "a3")
+
+	for i := range 4 {
+		e.attach("abc", fmt.Sprint("n", i), []byte(fmt.Sprint("note photo ", i)), "task_id", nil, "memo_id", "m1")
+	}
+	_, err = e.service.GrantUpload(ctx, "abc", "n3")
+	refusal(t, err, http.StatusBadRequest, "too_many_attachments")
 }
 
 func TestTheHourlyUploadLimitRollsOverOnTheHour(t *testing.T) {

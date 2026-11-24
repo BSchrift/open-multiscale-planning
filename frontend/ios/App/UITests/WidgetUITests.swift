@@ -80,7 +80,7 @@ final class WidgetUITests: XCTestCase {
         let rows = Heard.count(measured + "nav.today")
         openLink("multiscale://today?block=row-from-a-widget") { Heard.count(measured + "nav.today") > rows }
         XCTAssertGreaterThan(Heard.count(measured + "nav.today"), rows, "Today never said it was drawn from a row's link")
-        let inbox =app.webText("Inbox is empty. Anything you capture lands here.")
+        let inbox = app.webText("Inbox is empty. Anything you capture lands here.")
         openLink("multiscale://inbox") { inbox.exists }
         exists(inbox)
         let todays = Heard.count(measured + "nav.today")

@@ -281,7 +281,9 @@ final class ShellUITests: XCTestCase {
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
         }
 
-        app.tapWeb(startingWith: "Inbox")
+        // Straight after Capture closes, as its sheet and the keyboard go, a tap on the tab can be lost, so one the Inbox
+        // didn't open for is tapped again.
+        app.tapWeb("Inbox, 2 to sort", until: app.webButton("Process 2 items"))
         app.tapWeb("Process 2 items")
         // The card's title is a button, which edits it.
         exists(app.webButton("Buy a proofing basket"))
@@ -390,6 +392,13 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(keyboard.exists, "Bold put the keyboard away")
         app.typeText("rye")
         XCTAssertEqual(field.value as? String, "Use **rye**")
+        // The keyboard goes by its bar's Done before Save is tapped. With it up, WebKit has the page panned to keep the
+        // field in view, and a tap on Save there can land as the page moves: on CI the keyboard went, the page slid back,
+        // and the editor stayed open. Put away first, Save is tapped where it rests.
+        let done = app.toolbars.buttons["Done"]
+        exists(done)
+        done.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: patience), "the keyboard is still up. On screen:\n\(app.debugDescription)")
         app.tapWeb("Save")
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "the editor is still open")
 
@@ -678,6 +687,15 @@ final class NativeUITests: XCTestCase {
         app.launchLoaded()
         exists(app.webText("ready"), timeout: launchPatience)
         run("Diagnostics", expect: "previous:active")
+    }
+
+    func testEnergyReportsWaitForThePageThroughARestartAndGoOnce() {
+        run("Deliver energy", expect: "energy:delivered")
+        // Delivered in a run that ended before telemetry sent it, as MetricKit's often are.
+        app.terminate()
+        app.launchLoaded()
+        exists(app.webText("ready"), timeout: launchPatience)
+        run("Energy", expect: "energy:ok")
     }
 
     func testNotificationPermissionThenCancelThenActionReachesTheApp() {

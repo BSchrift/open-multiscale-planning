@@ -10,9 +10,11 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
 import type { LogRecordExporter } from '@opentelemetry/sdk-logs';
+import { dailyAttributes, exceptionAttributes } from './metrickit';
+import type { MetricReports } from './metrickit';
 import type { Updater } from './updates';
 
-export type Attributes = Record<string, string | number>;
+export type Attributes = Record<string, string | number | boolean>;
 
 /** The native side's numbers, where there is one. Bytes and seconds. */
 export interface DiagnosticsSnapshot {
@@ -33,7 +35,33 @@ export interface Diagnostics {
   onMemoryWarning(listener: () => void): () => void;
 }
 
+/** The battery's state, as context for the energy numbers. */
+export interface Power {
+  /** On a charger: plugged in on the iPhone, on AC power on the Mac. */
+  charging?: boolean;
+  /** Low Power Mode, on the iPhone. */
+  lowPower?: boolean;
+  /** nominal, fair, serious or critical, or unknown. */
+  thermal?: string;
+}
+
+/** One kind of process's CPU percent and idle wakeups a second, over the minute since the last sample. */
+export interface ProcessEnergy {
+  process: 'main' | 'renderer' | 'gpu';
+  cpuPercent: number;
+  idleWakeupsPerSecond: number;
+}
+
+/** What the device says about its battery and the energy the app uses (docs/performance.md, Battery). */
+export interface Energy {
+  /** Taken with each heartbeat. The Mac also gives each kind of process's CPU, and whether its window shows. */
+  sample(): Promise<{ power: Power; processes?: ProcessEnergy[]; windowVisible?: boolean }>;
+  /** On the iPhone: MetricKit's reports since the last call, each handed over once. */
+  reports?(): Promise<MetricReports>;
+}
+
 const FLUSH_MS = 60_000;
+const round = (value: number) => Math.round(value * 100) / 100;
 /** The most the server keeps from one send, from config/protocol.yaml. */
 const MAX_QUEUED = protocol.telemetry.maxBatchEvents;
 
@@ -51,7 +79,8 @@ function errorPlace(event: ErrorEvent): Attributes {
 }
 
 /**
- * Reports app.start and the last run's end at once, an app.heartbeat each minute, memory warnings and uncaught errors,
+ * Reports app.start and the last run's end at once, an app.heartbeat with the battery's state, app.sync.count and the Mac's
+ * app.energy.sample each minute, the iPhone's MetricKit reports as they come, memory warnings and uncaught errors,
  * each update check's result, an update rolled back, and a Mac app that just replaced itself. The SDK sends a batch each minute and when the page is hidden; a
  * batch that fails to send is dropped.
  */
@@ -66,6 +95,9 @@ export async function startTelemetry(deps: {
   diagnostics?: Diagnostics;
   /** Over-the-air updates, in apps that take them. */
   updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>;
+  energy?: Energy;
+  /** The sync requests answered since the last call, and the bytes they carried, which drain the battery. */
+  syncs?(): { count: number; bytes: number };
   /** The screen on show, such as week. */
   screen(): string | undefined;
   /** Where errors and visibility changes arrive: the window. */
@@ -153,7 +185,38 @@ export async function startTelemetry(deps: {
   target.addEventListener('unhandledrejection', onRejection);
   target.addEventListener('visibilitychange', onVisibility);
   const stopWarnings = diagnostics?.onMemoryWarning(() => void memory().then((m) => record('device.memory_warning', m)));
-  const timer = setInterval(() => void memory().then((m) => record('app.heartbeat', m)), FLUSH_MS);
+  const heartbeat = async () => {
+    const [m, energy] = await Promise.all([memory(), deps.energy?.sample().catch(() => undefined)]);
+    const { charging, lowPower, thermal } = energy?.power ?? {};
+    record('app.heartbeat', {
+      ...m,
+      ...(charging !== undefined ? { 'device.battery.charging': charging } : {}),
+      ...(lowPower !== undefined ? { 'device.low_power': lowPower } : {}),
+      ...(thermal ? { 'device.thermal_state': thermal } : {}),
+    });
+    for (const p of energy?.processes ?? []) {
+      record('app.energy.sample', {
+        'energy.process': p.process,
+        'energy.cpu_percent': round(p.cpuPercent),
+        'energy.idle_wakeups_per_s': round(p.idleWakeupsPerSecond),
+        ...(energy!.windowVisible !== undefined ? { 'energy.window_visible': energy!.windowVisible } : {}),
+      });
+    }
+  };
+  // MetricKit delivers a day about once a day, often at launch, so it's looked for then and with each heartbeat.
+  const metricReports = async () => {
+    const reports = await deps.energy?.reports?.().catch(() => undefined);
+    for (const day of reports?.daily ?? []) record('app.energy.daily', dailyAttributes(day));
+    for (const exception of reports?.exceptions ?? []) record('app.energy.exception', exceptionAttributes(exception));
+  };
+  await metricReports();
+  const timer = setInterval(() => {
+    void heartbeat();
+    void metricReports();
+    // Idle minutes too, so a sync loop shows against the time the app was open.
+    const synced = deps.syncs?.();
+    if (synced) record('app.sync.count', { 'sync.count': synced.count, 'sync.bytes': synced.bytes });
+  }, FLUSH_MS);
 
   return {
     flush: () => provider.forceFlush(),

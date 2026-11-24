@@ -20,7 +20,7 @@ const packed = (date: LocalDate, ctx: SlotContext) => free(date, ctx) < dayBaseA
 /** The week's free time from now on, as the strip counts it. */
 export const weekFree = (week: LocalDate, ctx: SlotContext): Minutes => DAYS.reduce((sum, i) => sum + free(addDays(week, i), ctx), 0);
 
-/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy or closed. Open time gone by is drawn as closed. */
+/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy, free or closed. Open time gone by is drawn as closed. */
 function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: LocalDate; draft?: Slot | null; suggested?: Slot | null }) {
   const { ctx, date } = props;
   const hit = (x: Slot | null | undefined, m: number) => !!x && x.date === date && x.start < m + 30 && m < x.end;
@@ -42,7 +42,7 @@ function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: Loca
                   ? 'busy'
                   : isPast(date, m, ctx)
                     ? 'closed'
-                    : '';
+                    : 'free';
         return <span key={m} className={`sl ${cls}`} />;
       })}
     </span>

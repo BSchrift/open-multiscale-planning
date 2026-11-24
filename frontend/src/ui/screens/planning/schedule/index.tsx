@@ -637,12 +637,14 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 {formatMinutes(planned)} planned
               </div>
               <div className="small" aria-hidden="true">
-                <span className="skey" />
+                <span className="skey free" />
                 free
                 <span className="skey planned" />
                 planned
                 <span className="skey busy" />
                 busy
+                <span className="skey closed" />
+                unavailable
                 <span className="skey draft" />
                 this task
                 <span className="skey sug" />

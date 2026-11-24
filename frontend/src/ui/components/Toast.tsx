@@ -60,6 +60,15 @@ export function useToast(): ToastApi {
   return toast;
 }
 
+/** What a toast's message goes to. */
+export type Say = ToastApi['show'];
+
+/** The app's toast, or one whose messages go to `say` instead, such as a phone flow's own, which the app's toast sits under. */
+export function useToastOr(say?: Say): ToastApi {
+  const toast = useToast();
+  return useMemo(() => (say ? { ...toast, show: say } : toast), [toast, say]);
+}
+
 interface Current extends ToastOptions {
   message: string;
   key: number;

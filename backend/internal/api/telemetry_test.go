@@ -137,6 +137,71 @@ func TestTelemetryKeepsAppUpdatesInstalledAndTheirFailures(t *testing.T) {
 	}
 }
 
+// Battery monitoring: each heartbeat's sync count and battery context, the Mac's CPU and idle wakeups for each process,
+// and MetricKit's day and its CPU or disk exceptions from the iPhone, where only the top frame says where.
+func TestTelemetryKeepsSyncCountsAndEnergy(t *testing.T) {
+	s, logs := newServer(&fakeSyncer{}, nil)
+	body := `{"resourceLogs":[{"resource":{"attributes":[{"key":"service.version","value":{"stringValue":"0.1.0-c2091ac"}}]},
+  "scopeLogs":[{"logRecords":[
+    {"eventName":"app.sync.count","attributes":[
+      {"key":"sync.count","value":{"intValue":"3"}},
+      {"key":"sync.bytes","value":{"intValue":"5120"}}]},
+    {"eventName":"app.heartbeat","attributes":[
+      {"key":"device.battery.charging","value":{"boolValue":false}},
+      {"key":"device.low_power","value":{"boolValue":true}},
+      {"key":"device.thermal_state","value":{"stringValue":"fair"}}]},
+    {"eventName":"app.energy.sample","attributes":[
+      {"key":"energy.process","value":{"stringValue":"renderer"}},
+      {"key":"energy.cpu_percent","value":{"doubleValue":0.4}},
+      {"key":"energy.idle_wakeups_per_s","value":{"doubleValue":2.5}},
+      {"key":"energy.window_visible","value":{"boolValue":false}}]},
+    {"eventName":"app.energy.daily","attributes":[
+      {"key":"energy.day","value":{"stringValue":"2026-11-15"}},
+      {"key":"energy.cpu_seconds","value":{"doubleValue":100}},
+      {"key":"energy.gpu_seconds","value":{"doubleValue":20}},
+      {"key":"energy.cellular_bytes","value":{"intValue":"150000000"}},
+      {"key":"energy.wifi_bytes","value":{"intValue":"110000000"}},
+      {"key":"energy.foreground_seconds","value":{"intValue":"700"}},
+      {"key":"energy.background_seconds","value":{"intValue":"40"}},
+      {"key":"energy.hang_seconds","value":{"doubleValue":1.5}}]},
+    {"eventName":"app.energy.exception","attributes":[
+      {"key":"energy.exception.kind","value":{"stringValue":"cpu"}},
+      {"key":"energy.exception.cpu_seconds","value":{"doubleValue":90}},
+      {"key":"code.function","value":{"stringValue":"App+0x28a3c"}}]},
+    {"eventName":"app.energy.exception","attributes":[
+      {"key":"energy.exception.kind","value":{"stringValue":"disk"}},
+      {"key":"energy.exception.disk_bytes","value":{"intValue":"2147483648"}},
+      {"key":"code.function","value":{"stringValue":"closure #1 in Paint the fence"}}]}]}]}]}`
+	if rec := do(s, "POST", "/v1/logs", body, testSub); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{}` {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	events := clientEvents(t, logs)
+	if len(events) != 6 {
+		t.Fatalf("%d events: %s", len(events), logs)
+	}
+	want := []map[string]any{
+		{"event": "app.sync.count", "sync.count": float64(3), "sync.bytes": float64(5120)},
+		{"event": "app.heartbeat", "device.battery.charging": false, "device.low_power": true, "device.thermal_state": "fair"},
+		{"event": "app.energy.sample", "energy.process": "renderer", "energy.cpu_percent": 0.4, "energy.idle_wakeups_per_s": 2.5, "energy.window_visible": false},
+		{"event": "app.energy.daily", "energy.day": "2026-11-15", "energy.cpu_seconds": float64(100), "energy.gpu_seconds": float64(20),
+			"energy.cellular_bytes": float64(150000000), "energy.wifi_bytes": float64(110000000), "energy.foreground_seconds": float64(700),
+			"energy.background_seconds": float64(40), "energy.hang_seconds": 1.5},
+		{"event": "app.energy.exception", "energy.exception.kind": "cpu", "energy.exception.cpu_seconds": float64(90), "code.function": "App+0x28a3c"},
+		{"event": "app.energy.exception", "energy.exception.kind": "disk", "energy.exception.disk_bytes": float64(2147483648)},
+	}
+	for i, fields := range want {
+		for key, value := range fields {
+			if events[i][key] != value {
+				t.Errorf("event %d: %s = %v, want %v", i, key, events[i][key], value)
+			}
+		}
+	}
+	// A name with spaces could carry what someone wrote, so it's dropped like any other free text.
+	if _, ok := events[5]["code.function"]; ok {
+		t.Errorf("free text kept: %+v", events[5])
+	}
+}
+
 func TestTelemetryRefusesWhatIsNotAnExport(t *testing.T) {
 	s, _ := newServer(&fakeSyncer{}, nil)
 	if rec := do(s, "POST", "/v1/logs", `not json`, testSub); rec.Code != 400 {

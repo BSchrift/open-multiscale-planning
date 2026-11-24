@@ -131,7 +131,8 @@ describe('a note open', () => {
     await waitFor(() => expect(dialog.getByRole('heading', { level: 2 })).toHaveFocus());
     expect(dialog.getByRole('button', { name: 'Rename Paint for the hall: Pale Oat, eggshell' })).toBeInTheDocument();
     expect(dialog.getByText('Note · saved Nov 2')).toBeInTheDocument();
-    expect(dialog.getByRole('combobox', { name: 'Belongs to' })).toHaveValue('notes');
+    expect(dialog.getByRole('button', { name: 'Belongs to Notes · On its own' })).toBeInTheDocument();
+    expect(dialog.getByLabelText(/Show it on Today on/)).toHaveValue('');
     expect(dialog.getByRole('region', { name: 'Attachments' })).toBeInTheDocument();
     expect(dialog.getByText(/Use a password manager for passwords and codes\./)).toBeInTheDocument();
     expect(dialog.getAllByRole('button').map((b) => b.textContent).slice(-3)).toEqual(['Delete note', 'Cancel', 'Save']);
@@ -163,7 +164,8 @@ describe('a note open', () => {
   it('becomes an Inbox item with what was edited and its photo when Belongs to is Inbox, on Save, with one Undo', async () => {
     const t = await open();
     await userEvent.click(await screen.findByRole('button', { name: /^Paint for the hall/ }));
-    await userEvent.selectOptions(within(popup()).getByRole('combobox', { name: 'Belongs to' }), 'inbox');
+    await userEvent.click(within(popup()).getByRole('button', { name: /^Belongs to/ }));
+    await userEvent.click(screen.getByRole('option', { name: 'Inbox, Make it a task' }));
     await userEvent.click(within(popup()).getByRole('button', { name: 'Save' }));
     const undo = await screen.findByRole('button', { name: /^Undo/ });
     expect(screen.getByText('Moved Paint for the hall: Pale Oat, eggshell to your Inbox.')).toBeInTheDocument();
@@ -175,6 +177,39 @@ describe('a note open', () => {
     await userEvent.click(undo);
     await waitFor(async () => expect((await getRecord(t.db, 'memo', noteId('paint')))?.deleted_at).toBeNull());
     expect(await screen.findByRole('button', { name: /^Paint for the hall/ })).toBeInTheDocument();
+  });
+
+  it.each(['desktop', 'phone'] as const)('on %s moves to a home found by search, and takes a day to show on Today, on Save', async (layout) => {
+    const t = await renderScreen('notes', {
+      layout,
+      seed: async (w) => {
+        await seed(w);
+        await w.create('objective', { title: 'Home', state: 'active' }, 'g1');
+        await w.create('project', { objective_id: 'g1', title: 'Kitchen redo', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p1');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Bike tyres/ }));
+    await userEvent.click(within(popup()).getByRole('button', { name: /^Belongs to/ }));
+    const search = screen.getByRole('combobox', { name: 'Belongs to' });
+    await waitFor(() => expect(search).toHaveFocus());
+    expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['Notes, On its own', 'Home, Goal', 'Kitchen redo, Project · Home', 'Inbox, Make it a task']);
+    await userEvent.type(search, 'kitchen');
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(within(popup()).getByRole('button', { name: 'Belongs to Kitchen redo · Project · Home' })).toHaveFocus());
+    fireEvent.change(within(popup()).getByLabelText(/Show it on Today on/), { target: { value: '2026-11-20' } });
+    await userEvent.click(within(popup()).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved Bike tyres.')).toBeInTheDocument();
+    expect(await getRecord(t.db, 'memo', noteId('tyres'))).toMatchObject({ home: { type: 'project', id: 'p1' }, show_on: '2026-11-20' });
+    expect(screen.getByRole('button', { name: /^Bike tyres/ })).toHaveAccessibleDescription('700x28c, 85 psi Saved Dec 1 · Kitchen redo · On Today Nov 20');
+  });
+
+  it('Esc while searching Belongs to goes back to the field, and keeps the popup open', async () => {
+    await open();
+    await userEvent.click(await screen.findByRole('button', { name: /^Bike tyres/ }));
+    await userEvent.click(within(popup()).getByRole('button', { name: /^Belongs to/ }));
+    await userEvent.keyboard('{Escape}');
+    expect(popup()).toBeInTheDocument();
+    await waitFor(() => expect(within(popup()).getByRole('button', { name: /^Belongs to/ })).toHaveFocus());
   });
 
   it('Delete note acts at once, with focus on the toast’s Undo', async () => {

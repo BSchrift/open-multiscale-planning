@@ -507,6 +507,14 @@ describe('startAppSync', () => {
     expect((await syncStatus(t.platform.db)).lastError).toBe('sign_in_failed');
     expect(log).toHaveBeenCalled();
     log.mockRestore();
+    // A sync that follows, for an edit or on returning from the sign-in page, finds no sign-in but keeps saying why.
+    await transact(t.platform.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    t.platform.lifecycle.foreground();
+    await flush();
+    expect((await syncStatus(t.platform.db)).lastError).toBe('sign_in_failed');
+    await t.finishSignIn();
+    expect(await syncStatus(t.platform.db)).toEqual({ lastSyncAt: NOW, lastError: null });
     t.sync.stop();
   });
 

@@ -22,6 +22,9 @@
 #   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
 #   SKIP_HISTORY_WEB=1 leaves out the history web app suite, about 2 to 3 minutes.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
+#   DEPLOYED_BEFORE_PUBLISH=1 says the web app is still the release before this checkout's, so the web app suite skips
+#   the checks of this release's own screens and feeds. WEB_ONLY=1 runs the web app suite alone: the release pipeline's
+#   staging step runs it so before it switches the web app, as prod's Test step runs the suites (scripts/pipeline.sh).
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -72,6 +75,11 @@ run() {
   fi
 }
 run "web app" npx playwright test -c e2e/deployed/playwright.config.ts
+if [ "${WEB_ONLY:-}" = 1 ]; then
+  [ ${#failed[@]} -eq 0 ] || { echo "$env_name: failed: web app" >&2; exit 1; }
+  echo "$env_name: the web app suite passed."
+  exit 0
+fi
 # Off local, e2e.sh runs only the signed-in specs, against this deployment.
 if [ "$env_name" = prod ]; then
   # Its devices are the app served from this Mac, and prod's sign-in returns only to the deployed app. The web app suite

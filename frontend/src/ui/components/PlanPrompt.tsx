@@ -17,10 +17,11 @@ export function PlanPrompt(props: { week: string; line?: string | null }) {
   const act = usePlanningActions();
   const [choosing, setChoosing] = useState(false);
   const phone = layout === 'phone';
-  if (!planning) return null;
-  const minutes = planning.estimate.minutes;
+  // Drawn before the estimate is read, which on a long history can wait seconds behind the screen's own reads, so what's
+  // under the prompt doesn't move when it comes. Until then the prompt has no estimate, and Start planning waits for one.
+  const minutes = planning?.estimate.minutes;
   const start = (
-    <Button variant="primary" className={phone ? ' planbtn' : ''} type="button" onClick={() => void act.start(week, minutes)}>
+    <Button variant="primary" className={phone ? ' planbtn' : ''} type="button" disabled={minutes === undefined} onClick={() => minutes !== undefined && void act.start(week, minutes)}>
       Start planning
     </Button>
   );
@@ -31,9 +32,7 @@ export function PlanPrompt(props: { week: string; line?: string | null }) {
   );
   const text = (
     <>
-      <p>
-        <About minutes={minutes} before="This week isn't planned yet. " after="." />
-      </p>
+      <p>{minutes === undefined ? "This week isn't planned yet." : <About minutes={minutes} before="This week isn't planned yet. " after="." />}</p>
       {props.line && <p className={phone ? 'small quiet' : 'quiet'}>{props.line}</p>}
     </>
   );

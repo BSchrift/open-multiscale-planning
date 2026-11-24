@@ -13,7 +13,7 @@ afterEach(() => vi.useRealTimers());
 async function setup(
   snapshot?: Partial<DiagnosticsSnapshot>,
   updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>,
-  more: Pick<Parameters<typeof startTelemetry>[0], 'syncs'> = {},
+  more: Pick<Parameters<typeof startTelemetry>[0], 'syncs' | 'energy'> = {},
 ) {
   const exporter = new InMemoryLogRecordExporter();
   let warn: (() => void) | undefined;
@@ -77,6 +77,42 @@ describe('startTelemetry', () => {
       { 'app.screen.name': 'week', 'sync.count': 2, 'sync.bytes': 3000 },
       { 'app.screen.name': 'week', 'sync.count': 0, 'sync.bytes': 0 },
     ]);
+    t.telemetry.stop();
+  });
+
+  it("puts the battery's state on each heartbeat, and the Mac's CPU and idle wakeups for each kind of process", async () => {
+    const t = await setup({}, undefined, {
+      energy: {
+        sample: async () => ({
+          power: { charging: false, thermal: 'fair' },
+          windowVisible: false,
+          processes: [
+            { process: 'main', cpuPercent: 0.123, idleWakeupsPerSecond: 2.5 },
+            { process: 'renderer', cpuPercent: 1.5, idleWakeupsPerSecond: 12.345 },
+          ],
+        }),
+      },
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const events = await t.events();
+    expect(events.find((e) => e.eventName === 'app.heartbeat')!.attributes).toMatchObject({
+      'process.memory.usage': 200 * MB,
+      'device.battery.charging': false,
+      'device.thermal_state': 'fair',
+    });
+    expect(events.filter((e) => e.eventName === 'app.energy.sample').map((e) => e.attributes)).toEqual([
+      { 'app.screen.name': 'week', 'energy.process': 'main', 'energy.cpu_percent': 0.12, 'energy.idle_wakeups_per_s': 2.5, 'energy.window_visible': false },
+      { 'app.screen.name': 'week', 'energy.process': 'renderer', 'energy.cpu_percent': 1.5, 'energy.idle_wakeups_per_s': 12.35, 'energy.window_visible': false },
+    ]);
+    t.telemetry.stop();
+  });
+
+  it('still sends the heartbeat when the battery cannot be read', async () => {
+    const t = await setup({}, undefined, { energy: { sample: () => Promise.reject(new Error('not now')) } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const beat = (await t.events()).find((e) => e.eventName === 'app.heartbeat')!;
+    expect(beat.attributes).toMatchObject({ 'process.memory.usage': 200 * MB });
+    expect(beat.attributes).not.toHaveProperty('device.battery.charging');
     t.telemetry.stop();
   });
 

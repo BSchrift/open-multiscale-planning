@@ -326,6 +326,12 @@ at the 90th percentile of a good week plus a margin, reported and never failing 
 | Event | From | When | Attributes |
 | --- | --- | --- | --- |
 | `app.sync.count` | Web, Mac, iPhone | Each minute, with the heartbeat | `sync.count`, the sync requests the server answered since the last one, and `sync.bytes`, about the bytes they sent and received |
+| `app.energy.sample` | Mac | Each minute, with the heartbeat, one for each kind of process | `energy.process` (main, renderer or gpu), `energy.cpu_percent` and `energy.idle_wakeups_per_s` over the minute, from Electron's `app.getAppMetrics()`, and `energy.window_visible` |
+| On `app.heartbeat` | Mac | Each minute | `device.battery.charging` (on AC power) and `device.thermal_state` |
+
+Idle wakeups are macOS's own measure of what drains a laptop in the background, and with CPU they're most of what
+Activity Monitor's Energy Impact shows, which an app can't read itself. The Mac app keeps running in the menu bar
+after its window closes, so `energy.window_visible` tells that apart: then it should be close to nothing.
 
 Each sync wakes the radio, so a sync loop is the battery bug most likely to slip in, and `app.sync.count` is the web
 app's only battery signal: browsers don't say how much power a page uses.

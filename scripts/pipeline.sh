@@ -15,8 +15,8 @@
 #                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
-# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check
-# and nightly.
+# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check,
+# nightly and nightly-retention.
 # The signing step runs frontend/scripts/sign-release.mjs on its own, from the checkout, over the Build output
 # (pipeline-stack.ts).
 set -euo pipefail
@@ -91,15 +91,20 @@ build_app() {
 }
 
 # A commit before this one, built again as the Build step built this one, to check its Mac app against: checked out with
-# its own packages into <dir>/checkout, once, then the environment's web app and main process into <dir>.
+# its own packages into <dir>/checkout, once, then the environment's web app and main process into <dir>. Given a
+# length, its version is stamped with that much of the commit: a commit from before vite.config.ts took a fixed seven
+# takes git's abbreviation, which grows with the clone's objects (mac-inbox.ts stamp-length).
 build_at() {
-  local commit="$1" dir="$2" env_name="$3"
+  local commit="$1" dir="$2" env_name="$3" stamp="${4:-}"
   if [ ! -e "$dir/checkout" ]; then
     { mkdir -p "$dir" && git -C "$root" worktree add --quiet --detach "$dir/checkout" "$commit" &&
       (cd "$dir/checkout/frontend" && npm ci --ignore-scripts --no-audit --no-fund) && touch "$dir/installed"; } || return 1
   fi
   [ -f "$dir/installed" ] || return 1
-  [ -f "$dir/web/$env_name/version.json" ] || build_app "$dir/checkout" "$env_name" "$dir"
+  [ -f "$dir/web/$env_name/version.json" ] || (
+    [ -z "$stamp" ] || export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.abbrev GIT_CONFIG_VALUE_0="$stamp"
+    build_app "$dir/checkout" "$env_name" "$dir"
+  )
 }
 # --with-deps runs apt-get update, which fails while any of the image's package mirrors is mid-sync, so it tries again.
 browsers() {
@@ -669,6 +674,7 @@ case "$command" in
       # shortcut: a new AWS account caps every CodeBuild build at 45 minutes whatever the project says, so the wait stops
       # at 40 and says how to go on; drop CODEBUILD_LIMIT_SECONDS's default once AWS Support has lifted the cap.
       wait=$((MAC_WAIT_SECONDS < ${CODEBUILD_LIMIT_SECONDS:-2400} ? MAC_WAIT_SECONDS : ${CODEBUILD_LIMIT_SECONDS:-2400}))
+      sevenzip="${sevenzip:-$(seven_zip)}"
       echo "Waiting up to $((wait / 60)) minutes for GitHub Actions' build of ${COMMIT:?}, or of a commit before it with the same Mac native code, in s3://$MAC_INBOX_BUCKET/inbox/."
       deadline=$((SECONDS + wait))
       keys="$(mktemp)"
@@ -676,15 +682,24 @@ case "$command" in
       while :; do
         aws s3api list-objects-v2 --bucket "$MAC_INBOX_BUCKET" --prefix inbox/ --query 'Contents[].Key' --output text >"$keys" || : >"$keys"
         from="$(node "$root/frontend/scripts/mac-inbox.ts" pick "$env_name" "$COMMIT" "$keys" "$prefer" $wanting)"
+        if [ -n "$from" ]; then
+          inbox="$(mktemp -d)"
+          aws s3 cp "s3://$MAC_INBOX_BUCKET/inbox/$from/$env_name/" "$inbox" --recursive --no-progress
+        fi
         if [ "$from" = "$COMMIT" ]; then
+          # This commit's own app, which nothing stands in for: if it fails its checks, the run stops.
           made="$(built)" checkout="$root/frontend"
+          SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$from" "$inbox" "$made/web/$env_name" "$made/mac/$env_name/dist-electron" "$checkout"
           break
         elif [ -n "$from" ]; then
+          # Another commit's app that fails its checks is left, as one with other native code is, and the step waits on.
           made="$others/$from" checkout="$others/$from/checkout/frontend"
-          if ! build_at "$from" "$made" "$env_name"; then
+          if ! build_at "$from" "$made" "$env_name" "$(node "$root/frontend/scripts/mac-inbox.ts" stamp-length "$inbox/manifest.json" "$from")"; then
             echo "The pipeline couldn't build $from again to check its Mac app against, so $env_name doesn't take it." >&2
           elif differs "$(shell_of <"$made/web/$env_name/version.json")" "$want" electron; then
             echo "The pipeline's build of $from has other Mac native code than this build's, so $env_name doesn't take its Mac app." >&2
+          elif ! SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$from" "$inbox" "$made/web/$env_name" "$made/mac/$env_name/dist-electron" "$checkout"; then
+            echo "$from's Mac app failed its checks, so $env_name doesn't take it and waits on." >&2
           else
             echo "$from, a commit before this one, has this build's Mac native code, so $env_name takes its Mac app."
             break
@@ -700,10 +715,6 @@ case "$command" in
         fi
         sleep 30
       done
-      inbox="$(mktemp -d)"
-      aws s3 cp "s3://$MAC_INBOX_BUCKET/inbox/$from/$env_name/" "$inbox" --recursive --no-progress
-      sevenzip="${sevenzip:-$(seven_zip)}"
-      SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$from" "$inbox" "$made/web/$env_name" "$made/mac/$env_name/dist-electron" "$checkout"
       mkdir -p "$checked/$env_name"
       cp "$inbox/$DMG_NAME" "$inbox/$ZIP_NAME" "$inbox/$ZIP_NAME.blockmap" "$inbox/manifest.json" "$checked/$env_name/"
       # The record of the checked app, which signing names in the manifest: its version, folder and zip.
@@ -832,9 +843,24 @@ case "$command" in
       round_trip
     )
     apt-get update -qq && apt-get install -y -qq xvfb >/dev/null
-    # Every suite but the iPhone's, which needs a Mac. The history-scale test only reports its numbers.
-    xvfb-run -a env ENV=staging SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    # Every suite but the iPhone's, which needs a Mac, and retention's, which nightly-retention runs in a build of its own.
+    # The history-scale test only reports its numbers.
+    xvfb-run -a env ENV=staging SKIP_IOS=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"
     aws ssm put-parameter --name "$parameters/nightly" --type String --overwrite --value "$commit" >/dev/null
+    ;;
+  nightly-retention)
+    # The retention suite against staging, about 50 minutes, in a build of its own an hour after nightly's (pipeline-stack.ts).
+    commit="$(git -C "$root" rev-parse HEAD)"
+    if [ "$(aws ssm get-parameter --name "$parameters/nightly-retention" --query Parameter.Value --output text 2>/dev/null || true)" = "$commit" ]; then
+      echo "Nothing new on main since the retention suite last passed at $commit."
+      exit 0
+    fi
+    fetch_config
+    profiles
+    outputs staging
+    frontend_deps
+    ENV=staging "$root/scripts/test-retention.sh"
+    aws ssm put-parameter --name "$parameters/nightly-retention" --type String --overwrite --value "$commit" >/dev/null
     ;;
   *)
     echo "Use: scripts/pipeline.sh config | pause | resume | run | stop | release-surface | tag, or a CodeBuild step. See docs/releasing.md." >&2

@@ -401,6 +401,25 @@ describe("the popup's actions", () => {
     expect(await within(await actions('Draft the summary')).findByRole('button', { name: 'Start now' })).toBeVisible();
   });
 
+  it('Start now stops a block already counting and says so, as a block’s Start does, with Undo putting both back', async () => {
+    const close = vi.fn();
+    const t = await renderScreen('task', {
+      seed: async (w) => {
+        await report(w);
+        // Return the drill has counted since 1:30pm.
+        await w.create('time_block', { task_id: 'o1', start: '2026-11-02T19:30:00Z', end: '2026-11-02T20:30:00Z', tz: 'America/Chicago', started_at: '2026-11-02T19:30:00Z' }, 'drill');
+      },
+      presentation: 'overlay',
+      params: { task: 't1' },
+      close,
+    });
+    await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Start now' }));
+    expect(await screen.findByText('Started Draft the summary. Stopped Return the drill at 2pm.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'drill'))?.ended_at).toBe('2026-11-02T20:00:00Z'));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'drill'))?.ended_at).toBeNull());
+  });
+
   it("Schedule… offers To schedule's times for it this week, placing one with Undo, and Choose a time… opens Week to place it", async () => {
     const { t, close } = await open('t1');
     await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Schedule…' }));

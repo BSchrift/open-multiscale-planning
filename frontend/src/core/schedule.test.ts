@@ -14,6 +14,8 @@ import {
   rowLine,
   scheduleLabel,
   projectDates,
+  sameSchedule,
+  scheduledDue,
   setOnceDates,
   tick,
   tickFromBlock,
@@ -127,6 +129,28 @@ describe('a date moving to a project', () => {
     expect(projectDates({ schedule: { type: 'float', every: 2, unit: 'week' } })).toEqual({ schedule: null, next_due: null });
     expect(projectDates({ schedule: { type: 'once', from: null, to: null } })).toEqual({ schedule: null, next_due: null });
     expect(projectDates({})).toEqual({ schedule: null, next_due: null });
+  });
+});
+
+describe('a schedule changed in the task popup', () => {
+  it('counts no date and a one-time task with none as the same, and ignores the order fields arrive in', () => {
+    expect(sameSchedule(null, { type: 'once', from: null, to: null })).toBe(true);
+    expect(sameSchedule(undefined, null)).toBe(true);
+    expect(sameSchedule({ type: 'once', from: '2026-11-20', to: null }, { to: null, from: '2026-11-20', type: 'once' })).toBe(true);
+    expect(sameSchedule({ type: 'once', from: '2026-11-20', to: null }, null)).toBe(false);
+    expect(sameSchedule(weekly, { ...weekly, unit: 'month' })).toBe(false);
+  });
+
+  it('keeps the date of an unchanged schedule, even one overdue, and counts a new one from today, or tomorrow when done today', () => {
+    const overdue = task(weekly, '2026-10-24');
+    expect(scheduledDue(weekly, overdue, null, '2026-10-30')).toBe('2026-10-24');
+    const daily: TaskSchedule = { type: 'recurring', every: 1, unit: 'day', anchor: '2026-10-30' };
+    expect(scheduledDue(daily, overdue, null, '2026-10-30')).toBe('2026-10-30');
+    expect(scheduledDue(daily, overdue, '2026-10-30', '2026-10-30')).toBe('2026-10-31');
+    // A float counts from the latest finish, and has no date until there is one.
+    expect(scheduledDue(float6, overdue, '2026-10-01', '2026-10-30')).toBe('2026-11-12');
+    expect(scheduledDue(float6, overdue, null, '2026-10-30')).toBeNull();
+    expect(scheduledDue({ type: 'once', from: '2026-11-20', to: null }, overdue, null, '2026-10-30')).toBe('2026-11-20');
   });
 });
 

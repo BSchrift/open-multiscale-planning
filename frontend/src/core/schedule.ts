@@ -150,6 +150,21 @@ export function projectDates(task: Pick<Task, 'schedule'>): Fields<'task'> {
   return s?.type === 'once' && s.from ? setOnceDates(s.from, s.to ?? null) : { schedule: null, next_due: null };
 }
 
+/** Whether two schedules say the same, whatever order their fields arrive in. A one-time one with no date is none. */
+export function sameSchedule(a: TaskSchedule | null | undefined, b: TaskSchedule | null | undefined): boolean {
+  const key = (s: TaskSchedule | null | undefined) => (!s || (s.type === 'once' && !s.from) ? 'null' : JSON.stringify(s, Object.keys(s).sort()));
+  return key(a) === key(b);
+}
+
+/**
+ * The next_due for a schedule chosen for a task. An unchanged schedule keeps its date, even one overdue. A new one
+ * counts from today, or from tomorrow when it was done today, and a float or window from the latest finish, lastDone.
+ */
+export function scheduledDue(s: TaskSchedule, task: Pick<Task, 'schedule' | 'next_due'>, lastDone: LocalDate | null, day: LocalDate): LocalDate | null {
+  if (sameSchedule(s, task.schedule)) return task.next_due ?? null;
+  return firstDue(s, lastDone === day ? addDays(day, 1) : day, lastDone);
+}
+
 /** The fields for dragging a one-time task to a new start. A range keeps its length. */
 export function moveOnce(s: Extract<TaskSchedule, { type: 'once' }>, from: LocalDate): Fields<'task'> {
   return setOnceDates(from, s.from && s.to ? addDays(from, diffDays(s.from, s.to)) : null);

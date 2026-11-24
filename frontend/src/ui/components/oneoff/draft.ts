@@ -150,7 +150,11 @@ export function draftSchedule(d: OneOffDraft): TaskSchedule {
 
 /** Why the draft can't be saved yet, or null. */
 export function draftError(d: OneOffDraft): string | null {
-  if (!d.title.trim()) return 'Give it a title.';
+  return d.title.trim() ? scheduleError(d) : 'Give it a title.';
+}
+
+/** Why the draft's dates and repeat can't be saved yet, or null, for a form whose title is its own. */
+export function scheduleError(d: OneOffDraft): string | null {
   if (d.type === 'once' && d.ranged && d.to && !d.from) return 'Pick a date.';
   if (d.type === 'recurring' && d.unit === 'week' && d.days?.length === 0) return 'Choose at least one day.';
   return validateSchedule(draftSchedule(d));

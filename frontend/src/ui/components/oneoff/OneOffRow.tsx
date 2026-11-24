@@ -1,23 +1,17 @@
-// A one off with its tick, its line, its dates and how it repeats, as on the One offs page.
+// A one off with its tick, its line and its dates, as on the One offs page. How it repeats is changed in its popup.
 
 import { useRef, useState } from 'react';
-import { addDays, localDate, today } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
-import { firstDue, isRepeating, rowLine } from '../../../core/schedule';
+import { isRepeating, rowLine } from '../../../core/schedule';
 import type { OneOffRow as Row } from '../../../core/schedule';
-import { followOneOff } from '../../../core/setTimes';
-import { closeTask, tickOneOff, untickOneOff } from '../../../core/tasks';
-import type { Fields, Task, TaskCompletion, TaskSchedule } from '../../../core/types';
+import { tickOneOff, untickOneOff } from '../../../core/tasks';
 import { useShowCompleted } from '../../app/showCompleted';
 import { useApp, useMutation } from '../../app/store';
 import { useTickAway } from '../ShowCompleted';
 import { useOpenTask } from '../task/TaskName';
 import { TaskRow } from '../TaskRow';
-import { useToast } from '../Toast';
 import { OneOffDates } from './OneOffDates';
-import { OneOffForm } from './OneOffForm';
-import { Button } from '../ds/Button';
 
 /**
  * Ticking and unticking rows. A tick keeps its exact reverse, so unticking in the same session also gives back the
@@ -69,93 +63,6 @@ export function OneOffRow(props: { row: Row; onToggle(row: Row, box: HTMLInputEl
       onToggle={(_, box) => props.onToggle(row, box)}
     >
       <OneOffDates task={row.task} />
-      <OneOffRepeat task={row.task} />
     </TaskRow>
-  );
-}
-
-const scheduleKey = (s?: TaskSchedule | null) => JSON.stringify(s ?? null, Object.keys(s ?? {}).sort());
-
-/** Change repeat: the add form, filled in, under the row. */
-function OneOffRepeat(props: { task: Task }) {
-  const { task } = props;
-  const { layout } = useApp();
-  const [open, setOpen] = useState(false);
-  const toggleRef = useRef<HTMLButtonElement>(null);
-  if (task.done_at) return null;
-  const close = () => {
-    setOpen(false);
-    toggleRef.current?.focus();
-  };
-  return (
-    <>
-      <div>
-        <Button
-          ref={toggleRef}
-          variant={layout === 'phone' ? 'quiet' : 'link'} className={layout === 'phone' ? undefined : 'small'}
-          type="button"
-          aria-expanded={open}
-          aria-label={`Change repeat for ${task.title}`}
-          onClick={() => (open ? close() : setOpen(true))}
-        >
-          Change repeat
-        </Button>
-      </div>
-      {open && <OneOffEditor task={task} onClose={close} />}
-    </>
-  );
-}
-
-/** The add form filled in from a one off, to change or delete it. Esc closes it, and so do Save and Delete. */
-export function OneOffEditor(props: { task: Task; onClose(): void }) {
-  const { task, onClose } = props;
-  const { clock } = useApp();
-  const save = useMutation(async (w, fields: Fields<'task'>) => {
-    // An unchanged schedule keeps its date, even one overdue. A new one counts from today, or from tomorrow when it was
-    // done today, and a float or window from the latest finish.
-    let next_due = task.next_due ?? null;
-    if (scheduleKey(fields.schedule) !== scheduleKey(task.schedule)) {
-      const finishes = await w.sql.all<TaskCompletion>('SELECT * FROM task_completion WHERE task_id = :task', { task: task.id });
-      const done = finishes.filter((c) => !c.deleted_at).map((c) => localDate(c.done_at, clock.zone())).sort().pop() ?? null;
-      const day = today(clock);
-      next_due = firstDue(fields.schedule!, done === day ? addDays(day, 1) : day, done);
-    }
-    const written = { ...fields, next_due };
-    const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields: written }] });
-    // Its block at its time of day follows a new date, time or estimate, in the same Undo.
-    const follow = await followOneOff(w, task, { ...task, ...written } as Task, clock);
-    return { writes: [...follow.writes, ...back.writes], said: follow.said };
-  });
-  const toast = useToast();
-  const remove = useMutation((w) => closeTask(w, task.id, 'deleted', clock));
-  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
-  return (
-    <div
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.stopPropagation();
-          onClose();
-        }
-      }}
-    >
-      <OneOffForm
-        task={task}
-        onCancel={onClose}
-        onDelete={async () => {
-          const reverse = await remove.run();
-          if (!reverse) return;
-          onClose();
-          // The row goes with it, so focus moves to Undo rather than the page.
-          toast.show(`Deleted ${task.title}`, { undo: () => undo.run(reverse), focusUndo: true });
-        }}
-        onSave={async (fields) => {
-          const done = await save.run(fields);
-          if (done === undefined) return false;
-          onClose();
-          if (done.said) toast.show(done.said, { undo: () => undo.run(done) });
-          return true;
-        }}
-      />
-    </div>
   );
 }

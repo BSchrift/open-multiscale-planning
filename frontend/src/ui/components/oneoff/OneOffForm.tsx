@@ -1,14 +1,14 @@
 // The form that adds a one off, with all six ways it can repeat. On desktop it sits on the page; on phone it goes
-// inside a Sheet, with Cancel. Given a task, it changes that one instead.
+// inside a Sheet, with Cancel. A one off is changed in its popup, which shows the same repeat fields.
 
 import { useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import type { Fields, RepeatUnit, Task } from '../../../core/types';
+import type { Fields, RepeatUnit } from '../../../core/types';
 import { useApp, useToday } from '../../app/store';
 import { DayChips } from '../DayChips';
 import { EstimateSlider } from '../EstimateSlider';
 import { NotesField } from '../notes/NotesField';
-import { draftDays, draftError, draftOf, draftSchedule, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
+import { draftDays, draftError, draftSchedule, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
 import { hasOneDate } from '../../../core/schedule';
 import type { OneOffDraft, RepeatType, RuleDay, RuleOf, RulePos } from './draft';
 import './oneoff.css';
@@ -74,65 +74,32 @@ function Choice<T extends string | number>(props: { label: string; value: T; opt
   );
 }
 
-export function OneOffForm(props: {
-  /** Saves the new task's fields. Resolving to false keeps what was typed, such as when the save failed. */
-  onSave(fields: Fields<'task'>): unknown;
-  /** Shows Cancel, for a form inside a sheet. */
-  onCancel?(): void;
-  /** Shows Delete, for a one off being changed. */
-  onDelete?(): void;
-  /** A one off to change rather than add. */
-  task?: Task;
-  /** More fields for where it's added from, above the buttons. */
-  extra?: ReactNode;
-}) {
+/**
+ * How a one off repeats, and its date or dates when it doesn't: the add form's fields, which the task popup shows too.
+ * onceOnly leaves out the repeat, for a project's task, which can have a date but never repeats.
+ */
+export function RepeatFields(props: { draft: OneOffDraft; put(patch: Partial<OneOffDraft>): void; onceOnly?: boolean }) {
+  const { draft, put } = props;
   const { layout } = useApp();
-  const today = useToday();
-  const [draft, setDraft] = useState(() => (props.task ? draftOf(props.task, today) : emptyDraft(today)));
-  const [error, setError] = useState<string | null>(null);
-  // The key starts the description afresh after each add.
-  const [added, setAdded] = useState(0);
-  const ids = { title: useId(), type: useId(), from: useId(), to: useId(), starts: useId(), months: useId(), time: useId() };
-  const put = (patch: Partial<OneOffDraft>) => {
-    setDraft((d) => ({ ...d, ...patch }));
-    setError(null);
-  };
   const phone = layout === 'phone';
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const problem = draftError(draft);
-    if (problem) return setError(problem);
-    if ((await props.onSave(oneOffFields(draft, today))) === false) return;
-    setDraft((d) => ({ ...d, title: '', from: '', to: '', ranged: false, time: '', notes: undefined }));
-    setAdded((n) => n + 1);
-  };
-
+  const ids = { type: useId(), from: useId(), to: useId(), starts: useId(), months: useId(), time: useId() };
   const toggleMonth = (m: number) => put({ months: draft.months.includes(m) ? draft.months.filter((x) => x !== m) : [...draft.months, m] });
-
   return (
-    <form className={phone ? 'stack oneoffform' : 'panel mform oneoffform'} aria-label={props.task ? `Change ${props.task.title}` : 'Add a one off'} onSubmit={submit} noValidate>
-      {!props.task && <h2 className={phone ? 'mhead' : undefined}>Add a one off</h2>}
-      <div className="stack8">
-        <label className="small quiet" htmlFor={ids.title}>
-          Title
-        </label>
-        {/* In a sheet the title takes focus, so typing can start at once. */}
-        <input id={ids.title} className="field" autoFocus={!!props.onCancel} value={draft.title} onChange={(e) => put({ title: e.target.value })} />
-      </div>
-      <div className="stack8">
-        <label className="small quiet" htmlFor={ids.type}>
-          Repeats
-        </label>
-        <select id={ids.type} className="field" value={draft.type} onChange={(e) => put({ type: e.target.value as RepeatType })}>
-          {REPEAT_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
+    <>
+      {!props.onceOnly && (
+        <div className="stack8">
+          <label className="small quiet" htmlFor={ids.type}>
+            Repeats
+          </label>
+          <select id={ids.type} className="field" value={draft.type} onChange={(e) => put({ type: e.target.value as RepeatType })}>
+            {REPEAT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {draft.type === 'once' && (
         <div className="stack8">
           <label className="small quiet" htmlFor={ids.from}>
@@ -220,15 +187,64 @@ export function OneOffForm(props: {
         </div>
       )}
 
-      {hasOneDate(draftSchedule(draft)) && (
+      {/* A one off's time of day, only on one day at a time: a range, a window or months have no one day for it. */}
+      {!props.onceOnly && hasOneDate(draftSchedule(draft)) && (
         <div className="oospan stack8">
           <label className={phone ? 'stack8 small quiet' : 'popfield'}>
             {draft.type === 'once' ? 'At a time of day (optional)' : 'Each time at (optional)'}
             <input className="field ootime" type="time" step={900} aria-describedby={ids.time} value={draft.time} onChange={(e) => put({ time: e.target.value })} />
           </label>
-          <p id={ids.time} className="small quiet">With a time, it's placed then by itself when that time is free.</p>
+          <p id={ids.time} className="small quiet">
+            With a time, it's placed then by itself when that time is free.
+          </p>
         </div>
       )}
+    </>
+  );
+}
+
+export function OneOffForm(props: {
+  /** Saves the new task's fields. Resolving to false keeps what was typed, such as when the save failed. */
+  onSave(fields: Fields<'task'>): unknown;
+  /** Shows Cancel, for a form inside a sheet. */
+  onCancel?(): void;
+  /** More fields for where it's added from, above the buttons. */
+  extra?: ReactNode;
+}) {
+  const { layout } = useApp();
+  const today = useToday();
+  const [draft, setDraft] = useState(() => emptyDraft(today));
+  const [error, setError] = useState<string | null>(null);
+  // The key starts the description afresh after each add.
+  const [added, setAdded] = useState(0);
+  const titleId = useId();
+  const put = (patch: Partial<OneOffDraft>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+    setError(null);
+  };
+  const phone = layout === 'phone';
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const problem = draftError(draft);
+    if (problem) return setError(problem);
+    if ((await props.onSave(oneOffFields(draft, today))) === false) return;
+    setDraft((d) => ({ ...d, title: '', from: '', to: '', ranged: false, time: '', notes: undefined }));
+    setAdded((n) => n + 1);
+  };
+
+
+  return (
+    <form className={phone ? 'stack oneoffform' : 'panel mform oneoffform'} aria-label="Add a one off" onSubmit={submit} noValidate>
+      <h2 className={phone ? 'mhead' : undefined}>Add a one off</h2>
+      <div className="stack8">
+        <label className="small quiet" htmlFor={titleId}>
+          Title
+        </label>
+        {/* In a sheet the title takes focus, so typing can start at once. */}
+        <input id={titleId} className="field" autoFocus={!!props.onCancel} value={draft.title} onChange={(e) => put({ title: e.target.value })} />
+      </div>
+      <RepeatFields draft={draft} put={put} />
       <div className="oospan">
         <EstimateSlider label="Time" value={draft.estimate} onChange={(estimate) => put({ estimate })} />
       </div>
@@ -243,16 +259,11 @@ export function OneOffForm(props: {
       {props.extra}
       <div className="row">
         <Button variant="primary" className={phone ? 'grow' : undefined} type="submit">
-          {props.task ? 'Save' : 'Add one off'}
+          Add one off
         </Button>
         {props.onCancel && (
           <Button type="button" onClick={props.onCancel}>
             Cancel
-          </Button>
-        )}
-        {props.onDelete && (
-          <Button type="button" onClick={props.onDelete}>
-            Delete
           </Button>
         )}
       </div>

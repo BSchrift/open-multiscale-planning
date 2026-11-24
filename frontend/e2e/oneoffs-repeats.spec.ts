@@ -4,7 +4,7 @@ import { expectTapTarget, oneOffRow, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 // One offs beyond those oneoffs.spec.ts adds: a date range, monthly, a set time after it was last done and a flexible
-// window, each moved on by its own rule when ticked; dates changed in place; and Delete from Change repeat.
+// window, each moved on by its own rule when ticked; dates changed in place; and Delete task from its popup.
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -141,7 +141,7 @@ test("changes a one off's date in place to a range and clears it, each with Undo
   expect(errors).toEqual([]);
 });
 
-test('the add form says what it is missing, and Change repeat deletes a one off with Undo', async ({ page }, info) => {
+test('the add form says what it is missing, and its popup deletes a one off with Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await openOneOffs(page, phone);
   const form = await addForm(page, phone);
@@ -155,9 +155,9 @@ test('the add form says what it is missing, and Change repeat deletes a one off 
   if (phone) await form.getByRole('button', { name: 'Cancel' }).click();
 
   const p = pane(page, 'One offs');
-  await p.getByRole('button', { name: 'Change repeat for Feed the fish' }).click();
-  const editor = p.getByRole('form', { name: 'Change Feed the fish' });
-  const del = editor.getByRole('button', { name: 'Delete' });
+  await p.getByRole('button', { name: 'Feed the fish', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Feed the fish' });
+  const del = editor.getByRole('button', { name: 'Delete task' });
   if (phone) await expectTapTarget(del);
   await del.click();
   await expect(page.getByText('Deleted Feed the fish')).toBeVisible();

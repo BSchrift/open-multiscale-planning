@@ -147,9 +147,9 @@ test('repeats weekly on chosen days, and changing it keeps them', async ({ page 
   await form.getByRole('button', { name: 'Add one off' }).click();
   await expect(pane(page, 'One offs').getByText(/^Weekly on Mon and Thu/)).toBeVisible();
 
-  // Changed, it keeps its days, and Mon to Fri reads as every weekday.
-  await pane(page, 'One offs').getByRole('button', { name: 'Change repeat for Put the bins out' }).click();
-  form = page.getByRole('form', { name: 'Change Put the bins out' });
+  // Changed in its popup, it keeps its days, and Mon to Fri reads as every weekday.
+  await pane(page, 'One offs').getByRole('button', { name: 'Put the bins out', exact: true }).click();
+  form = page.getByRole('dialog', { name: 'Put the bins out' });
   const kept = form.getByRole('group', { name: 'On' });
   await expect(kept.getByRole('checkbox', { name: 'Monday' })).toBeChecked();
   await expect(kept.getByRole('checkbox', { name: 'Thursday' })).toBeChecked();

@@ -59,14 +59,17 @@ test("the deployed suite's journey, from Capture to the calendar and back, works
   // Prod's runner took more than 5 seconds to read a change back on its shared test user. A CI runner or a Mac takes about
   // one on this account, so the page runs six times slower from here, where Week's read-back takes 5 to 6 seconds, past
   // the toast's: the journey before #312 fails here as it did on prod, waiting for Undo.
-  await (await d.context.newCDPSession(d.page)).send('Emulation.setCPUThrottlingRate', { rate: 6 });
+  const cdp = await d.context.newCDPSession(d.page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
   await workJourney(d.page, `Deployed check ${new Date().toISOString().slice(11, 19)}`);
 
-  // Then the clean-up the deployed suite runs after it, which deletes the second check the journey leaves in the Inbox. On
-  // this account the Inbox reads a delete back seconds later, and the clean-up pressed the deleted check's row while it
-  // still showed: Process opened on an item it no longer had, so on the rest of the Inbox, once it had read it, and
-  // stayed open over the page after the clean-up had moved on. Staging's history user met it on 20 November, at the
-  // next test's first press. Process can draw some seconds after the press, so it's looked for again after a sync.
+  // Then the clean-up the deployed suite runs after it, which deletes the second check the journey leaves in the Inbox,
+  // at full speed, as staging runs it: slowed down, the page couldn't press again before the Inbox had read the delete
+  // back. Staging's history user failed on 11 of its first 14 runs because the clean-up pressed the deleted check's row
+  // while it still showed. Process opened on an item it no longer had, so on the rest of the Inbox once it had read it,
+  // over the page after the clean-up had moved on, and took the next test's first press. Process can draw some seconds
+  // after the press, so it's looked for again after a sync.
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await clearLeftChecks(d.page);
   await syncNow(d.page);
   await expect(d.page.getByRole('dialog', { name: 'Process Inbox' })).toHaveCount(0);

@@ -337,10 +337,14 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    applies to bundles. The step then checks out that commit, installs its packages, and builds its web app and main
    process again as the Build step built this one's. Its build must have this build's Mac shell hash, or the step
    leaves that commit's app and waits on. The upload is then checked against that commit's build rather than this
-   one's. The app carries the older commit's web bundle, and takes this release's from the desktop feed, as an app
-   with unchanged native code does. Prod takes the build of the commit staging's app came from first, if it can,
-   since the staging update check passes that app's version. If nothing
-   arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
+   one's, and an upload that fails is left the same way. A build's version names its commit's first seven characters
+   (`vite.config.ts`), so building it again later, in another clone, stamps it the same. A commit from before that took
+   git's abbreviation, which grows with the clone's objects, so the step builds it with as many characters as its
+   upload's version names (`mac-inbox.ts stamp-length`), and the check still compares every file. The app carries the
+   older commit's web bundle, and takes this release's from the desktop feed, as an app with unchanged native code
+   does. Prod takes the build of the commit staging's app came from first, if it can, since the staging update check
+   passes that app's version. If nothing arrives in time, or this commit's own app fails the check, the run stops
+   before anything is published, and before prod. A new AWS account
    caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
    waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
 3. **The releases publish it.** Staging's and prod's releases upload the app's folder first,

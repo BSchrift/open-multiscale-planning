@@ -8,8 +8,8 @@ import { systemClock } from '../../src/core/clock';
 import { historyFacts, keptHistory, seedHistory } from '../../src/core/history-testing';
 import { createHttpSend } from '../../src/core/sync';
 import { memoryTokens } from '../../src/platform/memory';
-import { workJourney } from '../deployed/journey';
-import { account } from '../seed';
+import { clearLeftChecks, workJourney } from '../deployed/journey';
+import { account, syncNow } from '../seed';
 import { closeDevices, device, startSignIn } from './devices';
 import { target } from './target';
 
@@ -53,12 +53,26 @@ test("the deployed suite's journey, from Capture to the calendar and back, works
   await startSignIn(d.page);
   // The first sync pulls the whole account before Settings says Synced; the Inbox count is the history's.
   await expect(account(d.page).getByText('Synced', { exact: true })).toBeVisible({ timeout: 5 * 60_000 });
-  await expect(d.page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /^Inbox/ })).toContainText(String(historyFacts(changes).openInbox));
+  const inbox = d.page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /^Inbox/ });
+  await expect(inbox).toContainText(String(historyFacts(changes).openInbox));
 
   // Prod's runner took more than 5 seconds to read a change back on its shared test user. A CI runner or a Mac takes about
   // one on this account, so the page runs six times slower from here, where Week's read-back takes 5 to 6 seconds, past
   // the toast's: the journey before #312 fails here as it did on prod, waiting for Undo.
-  await (await d.context.newCDPSession(d.page)).send('Emulation.setCPUThrottlingRate', { rate: 6 });
+  const cdp = await d.context.newCDPSession(d.page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
   await workJourney(d.page, `Deployed check ${new Date().toISOString().slice(11, 19)}`);
+
+  // Then the clean-up the deployed suite runs after it, at full speed as staging runs it, which deletes the second check
+  // the journey leaves in the Inbox. On staging's history user it left Process open over the page on 11 of the first 14
+  // runs, on the Inbox's first item with nothing done in it, and the next test's first press never landed. CI's runner
+  // hasn't shown that, here or slowed down: its database worker reads the delete back sooner, and the page's slowing
+  // never reaches the worker. So this checks what the clean-up leaves: no Process, and the history's Inbox, nothing of
+  // it deleted. Process can draw some seconds after a press, so it's looked for again after a sync.
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  await clearLeftChecks(d.page);
+  await syncNow(d.page);
+  await expect(d.page.getByRole('dialog', { name: 'Process Inbox' })).toHaveCount(0);
+  await expect(inbox).toHaveAccessibleName(`Inbox ${historyFacts(changes).openInbox}`);
   expect(d.errors).toEqual([]);
 });

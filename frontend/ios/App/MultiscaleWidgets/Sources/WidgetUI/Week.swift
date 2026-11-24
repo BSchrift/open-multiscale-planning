@@ -46,8 +46,8 @@ public struct WeekView: View {
 
     // MARK: Layouts
 
-    /// What one try draws. At larger text, less rather than smaller: first practices go, then aims, then the bars, and
-    /// last the heading line.
+    /// What one try draws. At larger text, less rather than smaller: first practices go, then aims beyond one, then the
+    /// bars, and last the heading line, so even the largest text shows an aim and its pill.
     struct Layout: Hashable {
         var header = true
         /// The day bars, or for a message in their place, its icon.
@@ -58,7 +58,10 @@ public struct WeekView: View {
         var lines = false
     }
 
-    private var layouts: [Layout] {
+    private var layouts: [Layout] { WeekView.layouts(state, size) }
+
+    /// Each layout to try, fullest first.
+    static func layouts(_ state: WeekState, _ size: Size) -> [Layout] {
         guard state.mode == .planned else {
             return [Layout(), Layout(header: false), Layout(header: false, bars: false)]
         }
@@ -67,12 +70,13 @@ public struct WeekView: View {
         switch size {
         case .medium:
             out = [Layout(aims: min(a, 3)), Layout(aims: min(a, 2)), Layout(aims: min(a, 1)), Layout(bars: false, aims: min(a, 2)),
-                   Layout(bars: false, aims: min(a, 1)), Layout(header: false, bars: false, aims: min(a, 1))]
+                   Layout(bars: false, aims: min(a, 1))]
         case .large:
-            out = [(3, 3), (3, 2), (2, 2), (2, 1), (1, 1), (1, 0), (0, 0)].map { Layout(aims: min(a, $0.0), practices: min(p, $0.1), lines: true) }
-            out += [Layout(aims: min(a, 2)), Layout(bars: false, aims: min(a, 2)), Layout(bars: false, aims: min(a, 1)),
-                    Layout(header: false, bars: false, aims: min(a, 1))]
+            out = [(3, 3), (3, 2), (2, 2), (2, 1), (1, 1), (1, 0)].map { Layout(aims: min(a, $0.0), practices: min(p, $0.1), lines: true) }
+            out += [Layout(bars: false, aims: min(a, 2), lines: true), Layout(bars: false, aims: min(a, 1), lines: true),
+                    Layout(bars: false, aims: min(a, 1))]
         }
+        out.append(Layout(header: false, bars: false, aims: min(a, 1)))
         // Each only once, in order: a week with few aims makes some the same, and ForEach needs each to be its own.
         return out.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
@@ -216,13 +220,17 @@ struct AimLine: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Words(text: aim.name)
-                    .font(Type.meta.weight(.semibold))
-                    .foregroundStyle(aim.name.sensitive || aim.kind == .oneoff ? palette.ink : palette.ink2)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let status = aim.status { StatusPill(status: status) }
+            // The name whole beside its pill when both fit, else the pill under it: never a pill with no name.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    name.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    pill
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    name
+                    pill
+                }
             }
             GeometryReader { g in
                 ZStack(alignment: .leading) {
@@ -233,6 +241,18 @@ struct AimLine: View {
             .frame(height: 4)
             if withLine { Text(aim.line).font(Type.caption).foregroundStyle(palette.ink2).lineLimit(1) }
         }
+    }
+
+    private var name: some View {
+        Words(text: aim.name)
+            .font(Type.meta.weight(.semibold))
+            .foregroundStyle(aim.name.sensitive || aim.kind == .oneoff ? palette.ink : palette.ink2)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var pill: some View {
+        if let status = aim.status { StatusPill(status: status) }
     }
 }
 
@@ -251,7 +271,8 @@ struct StatusPill: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .background(Capsule().fill(tone.tint))
-            .fixedSize()
+            // Whole wherever there's room; in a column too narrow at the largest text, cut rather than pushed out.
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

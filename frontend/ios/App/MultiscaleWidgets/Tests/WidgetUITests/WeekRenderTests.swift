@@ -73,6 +73,22 @@ final class WeekRenderTests: XCTestCase {
         }
     }
 
+    /// At larger text, less rather than smaller, and the aims go last: practices first, then aims beyond one, then the
+    /// bars, so the largest text still shows an aim and its pill rather than only the days.
+    func testLargerTextDropsPracticesThenBarsBeforeTheLastAim() {
+        for (name, state) in Weeks.all where state.mode == .planned && !state.aims.isEmpty {
+            for size in WeekView.Size.allCases {
+                let layouts = WeekView.layouts(state, size)
+                XCTAssertEqual(layouts.first?.aims, min(state.aims.count, 3), "\(name) \(size)")
+                for layout in layouts {
+                    XCTAssertGreaterThan(layout.aims, 0, "\(name) \(size) \(layout)")
+                    if !layout.bars { XCTAssertEqual(layout.practices, 0, "\(name) \(size) \(layout)") }
+                }
+                XCTAssertEqual(layouts.last, .init(header: false, bars: false, aims: 1), "\(name) \(size)")
+            }
+        }
+    }
+
     /// A tap opens Week, or Plan while the week isn't planned.
     func testATapOpensWeekOrPlan() {
         XCTAssertEqual(WeekView(state: Weeks.week("now"), size: .medium).link, WidgetLink.week)

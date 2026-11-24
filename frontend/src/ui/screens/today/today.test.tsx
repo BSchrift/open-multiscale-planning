@@ -587,8 +587,9 @@ describe('the end-of-block prompt', () => {
       await w.create('time_block', { practice_id: 'pr', start: at('13:00'), end: at('13:30'), tz: ZONE }, 'pb');
     });
     const prompt = await dialog('Block finished');
-    // Three answers first, as the missed blocks sheet and the notification give: no slider until Partly.
-    expect(within(prompt).getAllByRole('button').map((b) => b.textContent)).toEqual(['All 30m', 'Partly', 'Skipped']);
+    // Its name, which opens its popup, then three answers, as the missed blocks sheet and the notification give: no
+    // slider until Partly.
+    expect(within(prompt).getAllByRole('button').map((b) => b.textContent)).toEqual(['Piano practice', 'All 30m', 'Partly', 'Skipped']);
     expect(within(prompt).queryByRole('slider')).toBeNull();
     await userEvent.click(within(prompt).getByRole('button', { name: 'Partly' }));
     // From half the block, on the 5-minute steps.
@@ -627,7 +628,9 @@ describe('the start check-in', () => {
   it('asks a few minutes in, and Yes, started starts it', async () => {
     const t = await open(late);
     const prompt = await dialog('Have you started?');
-    expect(within(prompt).getByText('Have you started Write the report?')).toBeVisible();
+    expect(prompt).toHaveTextContent('Have you started Write the report?');
+    // Its name opens the task's popup, as it does anywhere.
+    expect(within(prompt).getByRole('button', { name: 'Write the report' })).toHaveClass('taskname');
     await userEvent.click(within(prompt).getByRole('button', { name: 'Yes, started' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW);
@@ -1378,7 +1381,7 @@ describe('the timeline', () => {
     expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start', 'Mark done', 'Move…', 'Remove from calendar']);
   });
 
-  it("a practice's session and a planning block open their details, as before", async () => {
+  it("a practice's session and a planning block open their popups, as a task's block does", async () => {
     await open(async (w) => {
       await day(w);
       await w.create('practice', { title: 'Piano practice', objective_id: 'g', target_min: 30, per: 'day', state: 'active' }, 'pr');
@@ -1387,13 +1390,14 @@ describe('the timeline', () => {
       await block(w, 'b3', 'planning:week:2026-11-09', '19:00', '19:30');
     });
     const practice = await screen.findByRole('button', { name: /^Piano practice, 6pm to 6:30pm/ });
-    expect(practice).toHaveAttribute('aria-expanded', 'false');
+    expect(practice).toHaveAttribute('aria-haspopup', 'dialog');
     await userEvent.click(practice);
-    expect(await within(screen.getByRole('region', { name: 'Piano practice' })).findByText(/^Write more/)).toBeVisible();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const popup = await dialog('Piano practice');
+    expect(await within(within(popup).getByRole('region', { name: 'Time block' })).findByText(/^Write more/)).toBeVisible();
+    await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await userEvent.click(screen.getByRole('button', { name: /^Plan the week of Nov 9, 7pm to 7:30pm/ }));
-    expect(screen.getByRole('region', { name: 'Plan the week of Nov 9' })).toBeVisible();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(within(await dialog('Plan the week of Nov 9')).getByRole('region', { name: 'Time block' })).toBeVisible();
   });
 
   it('says what kind each block is, not only by its colour', async () => {
@@ -1458,7 +1462,7 @@ describe('the timeline', () => {
     expect(line.querySelector('i')).not.toBeNull();
   });
 
-  it("on phone, a tap on a task's block opens the task, and a practice's session opens its details in a sheet", async () => {
+  it("on phone, a tap on a task's block opens the task, and a practice's session opens its popup", async () => {
     await open(
       async (w) => {
         await day(w);
@@ -1474,7 +1478,9 @@ describe('the timeline', () => {
     await userEvent.click(within(await taskPopup('Write the report')).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await userEvent.click(screen.getByRole('slider', { name: /^Piano practice, 6pm to 6:30pm/ }));
-    expect(await within(await dialog('Piano practice')).findByText(/^Write more/)).toBeVisible();
+    const popup = await dialog('Piano practice');
+    expect(popup).toHaveClass('taskpop');
+    expect(await within(within(popup).getByRole('region', { name: 'Time block' })).findByText(/^Write more/)).toBeVisible();
   });
 });
 
@@ -1494,7 +1500,7 @@ describe.each(['desktop', 'phone'] as const)('blocks at the same time on the tim
     expect(new Set(els.map((e) => e.style.left)).size).toBe(els.length);
   };
 
-  it('sit side by side on the calendar, each named with what it overlaps, and open as they did', async () => {
+  it('sit side by side on the calendar, each named with what it overlaps, and open their popups', async () => {
     await open(together, { layout });
     const report = await screen.findByRole(role, { name: 'Write the report, 4pm to 5pm, Project. Overlaps Piano practice.' });
     const piano = screen.getByRole(role, { name: 'Piano practice, 4pm to 4:30pm, Practice. Overlaps Write the report.' });
@@ -1502,8 +1508,7 @@ describe.each(['desktop', 'phone'] as const)('blocks at the same time on the tim
     // Read by start, then column: the longer one is first, on the left.
     expect(report.compareDocumentPosition(piano) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(piano);
-    if (layout === 'phone') expect(await dialog('Piano practice')).toBeVisible();
-    else expect(await screen.findByRole('region', { name: 'Piano practice' })).toBeVisible();
+    expect(await dialog('Piano practice')).toHaveClass('taskpop');
   });
 
   it("a task's block beside another still opens the task's popup, with its own section", async () => {
@@ -1544,10 +1549,8 @@ describe.each(['desktop', 'phone'] as const)('blocks at the same time on the tim
       await userEvent.click(more);
       const list = await dialog('Blocks from 4pm to 5pm');
       await userEvent.click(within(list).getByRole('button', { name: /^Piano practice, 4pm to 4:30pm, Practice\. Overlaps Write the report and Call the editor\.$/ }));
-      if (layout === 'phone') expect(await dialog('Piano practice')).toBeVisible();
-      else expect(await screen.findByRole('region', { name: 'Piano practice' })).toBeVisible();
       // A task's block in the list opens the task's popup, with its section.
-      if (layout === 'phone') await userEvent.click(within(await dialog('Piano practice')).getByRole('button', { name: 'Close' }));
+      await userEvent.click(within(await dialog('Piano practice')).getByRole('button', { name: 'Cancel' }));
       await userEvent.click(screen.getByRole('button', { name: '+2 more: Piano practice and Call the editor' }));
       await userEvent.click(within(await dialog('Blocks from 4pm to 5pm')).getByRole('button', { name: /^Call the editor, 4:15pm to 4:45pm/ }));
       const popup = await taskPopup('Call the editor');

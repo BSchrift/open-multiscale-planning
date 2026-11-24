@@ -41,7 +41,9 @@ describe('the missed blocks sheet', () => {
     const dialog = await sheet();
     expect(rows(dialog)).toEqual(['Draft chapter five', 'Email the editor', 'Piano', 'Draft chapter five', 'Pay the water bill']);
     const first = within(dialog).getAllByRole('group')[0]!;
-    expect(within(first).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+    // Its name, which opens its popup, then its three answers.
+    expect(within(first).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
+      'Draft chapter five',
       'Done: Draft chapter five',
       'Partly: Draft chapter five',
       'Not done: Draft chapter five',
@@ -52,6 +54,14 @@ describe('the missed blocks sheet', () => {
     expect(within(dialog).queryByRole('checkbox')).toBeNull();
     expect(within(dialog).queryByRole('button', { name: /None of them/ })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it("opens a row's practice in its popup from its name, with the session's section at its top", async () => {
+    await open();
+    await userEvent.click(within(await sheet()).getByRole('button', { name: 'Piano' }));
+    const popup = await screen.findByRole('dialog', { name: 'Piano' });
+    expect(popup).toHaveClass('taskpop');
+    expect(within(within(popup).getByRole('region', { name: 'Time block' })).getByRole('group', { name: 'How did it go?' })).toBeVisible();
   });
 
   it('says the time spent and the pauses on a row that was started', async () => {

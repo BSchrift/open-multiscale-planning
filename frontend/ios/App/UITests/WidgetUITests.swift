@@ -68,26 +68,20 @@ final class WidgetUITests: XCTestCase {
         XCTAssertEqual(run("Widget snapshot", on: checks, expect: "snapshot:"), "snapshot:blocks=1 started= inbox=1")
     }
 
-    /// Each link a widget opens shows its screen, opened from outside the app as a widget's tap opens it.
+    /// Each link a widget opens shows its screen, opened from outside the app as a widget's tap opens it. The debug build
+    /// says which screen the app shows each time it changes (BridgeViewController.swift); a tab's drawn KPI won't do,
+    /// since it starts only from a tap on the tab.
     func testEachWidgetLinkOpensItsScreen() {
         let app = launchApp(seed: "Seed plan")
-        for name in ["nav.week", "nav.today"] { Heard.listen(measured + name) }
-        let weeks = Heard.count(measured + "nav.week")
-        openLink("multiscale://week") { Heard.count(measured + "nav.week") > weeks }
-        XCTAssertGreaterThan(Heard.count(measured + "nav.week"), weeks, "Week never said it was drawn")
-        let inbox = app.webText("Inbox is empty. Anything you capture lands here.")
-        openLink("multiscale://inbox") { inbox.exists }
-        exists(inbox)
-        let todays = Heard.count(measured + "nav.today")
-        openLink("multiscale://today") { Heard.count(measured + "nav.today") > todays }
-        XCTAssertGreaterThan(Heard.count(measured + "nav.today"), todays, "Today never said it was drawn")
-        let planning = app.webElement("Plan your week")
-        openLink("multiscale://plan") { planning.exists }
-        exists(planning)
-        // Capture's link, which the Capture widget and the control share, opens Capture over the screen.
-        let field = app.page.textFields["Capture to Inbox"]
-        openLink("multiscale://capture") { field.exists }
-        exists(field)
+        for (link, screen) in [("week", "week"), ("inbox", "inbox"), ("today", "today"), ("plan", "planning"), ("capture", "capture")] {
+            let name = measured + "screen." + screen
+            Heard.listen(name)
+            let before = Heard.count(name)
+            openLink("multiscale://\(link)") { Heard.count(name) > before }
+            XCTAssertGreaterThan(Heard.count(name), before, "multiscale://\(link) never showed \(screen). On screen:\n\(app.debugDescription)")
+        }
+        // Capture's link, the one the Capture widget and the control share, opens Capture ready to type.
+        exists(app.page.textFields["Capture to Inbox"])
     }
 
     /// A widget's Start early, queued while the app was closed, applies when it opens, timed at the tap, with a toast

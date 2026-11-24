@@ -21,6 +21,8 @@ public struct Snapshot: Codable, Equatable, Sendable {
     public var inbox: Inbox?
     /// Starts made from the widget that it still offers to undo.
     public var fromWidget: [Recent]
+    /// What This week draws. Added after the first widgets, so a snapshot from an older app has none.
+    public var week: Week?
 
     public struct Day: Codable, Equatable, Sendable {
         public var date: String
@@ -30,6 +32,10 @@ public struct Snapshot: Codable, Equatable, Sendable {
     public struct Space: Codable, Equatable, Sendable {
         public var name: String
         public var encrypted: Bool
+
+        public init(name: String, encrypted: Bool) {
+            (self.name, self.encrypted) = (name, encrypted)
+        }
     }
 
     public enum Kind: String, Codable, Equatable, Sendable {
@@ -86,6 +92,75 @@ public struct Snapshot: Codable, Equatable, Sendable {
         public var at: Date
         /// Where Start early moved the block from.
         public var before: Times?
+    }
+
+    /// The week today is in, as Week counts it (widgetSnapshot.ts loadWeek). Whether it's planned is in `days`.
+    public struct Week: Codable, Equatable, Sendable {
+        /// Its Monday, "2026-11-16".
+        public var start: String
+        /// Each day's planned minutes, Monday first.
+        public var plannedMinutes: [Int]
+        public var aims: [Aim]
+        public var practices: [Practice]
+
+        public init(start: String, plannedMinutes: [Int], aims: [Aim], practices: [Practice]) {
+            (self.start, self.plannedMinutes, self.aims, self.practices) = (start, plannedMinutes, aims, practices)
+        }
+    }
+
+    /// A weekly aim: a project's, or One offs'.
+    public struct Aim: Codable, Equatable, Sendable {
+        public enum Kind: String, Codable, Equatable, Sendable {
+            case project, oneoff
+
+            /// A kind from a later app draws as a project.
+            public init(from decoder: Decoder) throws {
+                self = Kind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .project
+            }
+        }
+
+        /// A project's status pill, with the app's tone for it.
+        public struct Status: Codable, Equatable, Sendable {
+            public enum Tone: String, Codable, Equatable, Sendable {
+                case red, amber, green, grey
+
+                /// A tone from a later app draws grey, the quietest.
+                public init(from decoder: Decoder) throws {
+                    self = Tone(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .grey
+                }
+            }
+            public var pill: String
+            public var tone: Tone
+
+            public init(pill: String, tone: Tone) {
+                (self.pill, self.tone) = (pill, tone)
+            }
+        }
+
+        /// Nil for a project in an encrypted space, whose name never leaves the app.
+        public var name: String?
+        public var space: Space?
+        public var kind: Kind
+        public var plannedMinutes: Int
+        public var aimMinutes: Int
+        /// One offs have none.
+        public var status: Status?
+
+        public init(name: String?, space: Space? = nil, kind: Kind, plannedMinutes: Int, aimMinutes: Int, status: Status?) {
+            (self.name, self.space, self.kind, self.plannedMinutes, self.aimMinutes, self.status) = (name, space, kind, plannedMinutes, aimMinutes, status)
+        }
+    }
+
+    /// A practice's sessions this week: answered Done or Partly, of those it wants.
+    public struct Practice: Codable, Equatable, Sendable {
+        public var name: String?
+        public var space: Space?
+        public var done: Int
+        public var of: Int
+
+        public init(name: String?, space: Space? = nil, done: Int, of: Int) {
+            (self.name, self.space, self.done, self.of) = (name, space, done, of)
+        }
     }
 
     public var timeZone: TimeZone { TimeZone(identifier: zone) ?? .current }

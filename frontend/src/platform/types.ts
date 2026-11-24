@@ -3,7 +3,7 @@
 // browser build and by tests. Core code never imports this: it gets data and a Clock as arguments.
 
 import type { Db } from '../core/db';
-import type { Diagnostics } from '../core/telemetry';
+import type { Diagnostics, Energy } from '../core/telemetry';
 import type { Reminder } from '../core/types';
 import type { NativeUpdates } from '../core/updates';
 
@@ -108,6 +108,8 @@ export interface Platform {
   showMenu?(items: readonly NativeMenuItem[]): Promise<string | null>;
   /** Only where native code can measure the app: memory, and memory warnings. */
   readonly diagnostics?: Diagnostics;
+  /** Only where native code can read the battery, and on the Mac each process's CPU (docs/performance.md, Battery). */
+  readonly energy?: Energy;
   /** Only in the apps, whose native code checks and installs a downloaded web bundle. */
   readonly updates?: NativeUpdates;
   /** Only on desktop: the global shortcut that opens capture, as an Electron accelerator. */

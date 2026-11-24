@@ -1,5 +1,5 @@
 // A day's blocks as they happen: which one is now, the end-of-block answers (one, or several at once), Mark done now,
-// Start, Start early, Do next block instead, Still going, Pause and Resume, and the time spent, plus the week's edits: move, remove, place, take off the
+// Stop for now, Start, Start early, Do next block instead, Still going, Pause and Resume, and the time spent, plus the week's edits: move, remove, place, take off the
 // calendar, keeping a practice change, skipping a practice or one of its sessions, and placing the week's practices when asked.
 // The in-app prompts and notification actions both write through here.
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
@@ -35,10 +35,14 @@ export function nextBlock(blocks: readonly BlockRow[], clock: Clock): BlockRow |
 /** A block's times and pauses, as its record or its row has them. */
 type Timed = Pick<TimeBlock, 'start' | 'end' | 'started_at' | 'ended_at' | 'paused_at' | 'paused_min'>;
 
-/** Where Partly's slider starts: the estimate less this block, or the block's own length once that's used up. */
-export function partlyLeft(task: Pick<Task, 'remaining_min' | 'estimate_min'>, block: Timed): Minutes {
+/**
+ * Where Partly's slider starts: the estimate less this block, or the block's own length once that's used up. Stopped
+ * early, at `stoppedAt`, the block counts only the time spent on it by then.
+ */
+export function partlyLeft(task: Pick<Task, 'remaining_min' | 'estimate_min'>, block: Timed, stoppedAt?: number): Minutes {
   const length = workMinutes(block);
-  const left = (task.remaining_min ?? task.estimate_min ?? 0) - length;
+  const done = stoppedAt === undefined ? length : Math.round(timeSpentMs(block, stoppedAt) / MINUTE_MS);
+  const left = (task.remaining_min ?? task.estimate_min ?? 0) - done;
   return left > 0 ? left : length;
 }
 
@@ -199,15 +203,17 @@ export async function answerBlocks(w: Writer, answers: readonly BlockAnswerFor[]
 }
 
 /**
- * Ends the block in progress now and answers Done, so the rest of its time is free again. A paused block resumes first,
- * so its pause is counted out of the time spent.
+ * Ends the block in progress now with its answer, so the rest of its time is free again: Done for Mark done now, Partly
+ * or Not done for Stop for now. A paused block resumes first, so its pause is counted out of the time spent.
  */
-export async function markDoneNow(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {
+export async function endNow(w: Writer, blockId: string, answer: BlockAnswer, clock: Clock): Promise<PlanChange> {
   const resumed = await resumeBlock(w, blockId, clock);
   const ended = await change(w, 'time_block', blockId, { ended_at: nowInstant(clock) });
-  const answered = await answerBlock(w, blockId, { result: 'done' }, clock);
+  const answered = await answerBlock(w, blockId, answer, clock);
   return { writes: [...answered.writes, ...ended.writes, ...resumed.writes] };
 }
+
+export const markDoneNow = (w: Writer, blockId: string, clock: Clock) => endNow(w, blockId, { result: 'done' }, clock);
 
 async function answered(w: Writer, blockId: string): Promise<boolean> {
   const outcome = await getRecord(w.sql, 'block_outcome', outcomeId(blockId));

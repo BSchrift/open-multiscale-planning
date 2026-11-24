@@ -4,7 +4,8 @@
 // field sits low, in thumb reach, and its list opens in a sheet, as does the form for a new home.
 //
 // A goal's backlog takes an item too: B, or Goal backlog, swaps the picker for the goals on desktop, and opens a sheet of
-// them on phone. Beside it, K, or Save as note, makes the item a note in one tap.
+// them on phone. Beside it, K, or Save as note, asks where the note lives, Attach note to, in one search over goals,
+// projects and practices with On its own first: in place of the picker on desktop, in a sheet on phone.
 //
 // params.planning is the week being planned, so Add to this week adds to that plan; params.item opens on one item.
 // params.stretchStart and stretchEnd are the stretch being planned: its projects come first, new projects end with it,
@@ -21,6 +22,7 @@ import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { isRepeating, onceWhen, projectDates } from '../../../core/schedule';
 import { saveAsNote } from '../../../core/memos';
+import type { MemoHome } from '../../../core/types';
 import { closeTask, makeHome, undoHome } from '../../../core/tasks';
 import type { Home, Made } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes, Task } from '../../../core/types';
@@ -49,6 +51,9 @@ import './process.css';
 import { Button } from '../../components/ds/Button';
 import { Switch } from '../../components/ds/Controls';
 import { Icon } from '../../components/ds/Icon';
+import { Sheet } from '../../components/Sheet';
+import { HomeList, useHomes } from '../notes/HomePicker';
+import type { HomeOption } from '../notes/HomePicker';
 
 export default function Screen(props: ScreenProps) {
   const { stretchStart, stretchEnd } = props.params;
@@ -155,6 +160,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const [choosing, setChoosing] = useState(false);
   const [lastBacklog, setLastBacklog] = useState('');
   const backlogRef = useRef<HTMLButtonElement | null>(null);
+  // Attach note to, Save as note's second step.
+  const [noting, setNoting] = useState(false);
+  const noteRef = useRef<HTMLButtonElement | null>(null);
+  const homes = useHomes();
   const openers = useRef<Record<string, HTMLButtonElement | null>>({});
   // Where focus goes once the next render has drawn it: the picker, its Add to button, the title, or a form's opener.
   const refocus = useRef<string | null>('pick');
@@ -228,7 +237,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     setEditing(null);
   };
   const ref = useDialogFocus<HTMLDivElement>(() => {
-    if (form) closeForm();
+    if (noting) closeNoting();
+    else if (form) closeForm();
     else if (editing) closeEditing();
     else if (delAsk) setDelAsk(false);
     // From Add to a project just made, or from its milestones, back into the picker to put the item somewhere else.
@@ -514,14 +524,22 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       () => ({ closed: s.closed + 1 }),
       () => (freed ? `Deleted ${name} and its block${blockAt}.` : `Deleted ${name}.`),
     );
-  // One tap: the item becomes a note in Notes, with what was written and attached. Never on the week.
-  const saveNote = () =>
-    item &&
+  // The item becomes a note, with what was written and attached, on the home chosen or on its own. Never on the week.
+  const saveNote = (option: HomeOption) => {
+    if (!item) return;
+    const home: MemoHome | null = option.home;
+    setNoting(false);
     void commit(
-      closing((w) => saveAsNote(w, item.id, clock)),
+      closing((w) => saveAsNote(w, item.id, clock, home)),
       () => ({ sorted: s.sorted + 1 }),
-      () => `Saved ${name} in Notes.${s.planOn ? " Notes aren't added to the week." : ''}${cameOff()}`,
+      () => `Saved ${name} ${home ? `as a note on ${option.label}` : 'in Notes'}.${s.planOn ? " Notes aren't added to the week." : ''}${cameOff()}`,
     );
+  };
+  const closeNoting = () => {
+    setNoting(false);
+    refocus.current = null;
+    requestAnimationFrame(() => noteRef.current?.focus());
+  };
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
 
   // Single keys need the device setting, since speech input can type them; with Option or Alt they always work, in Add
@@ -551,7 +569,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       d: () => setDelAsk(true),
       p: () => openForm('practice', 'p'),
       g: () => openForm('goal', 'g'),
-      k: saveNote,
+      k: () => setNoting(true),
       ...(data.backlogs.length ? { b: () => setChoosing(true) } : {}),
       ...(stretch ? {} : { w: togglePlan }),
       ...(shown ? { m: () => setNaming(true) } : {}),
@@ -641,7 +659,14 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     </Button>
   );
   const noteButton = (
-    <Button size="compact" type="button" onClick={saveNote}>
+    <Button
+      ref={noteRef}
+      size="compact"
+      type="button"
+      aria-haspopup={phone ? 'dialog' : undefined}
+      aria-expanded={phone ? undefined : noting}
+      onClick={() => setNoting(true)}
+    >
       {cap('K')}
       <Icon name="note" size={16} />
       Save as note
@@ -652,6 +677,21 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     <div className="pxside">
       {backlogButton}
       {noteButton}
+    </div>
+  );
+  const ownRow: HomeOption = { key: 'own', label: 'On its own', type: 'In Notes, no home', home: null };
+  const attachList = item && homes && (
+    <HomeList key={item.id} label="Attach note to" homes={homes} first={[ownRow]} onChoose={saveNote} onCancel={closeNoting} />
+  );
+  const noter = !phone && noting && attachList && (
+    <div className="pxnoting stack8" role="group" aria-label="Attach note to">
+      <div className="between">
+        <h2 className="strong">Attach note to</h2>
+        <Button size="compact" type="button" onClick={closeNoting}>
+          Back
+        </Button>
+      </div>
+      {attachList}
     </div>
   );
   const chooser = !phone && choosing && item && (
@@ -762,6 +802,17 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
             {picker}
             {side}
             {choosing && <BacklogSheet goals={data.backlogs} last={lastBacklog} onAdd={(id) => void file(id)} onClose={closeChooser} />}
+            {noting && attachList && (
+              <Sheet label="Attach note to" tall className="pksheet" onClose={closeNoting}>
+                <div className="between">
+                  <h2>Attach note to</h2>
+                  <Button type="button" onClick={closeNoting}>
+                    Close
+                  </Button>
+                </div>
+                {attachList}
+              </Sheet>
+            )}
             {makeOne}
             {homeForm}
             {delAsk ? (
@@ -806,7 +857,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         {item ? (
           <>
             {itemCard()}
-            {homeForm || chooser || (
+            {homeForm || chooser || noter || (
               <>
                 {picker}
                 <div className="pxopts">

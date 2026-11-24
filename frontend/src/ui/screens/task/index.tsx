@@ -27,6 +27,7 @@ import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { NotesField } from '../../components/notes/NotesField';
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
+import { SearchSelect } from '../../components/SearchSelect';
 import { Sheet } from '../../components/Sheet';
 import { Became } from '../../components/task/Became';
 import { useToast } from '../../components/Toast';
@@ -265,17 +266,17 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
         <div className="taskpopbody">
           <LeavePopup.Provider value={leave}>{props.block}</LeavePopup.Provider>
           <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />
-          <label className="popfield">
-            Belongs to
-            <select className="field" value={place} aria-describedby={note ? noteId : undefined} onChange={(event) => setPlace(event.target.value)}>
-              {choices.map((p) => (
-                <option key={p.value} value={p.value} disabled={repeats && !!p.goalId}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {/* In the select's description, so it's heard as it appears and on returning to the select. */}
+          <SearchSelect
+            className="popfield"
+            label="Belongs to"
+            phone={phone}
+            value={place}
+            options={choices.map((p) => ({ value: p.value, label: p.label, off: repeats && p.goalId ? 'Not for a repeating task' : undefined }))}
+            placeholder="Search places"
+            describedBy={note ? noteId : undefined}
+            onChange={setPlace}
+          />
+          {/* In the field's description, so it's heard as it appears and on returning to the field. */}
           <div id={noteId} className="small quiet" role="status">
             {note}
           </div>

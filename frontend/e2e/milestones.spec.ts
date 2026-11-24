@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { belongsTo, expectTapTarget, openSeeded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 // A project's milestones: the popover that renames and re-dates one and holds Mark met, Not met and Drop; the overdue
@@ -206,7 +206,7 @@ test("a task's popup moves it to another milestone with Undo, and on phone a hel
   await page.getByRole('button', { name: 'First loaf tasks' }).click();
   await page.getByRole('button', { name: 'Edit task Shape the dough, 4h' }).click();
   const popup = page.locator('.sheet.taskpop[aria-label="Shape the dough"]');
-  await popup.getByLabel('Belongs to').selectOption({ label: 'Bake a sourdough loaf, Bake for friends' });
+  await belongsTo(page, popup, 'Bake a sourdough loaf, Bake for friends');
   await popup.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Moved Shape the dough to Bake a sourdough loaf, Bake for friends.')).toBeVisible();
   await expect(group(page, 'First loaf')).not.toContainText('Shape the dough');

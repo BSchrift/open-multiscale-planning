@@ -78,10 +78,12 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
-| Process: Save as note, one tap, with the item's description and attachments, its block off the calendar | covered (notes-list: "an Inbox item saved as a note in one tap…") | covered (same) | missing (seeded specs run in the browser only) | covered (testSaveAsNoteFromProcessThenFindItInNotesUnderMore) |
+| Process: Save as note, then Attach note to (On its own, or a home found by search), with the item's description and attachments, its block off the calendar | covered (notes-list: "an Inbox item saved as a note…", "a note attached to a project…") | covered (same) | missing (seeded specs run in the browser only) | covered (testSaveAsNoteFromProcessThenFindItInNotesUnderMore) |
 | Notes: on the sidebar after One offs, under More on phone, with no count | covered (notes-list) | covered (same) | missing | covered (same test) |
 | Notes: search over titles and descriptions, ignoring case and accents, underlined, and its count spoken | covered (notes-list) | covered (same) | missing | missing |
 | A note's popup: Delete note, Recently deleted and Restore, Belongs to Inbox to make it a task | covered (notes-list) | covered (same) | missing | missing |
+| A note's home: Belongs to's search, and its notes on the goal's card, the project's page and the practice's sheet | covered (notes-list: "a note attached to a project shows on its goal's card and its page…"; unit: notes/homes.test.tsx) | covered (same) | missing | missing |
+| Show it on Today on: the day's notes on Today, read only, above the timeline | covered (notes-list: "…and one chosen for today shows on Today") | covered (same) | missing | missing |
 | A note's title with nowhere to break, in its row, its popup and the Process card | covered (long-titles: "a 200-character title with nowhere to break…") | covered (same) | missing | missing |
 | Notes on the last release: the item leaves its Inbox unfinished, and its launch writes nothing to them | covered (compat: "Inbox items the update saved as notes…") | missing | missing | missing |
 

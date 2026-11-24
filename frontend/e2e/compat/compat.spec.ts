@@ -410,20 +410,29 @@ test.describe('one device', () => {
     let page = await launch(context, 'new', errors);
     await openSeeded(page, [...week, { type: 'attachment', id: 'att1', fields: { task_id: 'i1', kind: 'link', name: 'example.com', url: 'https://example.com/shops' } }]);
 
-    // The update saves both items as notes from Process, then deletes the second note.
+    // The update saves both items as notes from Process, the first on a project and shown on Today, the second on its
+    // own, then deletes the second note.
     await go(page, 'Inbox');
     await pane(page, 'Inbox').getByRole('button', { name: 'Process 2 items' }).click();
     const card = page.getByRole('dialog', { name: 'Process Inbox' });
-    for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) {
-      await expect(card.getByRole('heading', { level: 1, name: title })).toBeVisible();
-      await card.getByRole('button', { name: /Save as note$/ }).click();
-      await expect(page.locator('.toast')).toContainText(`Saved ${title} in Notes.`);
-    }
+    await expect(card.getByRole('heading', { level: 1, name: 'Look up a bike repair shop' })).toBeVisible();
+    await card.getByRole('button', { name: /Save as note$/ }).click();
+    await card.getByRole('combobox', { name: 'Attach note to' }).fill('first draft');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toContainText('Saved Look up a bike repair shop as a note on Finish the first draft.');
+    await expect(card.getByRole('heading', { level: 1, name: 'Order more coffee beans' })).toBeVisible();
+    await card.getByRole('button', { name: /Save as note$/ }).click();
+    await card.getByRole('option', { name: 'On its own, In Notes, no home' }).click();
+    await expect(page.locator('.toast')).toContainText('Saved Order more coffee beans in Notes.');
     // A one off finished now, so the bundle before has a finished task to list beside the notes' items. The week's
     // ladder, finished the day before, won't do: built for staging, both bundles keep a closed task 35 minutes
     // (config/retention.yaml), so the relaunch's expiry pass removes it, and One offs then hides Finished tasks.
     await tick(page, 'Renew the library card', errors);
     await go(page, 'Notes');
+    await pane(page, 'Notes').getByRole('button', { name: /^Look up a bike repair shop/ }).click();
+    await page.getByRole('dialog', { name: /^Note: / }).getByLabel(/Show it on Today on/).fill('2026-11-04');
+    await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('.toast')).toContainText('Saved Look up a bike repair shop.');
     await pane(page, 'Notes').getByRole('button', { name: /^Order more coffee beans/ }).click();
     await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Delete note' }).click();
     await expect(page.locator('.toast')).toContainText('Deleted Order more coffee beans.');
@@ -432,6 +441,7 @@ test.describe('one device', () => {
     await seed(page, [{ type: 'attachment', id: 'late', fields: { memo_id: 'note:i2', kind: 'photo', name: 'Beans.jpg', deleted_at: gone } }]);
     const ids = [['memo', 'note:i1'], ['memo', 'note:i2'], ['attachment', 'att1'], ['attachment', 'late'], ['task', 'i1'], ['task', 'i2']] as const;
     const before = await Promise.all(ids.map(([type, id]) => readRecord(page, type, id)));
+    expect(before[0]).toMatchObject({ home: { type: 'project', id: 'p1' }, show_on: '2026-11-04' });
     expect(before[2]).toMatchObject({ memo_id: 'note:i1', task_id: null });
     expect(before[3]?.expires_at).toBeTruthy();
     await everyScreen(page);

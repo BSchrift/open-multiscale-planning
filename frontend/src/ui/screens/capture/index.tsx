@@ -4,6 +4,8 @@
 // once the task is saved. A goal's backlog can take it straight away too, with no milestone.
 // Opened from a hold on a calendar, it's given that time: it says the day and time, the task is saved with a block
 // there, Time is the block's length, and Save's toast has Undo. On desktop it opens beside the draft, with no scrim.
+// There the field is also a search of the tasks you have: its list starts on the new task, which Enter saves as ever,
+// then lists the tasks the calendar's finder offers, and picking one has the finder put that task in the time instead.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
@@ -22,11 +24,15 @@ import type { Slot } from '../../../core/slots';
 import type { Fields, LocalDate, Minutes } from '../../../core/types';
 import type { Layout, ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
+import type { BlockKind } from '../../components/blocks/describe';
 import { DraftAttachments, recordOf } from '../../components/attachments/Attachments';
 import { dayWord } from '../../components/blocks/describe';
 import type { NewAttachment } from '../../components/attachments/Attachments';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { NotesField } from '../../components/notes/NotesField';
+import { count, mark, optionId, SearchList, step } from '../../components/SearchList';
+import type { Choice, ChoiceGroup } from '../../components/SearchList';
+import { LOOK } from '../../components/ds/Block';
 // From draft rather than the folder's index, so the app's first chunk doesn't carry the one off form and row.
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
@@ -73,7 +79,34 @@ export interface CaptureSlot {
   onName?(name: string): void;
   /** Where the draft is on screen, so desktop opens Capture beside it. */
   anchor?(): DOMRect | undefined;
+  /** The tasks you have that the time could take instead of a new one. */
+  finder?: TaskFinder | undefined;
 }
+
+/** A task you already have, as the search lists it. */
+export interface FoundTask {
+  key: string;
+  title: string;
+  kind: BlockKind;
+  /** Under the title: what it is and how long, such as "Project · 2h of 3h left". */
+  meta: string;
+  /** Beside it: "Fits", "Longer by 15m" or "Moves from Tuesday 9am". */
+  tag?: string | undefined;
+  /** A tag that only informs, drawn quieter than Fits. */
+  quiet?: boolean | undefined;
+  /** Why it can't go here, so it's greyed: "Already on Monday, 7am". */
+  off?: string | undefined;
+}
+
+/** What a calendar offers Capture besides a new task: the tasks it could place in the time, and placing one. */
+export interface TaskFinder {
+  /** The tasks that match what's typed, in groups under their headings, in order. */
+  find(typed: string): { label: string; tasks: readonly FoundTask[] }[];
+  /** Puts the task in the time, asking first if it lands on a block. Resolves to whether it did. */
+  place(key: string): Promise<boolean>;
+}
+
+const NEW = 'new';
 
 function fieldsFor(title: string, where: string, milestone: string, est: Minutes, notes: string, today: LocalDate): Fields<'task'> {
   const described = notes.trim() ? { notes } : {};
@@ -94,8 +127,15 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
   const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active' && !isBacklog(p)) ?? [];
   const goals = useQuery((sql) => listRecords(sql, 'objective'), []).data?.filter((g) => g.state !== 'archived') ?? [];
   const [text, setText] = useState('');
+  const finder = slot?.finder;
+  // The search's lit row, by its place in the list: the new task's, at the top, until the arrows move it.
+  const [lit, setLit] = useState(0);
+  // While the finder places a task, which may first ask about a block it lands on, Capture stands aside.
+  const [picking, setPicking] = useState(false);
+  const listId = useId();
   const type = (value: string) => {
     setText(value);
+    setLit(0);
     slot?.onName?.(value);
     perf.stopAfterPaint('capture.key');
   };
@@ -259,12 +299,88 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
     />
   );
   const attachments = <DraftAttachments drafts={drafts} onChange={setDrafts} />;
+  // The search, from a calendar: the new task first, then the tasks you have that match, which details fold away, as
+  // they're only for a new task.
+  const listShown = !!finder && !details && !saved;
+  const typed = text.trim();
+  const newWords = where ? `New task in ${place}` : 'New Inbox task';
+  const taskChoice = (t: FoundTask): Choice => ({
+    key: t.key,
+    said: `${t.title}, ${t.meta}${t.tag ? `, ${t.tag}` : ''}`,
+    off: t.off,
+    body: (
+      <>
+        <span className={`pkkind k-${LOOK[t.kind]}`} aria-hidden="true" />
+        <span className="pkmain">
+          <span className="pktitle">{mark(t.title, typed)}</span>
+          <span className="pkmeta">{t.meta}</span>
+        </span>
+        {t.tag && !t.off && <span className={`pktag${t.quiet ? ' mute' : ''}`}>{t.tag}</span>}
+      </>
+    ),
+  });
+  const groups: ChoiceGroup[] = listShown
+    ? [
+        {
+          key: NEW,
+          choices: [{ key: NEW, said: typed ? `${newWords}: ${typed}` : newWords, className: 'pknew', body: <span>{typed ? `${newWords}: ${typed}` : newWords}</span> }],
+        },
+        ...finder.find(typed).map((g) => ({ key: g.label, label: g.label, choices: g.tasks.map(taskChoice) })),
+      ]
+    : [];
+  const choices = groups.flatMap((g) => g.choices);
+  const at = Math.max(0, Math.min(lit, choices.length - 1));
+  const pick = async (key: string) => {
+    if (key === NEW) return form.current?.requestSubmit();
+    if (!finder || picking) return;
+    setPicking(true);
+    if (await finder.place(key)) close();
+    else setPicking(false);
+  };
+  const onKeys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (listShown && !event.altKey && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        return setLit(step(choices, at, event.key === 'ArrowDown' ? 1 : -1));
+      }
+      if (event.key === 'Enter' && at > 0) {
+        event.preventDefault();
+        return void pick(choices[at]!.key);
+      }
+    }
+    startKey(event);
+  };
+  const combo = finder && {
+    role: 'combobox',
+    autoComplete: 'off',
+    'aria-expanded': listShown,
+    'aria-autocomplete': 'list' as const,
+    ...(listShown ? { 'aria-controls': listId, 'aria-activedescendant': optionId(listId, at) } : {}),
+  };
+  const placeholder = (plain: string) => (finder ? 'Type a new task, or find one' : plain);
+  const list = listShown && (
+    <>
+      <SearchList id={listId} label="A new task or one you have" groups={groups} lit={at} onChoose={(c) => void pick(c.key)}>
+        {!typed ? (
+          <div className="pkempty">Type to search your other open tasks.</div>
+        ) : (
+          choices.length === 1 && <div className="pkempty">{`No open task matches “${typed}”.`}</div>
+        )}
+      </SearchList>
+      {typed && (
+        <span className="sr" aria-live="polite">
+          {count(choices.length - 1)}
+        </span>
+      )}
+    </>
+  );
   const detailsToggle = (className: string) => (
     <button className={className} type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
       {details ? 'Hide details' : 'Add details'}
     </button>
   );
 
+  if (picking) return null;
   if (phone) {
     return (
       <Sheet label="Capture" onClose={close}>
@@ -279,11 +395,13 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
             autoFocus
             maxLength={MAX_TITLE}
             value={text}
-            placeholder="What's on your mind?"
+            placeholder={placeholder("What's on your mind?")}
+            {...combo}
             onFocus={opened}
-            onKeyDown={startKey}
+            onKeyDown={onKeys}
             onChange={(e) => type(e.target.value)}
           />
+          {list}
           <div>{detailsToggle('link')}</div>
           {details && (
             <>
@@ -337,12 +455,14 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
             readOnly={!!saved}
             maxLength={MAX_TITLE}
             value={text}
-            placeholder="Type a thought"
+            placeholder={placeholder('Type a thought')}
+            {...combo}
             onFocus={opened}
-            onKeyDown={startKey}
+            onKeyDown={onKeys}
             onChange={(e) => type(e.target.value)}
           />
           {when}
+          {list}
           {details && !saved && (
             <div className="capdetails">
               {slider}

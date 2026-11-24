@@ -1,10 +1,11 @@
 // What a block's popup section and Today's quick menu both do to a block, so each says and undoes the same: Done as
-// fits where the block is in its day, an answer for one gone by, Start with where it now runs, and Move to's new times.
-// A new time that lands on other blocks asks first, as a drag does, with the question in `asking` for the caller to draw.
+// fits where the block is in its day, an answer for one gone by, Start now (from useBlockActions) with where it now
+// runs, and Move to's new times. A new time that lands on other blocks asks first, as a drag does, with the question in
+// `asking` for the caller to draw.
 
 import { moveBlock, unscheduleBlock } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
-import { addDays, dayRange, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
+import { addDays, dayRange, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../core/plan';
 import { blocksInRange } from '../../../core/queries';
@@ -16,8 +17,8 @@ import { useApp, useMutation } from '../../app/store';
 import type { MenuEntry } from '../Menu';
 import { useToastOr } from '../Toast';
 import type { Say } from '../Toast';
-import { dayName } from '../weekgrid';
 import { landsOn, useBothAsk } from './BothAsk';
+import { dayName } from './describe';
 import { answerFor, saidOf } from './MissedSheet';
 import { useBlockActions } from './useBlockActions';
 
@@ -108,17 +109,6 @@ export function useBlockCommands(say?: Say) {
       if (stage === 'now') return actions.markDoneNow(block, next);
       if (stage === 'later' && block.task_id) return actions.finish(block);
       return answer(block, 'done');
-    },
-    /** Start, or for one later today Start now, which moves it to now, keeping its length. Says where it now runs. */
-    startNow: async (block: BlockRow) => {
-      const now = clock.now();
-      const early = instantMs(block.start) > now;
-      const reverse = await (early ? actions.startEarly(block) : actions.start(block));
-      if (!reverse) return;
-      const zone = clock.zone();
-      const from = Math.floor(now / MINUTE_MS) * MINUTE_MS;
-      const runs = early ? ` It now runs ${formatTime(from, zone)} to ${formatTime(from + instantMs(block.end) - instantMs(block.start), zone)}.` : '';
-      toast.show(`Started ${block.title ?? 'the block'}.${runs}`, { undo: () => undo.run(reverse) });
     },
     /**
      * Move to's choices, none for a block that stays where it is: one started, answered or gone by, or one running past

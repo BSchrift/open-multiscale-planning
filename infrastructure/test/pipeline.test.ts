@@ -114,13 +114,13 @@ describe('the release pipeline', () => {
     for (const s of statements) {
       assert.ok(![s.Action].flat().some((a: string) => a === '*' || a.endsWith(':*')), JSON.stringify(s.Action));
     }
-    // Its own parameters only, never the release keys under signing/, and it writes only the two commits it records.
+    // Its own parameters only, never the release keys under signing/, and it writes only the three commits it records.
     const ssm = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith('ssm:')));
     assert.ok(ssm.every((s) => JSON.stringify(s.Resource).includes(':parameter/multiscale/pipeline/')), JSON.stringify(ssm));
     const read = ssm.filter((s) => s.Action === 'ssm:GetParameter').flatMap((s) => s.Resource).map((r: any) => JSON.stringify(r).match(/pipeline\/([\w/*.-]+)"/)![1]);
-    assert.deepEqual(read, ['config/*', 'paused', 'released', 'nightly']);
+    assert.deepEqual(read, ['config/*', 'paused', 'released', 'nightly', 'nightly-retention']);
     const writes = ssm.filter((s) => s.Action === 'ssm:PutParameter').flatMap((s) => s.Resource).map((r: any) => JSON.stringify(r));
-    assert.ok(writes.length === 2 && writes.every((r) => /pipeline\/(released|nightly)"/.test(r)), writes.join());
+    assert.ok(writes.length === 3 && writes.every((r) => /pipeline\/(released|nightly|nightly-retention)"/.test(r)), writes.join());
   });
 
   it("deploys with CDK's bootstrap roles only from the two deploy steps, which run none of the app's packages", () => {
@@ -290,28 +290,41 @@ describe('the release pipeline', () => {
     assert.ok(rules.some((p) => p.detail.state?.[0] === 'FAILED'));
   });
 
-  it("runs staging's slow suites every night, never as part of a release", () => {
-    const nightly = ofType('AWS::CodeBuild::Project').find(([, p]) => p.Properties.Source.Type === 'NO_SOURCE')!;
-    t.hasResourceProperties('AWS::Scheduler::Schedule', {
-      ScheduleExpression: 'cron(0 10 * * ? *)',
-      Target: Match.objectLike({ Arn: { 'Fn::GetAtt': [nightly[0], 'Arn'] } }),
-    });
-    const vars = nightly[1].Properties.Environment.EnvironmentVariables;
-    assert.deepEqual(vars.find((v: any) => v.Name === 'STEP').Value, 'nightly');
-    assert.match(nightly[1].Properties.Source.BuildSpec, /scripts\/pipeline\.sh nightly/);
+  // The nightly builds: the slow suites, then the retention suite in a build of its own an hour later. Retention alone
+  // takes about 50 minutes, longer than the 45 the control account allows a build while its limit is raised, and run
+  // last in one build it cut off the rest's result.
+  const nightlies = () => ofType('AWS::CodeBuild::Project').filter(([, p]) => p.Properties.Source.Type === 'NO_SOURCE');
+  const stepOf = ([, p]: [string, { Properties: any }]) => p.Properties.Environment.EnvironmentVariables.find((v: any) => v.Name === 'STEP').Value;
+
+  it("runs staging's slow suites every night, never as part of a release, and the retention suite in a build of its own an hour later", () => {
+    assert.deepEqual(nightlies().map(stepOf), ['nightly', 'nightly-retention']);
+    for (const [project, hour] of [[nightlies()[0]!, 10], [nightlies()[1]!, 11]] as const) {
+      t.hasResourceProperties('AWS::Scheduler::Schedule', {
+        ScheduleExpression: `cron(0 ${hour} * * ? *)`,
+        Target: Match.objectLike({ Arn: { 'Fn::GetAtt': [project[0], 'Arn'] } }),
+      });
+      assert.match(project[1].Properties.Source.BuildSpec, new RegExp(`scripts/pipeline\\.sh ${stepOf(project)}"`));
+    }
   });
 
-  it('runs the nightly build in the clone its install made, as CodeBuild runs every phase in one shell', () => {
-    const nightly = ofType('AWS::CodeBuild::Project').find(([, p]) => p.Properties.Source.Type === 'NO_SOURCE')!;
-    const { phases } = JSON.parse(nightly[1].Properties.Source.BuildSpec) as { phases: Record<string, { commands: string[] }> };
-    // A git that clones a repo whose pipeline.sh only names its step, and every phase's commands in order in one bash.
-    const dir = mkdtempSync(join(tmpdir(), 'nightly-'));
-    mkdirSync(join(dir, 'bin'));
-    writeFileSync(join(dir, 'bin/git'), '#!/bin/bash\nmkdir -p "${@: -1}/scripts" && printf \'#!/bin/bash\\necho "step $1"\\n\' >"${@: -1}/scripts/pipeline.sh" && chmod +x "${@: -1}/scripts/pipeline.sh"\n', { mode: 0o755 });
-    const script = ['install', 'build'].flatMap((phase) => phases[phase]!.commands).join(' || exit 1\n');
-    const run = spawnSync('bash', ['-c', script], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}` } });
-    assert.equal(run.status, 0, run.stderr);
-    assert.deepEqual(run.stdout.trim().split('\n'), ['step install', 'step nightly']);
+  it('emails when either nightly build fails', () => {
+    const rule = ofType('AWS::Events::Rule').map(([, r]) => r.Properties.EventPattern).find((p) => p.source[0] === 'aws.codebuild')!;
+    assert.deepEqual(rule.detail['project-name'], nightlies().map(([id]) => ({ Ref: id })));
+    assert.deepEqual(rule.detail['build-status'], ['FAILED']);
+  });
+
+  it('runs each nightly build in the clone its install made, as CodeBuild runs every phase in one shell', () => {
+    for (const project of nightlies()) {
+      const { phases } = JSON.parse(project[1].Properties.Source.BuildSpec) as { phases: Record<string, { commands: string[] }> };
+      // A git that clones a repo whose pipeline.sh only names its step, and every phase's commands in order in one bash.
+      const dir = mkdtempSync(join(tmpdir(), 'nightly-'));
+      mkdirSync(join(dir, 'bin'));
+      writeFileSync(join(dir, 'bin/git'), '#!/bin/bash\nmkdir -p "${@: -1}/scripts" && printf \'#!/bin/bash\\necho "step $1"\\n\' >"${@: -1}/scripts/pipeline.sh" && chmod +x "${@: -1}/scripts/pipeline.sh"\n', { mode: 0o755 });
+      const script = ['install', 'build'].flatMap((phase) => phases[phase]!.commands).join(' || exit 1\n');
+      const run = spawnSync('bash', ['-c', script], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}` } });
+      assert.equal(run.status, 0, run.stderr);
+      assert.deepEqual(run.stdout.trim().split('\n'), ['step install', `step ${stepOf(project)}`]);
+    }
   });
 
   it('needs every environment in the control account\'s region', () => {

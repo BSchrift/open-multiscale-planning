@@ -9,6 +9,8 @@ import { createAuth } from './auth';
 import type { Clock } from './clock';
 import { fixedClock } from './clock';
 import type { Db } from './db';
+import { editNote, noteId, saveAsNote } from './memos';
+import { notesForDay } from './queries';
 import { getRecord, transact } from './records';
 import { createHttpSend, runSync, SyncError } from './sync';
 import type { SyncSend } from './sync';
@@ -88,6 +90,26 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
     expect((await getRecord(a.db, 'task', id))?.deleted_at).toBeTruthy();
     expect(await outboxSize(a.db)).toBe(0);
     expect(await outboxSize(b.db)).toBe(0);
+  });
+
+  it("a note's home and its day on Today reach the other device, and so does moving it back to its own", async () => {
+    const a = await device(clock, send);
+    const b = await device(clock, send);
+    const goal = await transact(a.db, clock, (w) => w.create('objective', { title: 'Home', state: 'active' }));
+    const project = await transact(a.db, clock, (w) => w.create('project', { objective_id: goal, title: 'Kitchen redo', state: 'active', start: '2026-11-01', end: '2026-12-31' }));
+    const item = await transact(a.db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Tiles: 10x10 white' }));
+    await transact(a.db, clock, (w) => saveAsNote(w, item, clock, { type: 'project', id: project }));
+    await transact(a.db, clock, (w) => editNote(w, noteId(item), { show_on: '2026-11-20' }));
+    await a.sync(a.db);
+    await b.sync(b.db);
+    expect((await notesForDay(b.db, '2026-11-20')).map((n) => [n.id, n.home])).toEqual([[noteId(item), { type: 'project', id: project }]]);
+
+    clock.set(clock.now() + 1);
+    await transact(b.db, clock, (w) => editNote(w, noteId(item), { home: null, show_on: null }));
+    await b.sync(b.db);
+    await a.sync(a.db);
+    expect(await getRecord(a.db, 'memo', noteId(item))).toMatchObject({ home: null, show_on: null });
+    expect(await fieldsOf(a.db, noteId(item))).toEqual(await fieldsOf(b.db, noteId(item)));
   });
 
   it('pushes in batches and pulls in pages', async () => {

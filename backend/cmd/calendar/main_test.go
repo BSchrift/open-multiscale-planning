@@ -49,8 +49,8 @@ func TestWhatWokeTheWorkerDecidesWhatItDoes(t *testing.T) {
 		`null`:                            "dispatch:schedule",
 		`not json`:                        "dispatch:schedule",
 		`{"trigger":"refresh","sub":"a"}`: "run:a:refresh",
-		// An API from before per-person connections names no one: a run for everyone covers whoever it meant.
-		`{"trigger":"refresh"}`: "dispatch:refresh",
+		// The API from before per-person connections named no one, and has long gone.
+		`{"trigger":"refresh"}`: "dispatch:schedule",
 	} {
 		f := &fakeWorker{}
 		if _, err := handle(context.Background(), f, json.RawMessage(payload), "r"); err != nil {

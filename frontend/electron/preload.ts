@@ -73,6 +73,7 @@ const bridge: ElectronBridge = {
     get: () => ipcRenderer.invoke('shortcut:get'),
     set: (accelerator) => ipcRenderer.invoke('shortcut:set', accelerator),
   },
+  energy: { sample: () => ipcRenderer.invoke('energy:sample') },
   attachments: true,
 };
 

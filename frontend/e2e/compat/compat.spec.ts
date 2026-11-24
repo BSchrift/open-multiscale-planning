@@ -142,8 +142,9 @@ async function pauseShed(page: Page, h: House, action: 'Pause' | 'Resume', end?:
 // When one of prod's app feeds serves an older bundle than its web app, staging's old bundle is that one, and the
 // journey's steps need only work back as far as the web app. The device starts with what failed runs left on prod's
 // shared test user, which CI's and staging's users never hold: three practices, putting a row above every day, a check
-// that ended unanswered, whose question sits in the corner, and a check at 7pm on the last day, the time the journey
-// drags to. The deployed suite's clean-up runs first, as it does there.
+// that ended unanswered, whose question sits in the corner, and four checks at 7pm on the last day, the time the journey
+// drags to. Drawn side by side there, each one's × sits under the next block, as on prod on 20 November, so the clean-up
+// can't take them off by pointer. The deployed suite's clean-up runs first, as it does there.
 for (const name of ['old', 'new'] as const) {
   test(`the deployed suite's clean-up and journey, from Capture to the calendar and back, work on the ${name} bundle`, async ({ browser }) => {
     const from = process.env.COMPAT_OLD_SURFACE;
@@ -165,11 +166,11 @@ for (const name of ['old', 'new'] as const) {
     await seed(d.page, [
       ...[1, 2, 3].map((n) => ({ type: 'practice', id: `left-${n}`, fields: { title: `Compat check left ${n}`, target_min: 30, per: 'day', state: 'active' } })),
       ...leftBlock('left-ended', 'Compat check left ended', at.ended),
-      ...leftBlock('left-sunday', 'Compat check left Sunday', at.sunday),
+      ...[1, 2, 3, 4].flatMap((n) => leftBlock(`left-sunday-${n}`, `Compat check left Sunday ${n}`, at.sunday)),
     ]);
     await putPromptsAway(d.page);
     await clearLeftChecks(d.page);
-    await expect(d.page.getByRole('button', { name: /^Compat check left Sunday, / })).toHaveCount(0);
+    await expect(d.page.getByRole('button', { name: /^Compat check left Sunday \d, / })).toHaveCount(0);
     await workJourney(d.page, `Compat check ${new Date().toISOString().slice(11, 19)}`);
   });
 }
@@ -409,20 +410,29 @@ test.describe('one device', () => {
     let page = await launch(context, 'new', errors);
     await openSeeded(page, [...week, { type: 'attachment', id: 'att1', fields: { task_id: 'i1', kind: 'link', name: 'example.com', url: 'https://example.com/shops' } }]);
 
-    // The update saves both items as notes from Process, then deletes the second note.
+    // The update saves both items as notes from Process, the first on a project and shown on Today, the second on its
+    // own, then deletes the second note.
     await go(page, 'Inbox');
     await pane(page, 'Inbox').getByRole('button', { name: 'Process 2 items' }).click();
     const card = page.getByRole('dialog', { name: 'Process Inbox' });
-    for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) {
-      await expect(card.getByRole('heading', { level: 1, name: title })).toBeVisible();
-      await card.getByRole('button', { name: /Save as note$/ }).click();
-      await expect(page.locator('.toast')).toContainText(`Saved ${title} in Notes.`);
-    }
+    await expect(card.getByRole('heading', { level: 1, name: 'Look up a bike repair shop' })).toBeVisible();
+    await card.getByRole('button', { name: /Save as note$/ }).click();
+    await card.getByRole('combobox', { name: 'Attach note to' }).fill('first draft');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.toast')).toContainText('Saved Look up a bike repair shop as a note on Finish the first draft.');
+    await expect(card.getByRole('heading', { level: 1, name: 'Order more coffee beans' })).toBeVisible();
+    await card.getByRole('button', { name: /Save as note$/ }).click();
+    await card.getByRole('option', { name: 'On its own, In Notes, no home' }).click();
+    await expect(page.locator('.toast')).toContainText('Saved Order more coffee beans in Notes.');
     // A one off finished now, so the bundle before has a finished task to list beside the notes' items. The week's
     // ladder, finished the day before, won't do: built for staging, both bundles keep a closed task 35 minutes
     // (config/retention.yaml), so the relaunch's expiry pass removes it, and One offs then hides Finished tasks.
     await tick(page, 'Renew the library card', errors);
     await go(page, 'Notes');
+    await pane(page, 'Notes').getByRole('button', { name: /^Look up a bike repair shop/ }).click();
+    await page.getByRole('dialog', { name: /^Note: / }).getByLabel(/Show it on Today on/).fill('2026-11-04');
+    await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('.toast')).toContainText('Saved Look up a bike repair shop.');
     await pane(page, 'Notes').getByRole('button', { name: /^Order more coffee beans/ }).click();
     await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Delete note' }).click();
     await expect(page.locator('.toast')).toContainText('Deleted Order more coffee beans.');
@@ -431,6 +441,7 @@ test.describe('one device', () => {
     await seed(page, [{ type: 'attachment', id: 'late', fields: { memo_id: 'note:i2', kind: 'photo', name: 'Beans.jpg', deleted_at: gone } }]);
     const ids = [['memo', 'note:i1'], ['memo', 'note:i2'], ['attachment', 'att1'], ['attachment', 'late'], ['task', 'i1'], ['task', 'i2']] as const;
     const before = await Promise.all(ids.map(([type, id]) => readRecord(page, type, id)));
+    expect(before[0]).toMatchObject({ home: { type: 'project', id: 'p1' }, show_on: '2026-11-04' });
     expect(before[2]).toMatchObject({ memo_id: 'note:i1', task_id: null });
     expect(before[3]?.expires_at).toBeTruthy();
     await everyScreen(page);

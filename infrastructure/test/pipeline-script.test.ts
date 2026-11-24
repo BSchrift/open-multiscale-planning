@@ -86,8 +86,9 @@ if (command === 'record') {
   if (pick) console.log(pick);
 } else process.exit(process.env.VERIFY_FAILS ? 1 : 0);
 \n`);
-  // DEPLOYED_FAILS makes the suites fail, as they do when a deployment is wrong.
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n[ -z "$DEPLOYED_FAILS" ]\n');
+  // DEPLOYED_FAILS makes the suites fail, as they do when a deployment is wrong. PUBLISHED_FAILS fails only the run
+  // against what a release just published, which names the version it must serve.
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH WEB_ONLY=$WEB_ONLY" >> "$LOG"\n[ -z "$DEPLOYED_FAILS" ] && { [ -z "$PUBLISHED_FAILS" ] || [ -z "$EXPECT_VERSION" ]; }\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE $*" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
   writeFileSync(join(s.root, 'scripts/integration.sh'), '#!/bin/sh\necho "integration ENV=$ENV MULTISCALE_REQUEST_MIX=$MULTISCALE_REQUEST_MIX INTEGRATION_RUN=$INTEGRATION_RUN" >> "$LOG"\n[ -z "$MIX_FAILS" ]\n');
@@ -497,6 +498,45 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop iphone SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1/);
     // Each profile signs in as its account's release role.
     assert.match(readFileSync(join(s.root, '.aws/config'), 'utf8'), /\[profile ms-staging\]\nrole_arn = arn:aws:iam::210987654321:role\/multiscale-release\ncredential_source = EcsContainer/);
+  });
+
+  // Prod's Test step runs this commit's suites against the web app prod still serves, and publishes only once they pass.
+  // Staging runs this commit's web app suite the same way first, so a step only the new suite takes, such as clearing the
+  // checks earlier runs left, meets the web app before it on staging before prod.
+  it("runs this commit's web app suite against the web app staging still serves, as prod's Test step does, before it uploads or switches anything", () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['release-staging'], artifacts(s));
+    assert.equal(r.status, 0, r.stderr);
+    const log = s.log();
+    const first = log.indexOf('test-deployed ENV=staging EXPECT_VERSION= EXPECT_FEEDS= SKIP_IOS= SKIP_HISTORY= SKIP_RETENTION= DEPLOYED_BEFORE_PUBLISH=1 WEB_ONLY=1\n');
+    assert.notEqual(first, -1, log);
+    assert.ok(first < log.indexOf(`versions/${VERSION}`), 'before the upload');
+    // Then the suites as now, against what it published.
+    assert.ok(log.indexOf(`s3 cp s3://bucket/versions/${VERSION}/web/version.json s3://bucket/web/version.json`) < log.indexOf(`test-deployed ENV=staging EXPECT_VERSION=${VERSION} `));
+    assert.match(log, /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc .*DEPLOYED_BEFORE_PUBLISH= WEB_ONLY=\n/);
+  });
+
+  it('publishes nothing on staging when that suite fails, which keeps serving the release before', () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['release-staging'], { ...artifacts(s), DEPLOYED_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    assert.equal(s.get(`s3://bucket/versions/${VERSION}/web/index.html`), null);
+    for (const key of ['web/version.json', 'release/desktop/release.json', 'release/iphone/release.json']) assert.equal(served(s, key), '0.1.0-ccc', key);
+    assert.doesNotMatch(s.log(), /EXPECT_VERSION=0\.1\.0-abc/);
+  });
+
+  // Else a release left live after failing its suites would fail the next run's first suite, the fix's too.
+  it('switches every surface a staging release switched back to what it served before when its suites then fail, and fails the run', () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['release-staging'], { ...artifacts(s), PUBLISHED_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    for (const key of ['web/version.json', 'release/desktop/release.json', 'release/iphone/release.json']) assert.equal(served(s, key), '0.1.0-ccc', key);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>0.1.0-ccc</html>');
+    for (const surface of ['web', 'desktop', 'iphone']) assert.match(r.stdout, new RegExp(`Switched staging's ${surface} back from 0\\.1\\.0-abc to 0\\.1\\.0-ccc`));
+    assert.match(r.stderr, /staging's suites failed after this release published, so each surface it switched went back to what it served before/);
   });
 
   it("tells the prod Test step's suites the web app is still the one before this release", () => {
@@ -927,7 +967,8 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     // Nothing uploaded: the only calls to the bucket read the live feeds.
     assert.doesNotMatch(s.log(), /(cp|sync) \/\S+ s3:\/\/bucket\//);
     assert.equal(s.get(`s3://bucket/versions/${VERSION}/release.json`), null);
-    assert.doesNotMatch(s.log(), /test-deployed/);
+    // Only the suite before publishing ran, against the release before.
+    assert.doesNotMatch(s.log(), /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc/);
   });
 
   it('publishes the Mac app and switches the desktop feed when the build needs a new iPhone app too, which the iPhone feed waits for', () => {

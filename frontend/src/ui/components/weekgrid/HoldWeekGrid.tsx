@@ -23,7 +23,7 @@ export function HoldWeekGrid(props: WeekGridProps & { holdOff: boolean; newTaskM
   const { holdOff, newTaskMenu, ...grid } = props;
   const { ctx, blocks } = grid;
   const { layout } = useApp();
-  const hr = hourPx(!!grid.editing);
+  const hr = hourPx(!!grid.editing, grid.zoom);
   const hold = useHoldToCreate({
     at: (_x, py, el) => ({ date: el.dataset.dropDate!, minute: DRAWN_DAY.from + (py * 60) / hr }),
     move: (s, dx, dy, el) => {

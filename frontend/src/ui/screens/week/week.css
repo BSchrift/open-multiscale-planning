@@ -6,6 +6,7 @@
 [data-layout='desktop'] .week .panel { border-radius: var(--radius-card); }
 [data-layout='phone'] .week .panel { padding: var(--space-4); border-radius: var(--radius-card); }
 [data-layout] .wkgrid { padding: var(--space-3) var(--space-4) var(--space-4); }
+[data-layout] .wkzoom { display: flex; justify-content: flex-end; margin-bottom: var(--space-2); }
 /* Phone: the sticky header is ground, so the week's figures and the chosen day read as the cards under it. */
 [data-layout='phone'] .week .weektop { border-bottom: 0; background: var(--ground); }
 [data-layout='phone'] :is(.wksum, .wkdaycard) { padding: var(--space-3); }

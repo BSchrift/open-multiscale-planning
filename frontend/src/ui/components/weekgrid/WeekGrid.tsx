@@ -10,7 +10,7 @@
 // Everything here is in local dates and minutes after midnight, as core/slots.ts works.
 
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, instantMs, weekDates } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { dayBaseAhead, dayFree, dragResult, DRAWN_DAY, isOpen, TIGHT_SHARE } from '../../../core/slots';
@@ -26,6 +26,7 @@ import { clearLane, holdToDrag, overLane } from './drop';
 import type { useHoldToCreate } from './holdCreate';
 import './weekgrid.css';
 import { Icon } from '../ds/Icon';
+import { hourHeight, hourLabelStep } from '../zoom';
 
 export interface GridBlock extends Slot {
   id: string;
@@ -127,6 +128,8 @@ export interface WeekGridProps {
   lane?: readonly GridLaneItem[];
   /** Taller hours, with drag, resize and × to remove. */
   editing?: boolean;
+  /** How far its hours are zoomed in, as Week's Zoom in and Zoom out step them: a multiple of the usual hour. */
+  zoom?: number;
   /** Time before ctx.earliest is greyed, its blocks stay put, and nothing moves into it. */
   lockPast?: boolean;
   /**
@@ -155,7 +158,6 @@ export interface WeekGridProps {
 }
 
 const { from: FROM, to: TO } = DRAWN_DAY;
-const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
 export const COLUMN_GAP = 2;
 // Shorter than this, a block draws no edge to change its length: the edge, at least 4px, would take more than a quarter
 // of it, and most presses would change its length instead of moving it. Shift and the arrow keys still do.
@@ -163,12 +165,12 @@ const EDGE_MIN = 16;
 const LANE_ROW = 28;
 
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
-/** An hour's height: taller while editing. */
-export const hourPx = (editing: boolean) => (editing ? 40 : 26);
+/** An hour's height: taller while editing, and at the zoom chosen. */
+export const hourPx = (editing: boolean, zoom = 1) => hourHeight(editing ? 40 : 26, zoom);
 
 export function WeekGrid(props: WeekGridProps) {
   const { ctx, blocks, info = [], ghosts = [], lane = [], editing = false, lockPast = false } = props;
-  const hr = hourPx(editing);
+  const hr = hourPx(editing, props.zoom);
   const y = (m: number) => ((Math.max(FROM, Math.min(TO, m)) - FROM) * hr) / 60;
   // held: still under the pointer, drawn lifted; a block let go stays where it landed, put down, until it's saved.
   const [drag, setDrag] = useState<{ id: string; slot: Slot; held?: boolean } | null>(null);
@@ -278,12 +280,14 @@ export function WeekGrid(props: WeekGridProps) {
   );
   const laneH = laneAt.count ? laneAt.count * LANE_ROW + 4 : 0;
   const gridH = (TO - FROM) * (hr / 60);
+  const hours: number[] = [];
+  for (let h = FROM / 60; h < TO / 60; h += hourLabelStep(hr)) hours.push(h);
 
   return (
     <div className="gridbox">
       <div ref={grid} className="grid" role="group" aria-label="Week calendar">
         <div className="hours" aria-hidden="true" style={{ height: gridH, marginTop: `calc(48px + ${laneH}px)` }}>
-          {HOURS.map((h) => (
+          {hours.map((h) => (
             <span key={h} style={{ top: (h * 60 - FROM) * (hr / 60) }}>
               {formatTimeOfDay(h * 60)}
             </span>
@@ -343,8 +347,9 @@ export function WeekGrid(props: WeekGridProps) {
                 })}
               </div>
               <div
-                className={`colbody${editing ? ' tall' : ''}`}
-                style={{ height: gridH }}
+                className="colbody"
+                // Its hour lines, at the hour's drawn height.
+                style={{ height: gridH, '--hour': `${hr}px` } as CSSProperties}
                 data-drop-date={date}
                 // Empty time is the day itself and its closed hours; a block, an event or a suggested time keeps its own press.
                 onPointerDown={(e) => holdNew && !drag && empty(e.target) && holdNew.press(e)}

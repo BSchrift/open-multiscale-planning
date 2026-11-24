@@ -186,8 +186,7 @@
 :where([data-layout='desktop']) .colhead{min-height:48px;padding:var(--space-1);font-size:var(--fs-meta)}
 :where([data-layout='desktop']) .colhead .free{display:block;color:var(--ink-3);font-size:var(--fs-caption)}
 :where([data-layout='desktop']) .colhead.tight .free{color:var(--warn);font-weight:var(--fw-strong)}
-:where([data-layout='desktop']) .colbody.tall{background:repeating-linear-gradient(to bottom,var(--card) 0,var(--card) 39px,var(--hairline) 39px,var(--hairline) 40px)}
-:where([data-layout='desktop']) .colbody{position:relative;border-radius:var(--radius-block);background:repeating-linear-gradient(to bottom,var(--card) 0,var(--card) 25px,var(--hairline) 25px,var(--hairline) 26px);border:1px solid var(--hairline);overflow:hidden}
+:where([data-layout='desktop']) .colbody{position:relative;border-radius:var(--radius-block);background:repeating-linear-gradient(to bottom,var(--card) 0,var(--card) calc(var(--hour,26px) - 1px),var(--hairline) calc(var(--hour,26px) - 1px),var(--hairline) var(--hour,26px));border:1px solid var(--hairline);overflow:hidden}
 :where([data-layout='desktop']) .hours{position:relative;margin-top:var(--space-12)}
 :where([data-layout='desktop']) .hours span{position:absolute;right:6px;font-size:var(--fs-caption);color:var(--ink-3)}
 :where([data-layout='desktop']) .ev{position:absolute;left:2px;right:2px;border-radius:var(--radius-block);padding:1px var(--space-1);font-size:var(--fs-caption);line-height:1.25;overflow:hidden;text-align:left;border:0}

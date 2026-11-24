@@ -21,6 +21,7 @@ import { loadDoneWeek } from '../done/data';
 import { loadWeek, weekModel } from './data';
 import type { WeekData, WeekModel } from './data';
 import { DesktopWeek } from './Desktop';
+import { ZOOM } from '../../components/zoom';
 import { PhoneWeek } from './Phone';
 import './week.css';
 
@@ -94,6 +95,8 @@ export default function WeekScreen(props: ScreenProps) {
   const [carry, setCarry] = useState<Slot | undefined>(plan?.at);
   // A task is placed while editing this week. Placing planning isn't editing a week, which may not be planned yet.
   const [editing, setEditing] = useState((!!props.params.place && !plan) || props.params.edit === 'this');
+  // The desktop grid's zoom, here rather than in the grid, so it carries from week to week. Phone pinches its day instead.
+  const [zoom, setZoom] = useState(ZOOM[0]!);
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
   const finished = useQuery((sql, c) => loadDoneWeek(sql, c, week), [week]).data;
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
@@ -153,6 +156,6 @@ export default function WeekScreen(props: ScreenProps) {
     openDone: (date) => nav.go('done', { day: date }),
   };
   // Keyed by week, so what's open on one week doesn't carry to the next.
-  return props.layout === 'phone' ? <PhoneWeek key={data.week} {...shared} /> : <DesktopWeek key={data.week} {...shared} />;
+  return props.layout === 'phone' ? <PhoneWeek key={data.week} {...shared} /> : <DesktopWeek key={data.week} {...shared} zoom={zoom} onZoom={setZoom} />;
 }
 

@@ -43,10 +43,12 @@ import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from
 import { Capture } from '../capture';
 import { DeleteTask, TaskPopupFor } from '../task';
 import type { TodayData } from './data';
-import { Icon } from '../../components/ds/Icon';
+import { ZoomButtons } from '../../components/CalendarZoom';
+import { clampZoom, hourHeight, hourLabelStep, ZOOM } from '../../components/zoom';
 import { Segmented } from '../../components/ds/Controls';
 
-const ZOOM = [30, 48, 72, 96];
+/** An hour's height at the first zoom. */
+const HOUR_PX = 30;
 /** Where a block's menu opens: on phone, this far below the block held; from the keys, this far in from its left. */
 const MENU_GAP = 8;
 const MENU_INSET = 24;
@@ -80,7 +82,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const zone = clock.zone();
   const phone = layout === 'phone';
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
-  const [ph, setPh] = useState(ZOOM[0]!);
+  const [zoom, setZoom] = useState(ZOOM[0]!);
+  const ph = hourHeight(HOUR_PX, zoom);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const pinch = useRef<{ gap: number; ph: number } | null>(null);
   const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
@@ -174,7 +177,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const y = (m: number) => ((m - from) * ph) / 60;
   const nowMin = localMinutes(clock.now(), zone);
   const hours: number[] = [];
-  for (let h = from / 60; h < to / 60; h += ph < 48 ? 2 : 1) hours.push(h);
+  for (let h = from / 60; h < to / 60; h += hourLabelStep(ph)) hours.push(h);
   const others = (i: Item) => laneOf.get(i.id)?.with ?? [];
   const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}${overlapNote(others(i))}`;
   const overlaps = (i: Item) => items.some((o) => o !== i && !o.block !== !i.block && o.from < i.to && i.from < o.to);
@@ -409,7 +412,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         if (e.touches.length === 2) pinch.current = { gap: touchGap(e), ph };
       }}
       onTouchMove={(e) => {
-        if (pinch.current && e.touches.length === 2) setPh(Math.max(ZOOM[0]!, Math.min(ZOOM[ZOOM.length - 1]!, Math.round((pinch.current.ph * touchGap(e)) / pinch.current.gap))));
+        // To a whole pixel of the hour, so the buttons step on from what's drawn.
+        if (pinch.current && e.touches.length === 2) setZoom(clampZoom(Math.round((pinch.current.ph * touchGap(e)) / pinch.current.gap) / HOUR_PX));
       }}
       onTouchEnd={() => {
         pinch.current = null;
@@ -542,18 +546,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       </div>
     </div>
   );
-  // Beside Calendar and List, out of the calendar, so they never cover a block.
-  const zoom = (
-    <div className="zoomgroup" role="group" aria-label="Calendar zoom">
-      <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
-        <Icon name="zoom-out" />
-      </button>
-      <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
-        <Icon name="zoom-in" />
-      </button>
-    </div>
-  );
-
   const list = items.map((i) => {
     if (!i.block) {
       return phone ? (
@@ -626,7 +618,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       <div className="between tlhead">
         <h3>Timeline</h3>
         <div className="row">
-          {view === 'calendar' && zoom}
+          {/* Beside Calendar and List, out of the calendar, so they never cover a block. */}
+          {view === 'calendar' && <ZoomButtons zoom={zoom} onZoom={setZoom} />}
           <Segmented label="Timeline view" options={[['calendar', 'Calendar'], ['list', 'List']]} value={view} onChange={setView} />
         </div>
       </div>

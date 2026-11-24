@@ -132,6 +132,51 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   expect(errors).toEqual([]);
 });
 
+test("desktop: zoom draws the week's hours taller and back, as Today's does, blocks keep their times, and a drag zoomed in lands where it's let go", async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout; phone pinches its day');
+  const errors = await openWeek(page);
+  const zoom = page.getByRole('group', { name: 'Calendar zoom' });
+  const [zoomIn, zoomOut] = [zoom.getByRole('button', { name: 'Zoom in' }), zoom.getByRole('button', { name: 'Zoom out' })];
+  const tuesday = page.locator('.colbody[data-drop-date="2026-11-03"]');
+  // Where a block is drawn in its day, rounded: an hour's block is an hour of the grid, 6pm is 12 hours below 6am.
+  const drawn = async (block: ReturnType<Page['getByRole']>) => {
+    const [b, day] = [(await block.boundingBox())!, (await tuesday.boundingBox())!];
+    return { top: Math.round(b.y - day.y - 1), height: Math.round(b.height) };
+  };
+  const summary = page.getByRole('button', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+  await expect(summary).toBeVisible();
+  await expect(zoomOut).toBeDisabled();
+  expect(await drawn(summary)).toEqual({ top: 12 * 26, height: 26 });
+  // 1.6, 2.4 and 3.2 times the usual hour, as Today's 30, 48, 72 and 96px.
+  for (const hr of [42, 62, 83]) {
+    await zoomIn.click();
+    await expect.poll(() => drawn(summary)).toEqual({ top: 12 * hr, height: hr });
+  }
+  await expect(zoomIn).toBeDisabled();
+  for (const hr of [62, 42, 26]) {
+    await zoomOut.click();
+    await expect.poll(() => drawn(summary)).toEqual({ top: 12 * hr, height: hr });
+  }
+  await expect(zoomOut).toBeDisabled();
+
+  // Two steps in, then editing: 96px an hour. One column right and 96px down is a day and an hour later.
+  await zoomIn.click();
+  await zoomIn.click();
+  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  await expect(page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
+  const block = page.getByRole('group', { name: /^Draft the summary/ });
+  await block.scrollIntoViewIfNeeded();
+  expect((await drawn(block)).height).toBe(96);
+  const box = (await block.boundingBox())!;
+  const column = (await tuesday.boundingBox())!;
+  await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
+  await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 50, { steps: 4 });
+  await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 8 + 96, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByRole('group', { name: /^Draft the summary, Wed Nov 4, 7pm to 8pm, Project\./ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("a task's block opens the task's popup, with the block's own section at its top, and Remove from calendar offers Undo", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await openWeek(page);

@@ -8,7 +8,8 @@
 //
 // Tests import this file; the app never does.
 
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { Suspense } from 'react';
@@ -98,6 +99,12 @@ function harness(
 // The page's own clock, read before any test moves it on.
 const realNow = performance.now.bind(performance);
 let heldFor = 0;
+/** Picks from a search of choices, as Belongs to is: its field opens the list, on phone in a sheet, then a click picks. */
+export async function pickFrom(field: HTMLElement, option: string) {
+  await userEvent.click(field);
+  await userEvent.click(await screen.findByRole('option', { name: option }));
+}
+
 /**
  * A press held past the hold that lifts a block or card to drag (HOLD_MS), as a person holds before dragging: the
  * page's clock moves on, so the next move lifts it and drags. Time only goes forward, so nothing else minds.

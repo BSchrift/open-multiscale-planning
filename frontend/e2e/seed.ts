@@ -129,6 +129,18 @@ export async function expectTapTarget(target: Locator): Promise<void> {
 }
 
 /** A main area's page. */
+/** Takes a place from a task popup's Belongs to: its field opens the list, under it on desktop and in a sheet on phone. */
+export async function belongsTo(page: Page, popup: Locator, place: string): Promise<void> {
+  await popup.getByLabel('Belongs to').click();
+  await page.getByRole('listbox', { name: 'Belongs to' }).getByRole('option', { name: place, exact: true }).click();
+}
+
+/** Where a task popup's Belongs to says the task goes: the field's text on desktop, its button's name on phone. */
+export async function expectBelongs(popup: Locator, place: string, phone: boolean): Promise<void> {
+  if (phone) await expect(popup.getByRole('button', { name: `Belongs to: ${place}`, exact: true })).toBeVisible();
+  else await expect(popup.getByRole('combobox', { name: 'Belongs to' })).toHaveValue(place);
+}
+
 export const pane = (page: Page, label: string) => page.locator(`.pane[aria-label='${label}']:visible`);
 export const account = (page: Page) => pane(page, 'Settings').getByRole('region', { name: 'Account' });
 

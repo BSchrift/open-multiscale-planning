@@ -494,7 +494,8 @@ export interface PracticeLeft {
   missed?: number;
 }
 
-const isLive = (p: Practice, skipped: readonly string[]) => p.state === 'active' && !p.deleted_at && p.target_min > 0 && !skipped.includes(p.id);
+/** A practice that wants sessions this week: active, with a target, and not skipped for the week. */
+export const isLive = (p: Practice, skipped: readonly string[]) => p.state === 'active' && !p.deleted_at && p.target_min > 0 && !skipped.includes(p.id);
 
 /** The days a practice's sessions are on or for. The part of a late session after midnight belongs to the day it started. */
 function sessionDays(own: readonly Span[]): Set<LocalDate> {

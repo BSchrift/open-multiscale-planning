@@ -1,0 +1,508 @@
+[
+  {
+    "name": "start",
+    "snapshot": "start",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795021560000-6F9619FF-8B86-4011-B42D-00C04FC96410.json",
+        "kind": "start",
+        "blockId": "spec",
+        "rev": "0b1ad7f0",
+        "at": "2026-11-18T17:06:00Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:30:00Z",
+        "startedAt": "2026-11-18T17:06:00Z",
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T19:00:00Z",
+        "end": "2026-11-18T19:15:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": [
+      {
+        "kind": "start",
+        "blockId": "spec",
+        "at": "2026-11-18T17:06:00Z",
+        "before": null
+      }
+    ]
+  },
+  {
+    "name": "startEarly",
+    "snapshot": "next",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795027710000-6F9619FF-8B86-4011-B42D-00C04FC96411.json",
+        "kind": "startEarly",
+        "blockId": "dentist",
+        "rev": "14fdeec0",
+        "at": "2026-11-18T18:48:30Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:30:00Z",
+        "startedAt": "2026-11-18T17:00:41Z",
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T18:48:00Z",
+        "end": "2026-11-18T19:03:00Z",
+        "startedAt": "2026-11-18T18:48:30Z",
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": [
+      {
+        "kind": "startEarly",
+        "blockId": "dentist",
+        "at": "2026-11-18T18:48:30Z",
+        "before": {
+          "start": "2026-11-18T19:00:00Z",
+          "end": "2026-11-18T19:15:00Z"
+        }
+      }
+    ]
+  },
+  {
+    "name": "pause",
+    "snapshot": "now",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795024320000-6F9619FF-8B86-4011-B42D-00C04FC96412.json",
+        "kind": "pause",
+        "blockId": "spec",
+        "rev": "43fb25a0",
+        "at": "2026-11-18T17:52:00Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:30:00Z",
+        "startedAt": "2026-11-18T17:00:41Z",
+        "pausedAt": "2026-11-18T17:52:00Z",
+        "pausedMin": null
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T19:00:00Z",
+        "end": "2026-11-18T19:15:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": []
+  },
+  {
+    "name": "resume",
+    "snapshot": "paused",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795025069000-6F9619FF-8B86-4011-B42D-00C04FC96413.json",
+        "kind": "resume",
+        "blockId": "spec",
+        "rev": "4cf045a6",
+        "at": "2026-11-18T18:04:29Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:42:00Z",
+        "startedAt": "2026-11-18T17:00:41Z",
+        "pausedAt": null,
+        "pausedMin": 12
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T19:00:00Z",
+        "end": "2026-11-18T19:15:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": []
+  },
+  {
+    "name": "startPauseResume",
+    "snapshot": "start",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795021560000-6F9619FF-8B86-4011-B42D-00C04FC96414.json",
+        "kind": "start",
+        "blockId": "spec",
+        "rev": "0b1ad7f0",
+        "at": "2026-11-18T17:06:00Z",
+        "target": null
+      },
+      {
+        "v": 1,
+        "id": "1795023000000-6F9619FF-8B86-4011-B42D-00C04FC96415.json",
+        "kind": "pause",
+        "blockId": "spec",
+        "rev": "0b1ad7f0",
+        "at": "2026-11-18T17:30:00Z",
+        "target": null
+      },
+      {
+        "v": 1,
+        "id": "1795023631000-6F9619FF-8B86-4011-B42D-00C04FC96416.json",
+        "kind": "resume",
+        "blockId": "spec",
+        "rev": "0b1ad7f0",
+        "at": "2026-11-18T17:40:31Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:41:00Z",
+        "startedAt": "2026-11-18T17:06:00Z",
+        "pausedAt": null,
+        "pausedMin": 11
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T19:00:00Z",
+        "end": "2026-11-18T19:15:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": []
+  },
+  {
+    "name": "startEarlyThenPause",
+    "snapshot": "next",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795027710000-6F9619FF-8B86-4011-B42D-00C04FC96417.json",
+        "kind": "startEarly",
+        "blockId": "dentist",
+        "rev": "14fdeec0",
+        "at": "2026-11-18T18:48:30Z",
+        "target": null
+      },
+      {
+        "v": 1,
+        "id": "1795028100000-6F9619FF-8B86-4011-B42D-00C04FC96418.json",
+        "kind": "pause",
+        "blockId": "dentist",
+        "rev": "14fdeec0",
+        "at": "2026-11-18T18:55:00Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:30:00Z",
+        "startedAt": "2026-11-18T17:00:41Z",
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T18:48:00Z",
+        "end": "2026-11-18T19:03:00Z",
+        "startedAt": "2026-11-18T18:48:30Z",
+        "pausedAt": "2026-11-18T18:55:00Z",
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": []
+  },
+  {
+    "name": "pauseAfterEnd",
+    "snapshot": "now",
+    "actions": [
+      {
+        "v": 1,
+        "id": "1795026660000-6F9619FF-8B86-4011-B42D-00C04FC96419.json",
+        "kind": "pause",
+        "blockId": "spec",
+        "rev": "43fb25a0",
+        "at": "2026-11-18T18:31:00Z",
+        "target": null
+      }
+    ],
+    "blocks": [
+      {
+        "id": "run",
+        "start": "2026-11-18T15:00:00Z",
+        "end": "2026-11-18T15:45:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "spec",
+        "start": "2026-11-18T17:00:00Z",
+        "end": "2026-11-18T18:30:00Z",
+        "startedAt": "2026-11-18T17:00:41Z",
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "dentist",
+        "start": "2026-11-18T19:00:00Z",
+        "end": "2026-11-18T19:15:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "prs",
+        "start": "2026-11-18T21:00:00Z",
+        "end": "2026-11-18T22:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "piano",
+        "start": "2026-11-19T01:30:00Z",
+        "end": "2026-11-19T02:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      },
+      {
+        "id": "notes",
+        "start": "2026-11-19T17:00:00Z",
+        "end": "2026-11-19T18:00:00Z",
+        "startedAt": null,
+        "pausedAt": null,
+        "pausedMin": null
+      }
+    ],
+    "fromWidget": []
+  }
+]

@@ -21,6 +21,12 @@ import type { Platform } from './types';
 
 /** The debug build's hooks for this page (ChecksPlugin in BridgeViewController.swift). */
 const Checks = registerPlugin<{ openCapture(): Promise<void>; share(options: { text: string }): Promise<void>; deliverEnergy(): Promise<void> }>('MultiscaleChecks');
+/** The widgets plugin's debug-only hooks (WidgetsPlugin.swift): what the snapshot holds, a widget button's tap, a refresh. */
+const WidgetChecks = registerPlugin<{
+  snapshotForTest(): Promise<{ snapshot: string | null }>;
+  tapForTest(options: { at: number }): Promise<{ tapped: string | null; mode: string }>;
+  refreshForTest(): Promise<{ completed: boolean }>;
+}>('MultiscaleWidgets');
 
 const output = document.getElementById('log')!;
 const log = (line: string) => {
@@ -76,6 +82,7 @@ async function erase(platform: Platform): Promise<string> {
   for (const key of ['auth.session', 'auth.pending']) await platform.tokens.remove(key);
   await platform.notifications.replaceAll([]);
   await LocalNotifications.removeAllDeliveredNotifications();
+  await platform.widgets?.clear();
   localStorage.clear();
   const left = (await platform.db.all('SELECT id FROM records')).length;
   const session = await platform.tokens.get('auth.session');
@@ -232,6 +239,27 @@ button('Share long', async () => {
 button('Control', async () => {
   await Checks.openCapture();
   return 'control:ran';
+});
+// The widgets, through the App Group the build has with the extensions on.
+button('Widgets', async () => (platform.widgets ? 'widgets:on' : 'widgets:off'));
+// What the app last wrote for the widgets: its blocks, the ones started, and the Inbox.
+button('Widget snapshot', async () => {
+  const { snapshot } = await WidgetChecks.snapshotForTest();
+  if (!snapshot) return 'snapshot:none';
+  const s = JSON.parse(snapshot) as { blocks: { title: string | null; startedAt: string | null }[]; inbox: { count: number } | null };
+  const started = s.blocks.filter((b) => b.startedAt).map((b) => b.title);
+  return `snapshot:blocks=${s.blocks.length} started=${started.join('|')} inbox=${s.inbox?.count ?? '-'}`;
+});
+// The medium widget's button, as its intent runs it, at the page's time, which a seeded app runs ahead of the real one.
+button('Widget tap', async () => {
+  const { tapped, mode } = await WidgetChecks.tapForTest({ at: Date.now() });
+  return `widget-tap:${tapped ?? 'none'}:${mode}`;
+});
+// A background refresh as iOS runs it: the page hears it, and iOS is told it finished once the page says so.
+button('Widget refresh', async () => {
+  platform.widgets?.onRefresh(async () => log('refresh:heard'));
+  const { completed } = await WidgetChecks.refreshForTest();
+  return `refresh:completed:${completed}`;
 });
 button('Diagnostics', async () => {
   const snap = await platform.diagnostics!.snapshot();

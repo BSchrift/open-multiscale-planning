@@ -404,7 +404,7 @@ Limits of a free team:
 
 - The install stops launching after **7 days**. Reconnect and press **Run** again. Your data stays.
 - Three apps per device at a time.
-- App Groups aren't available, so the share sheet is left out of the build. Everything else works, including notifications and the Control Center capture button, which only opens the app and so needs no App Group. On iOS 18, add it from Control Center's controls.
+- App Groups aren't available, so the share sheet and the Home Screen widgets, which read what the app writes there, are left out of the build. Everything else works, including notifications and the Control Center capture button, which only opens the app and so needs no App Group. On iOS 18, add it from Control Center's controls.
 
 ## 15. What changes with a paid membership
 
@@ -442,6 +442,7 @@ A Simulator can't prove these, so check them once on a real phone:
 - [ ] Key screens stay quick with a year or more of data.
 - [ ] The Control Center capture button opens Capture.
 - [ ] With a paid team: the share sheet saves into Inbox.
+- [ ] With a paid team: the widgets on the Home Screen, the Lock Screen and in StandBy show the day, move on at a block's start and end, and a Start or Pause on the medium Now and next applies when the app opens, with its toast. XCUITest can't place a widget, so this is the one look at them in place.
 
 ## TestFlight
 
@@ -450,7 +451,7 @@ With a paid membership, testers can install the iPhone app from TestFlight inste
 Once:
 
 1. **The App Store Connect key** from step 15, with **Admin** access. Signing for App Store Connect uses Apple's cloud-managed distribution certificates, and keys with Developer or App Manager access are refused them. If your key has less, generate an Admin one the same way and swap it for the old one, since the config folder holds only one. The issuer id stays the same.
-2. **The share sheet's App Group.** A build from the command line can't register it, so register it once in the [developer account](https://developer.apple.com/account/resources/identifiers/list/applicationGroup): add `group.<bundle id>`, where the bundle id is `MULTISCALE_BUNDLE_ID` from `frontend/ios/App/Config.xcconfig` or your `Config.local.xcconfig`. Then open the identifiers `<bundle id>` and `<bundle id>.share`, and on each, choose **Configure** beside **App Groups** and select it.
+2. **The App Group the share sheet and the widgets share.** A build from the command line can't register it, so register it once in the [developer account](https://developer.apple.com/account/resources/identifiers/list/applicationGroup): add `group.<bundle id>`, where the bundle id is `MULTISCALE_BUNDLE_ID` from `frontend/ios/App/Config.xcconfig` or your `Config.local.xcconfig`. Then open the identifiers `<bundle id>`, `<bundle id>.share` and `<bundle id>.capture` (the widget extension, with the Capture control), and on each, choose **Configure** beside **App Groups** and select it. An identifier added to the group later needs the same, before the next build.
 3. **Check the signing.** `make testflight EXPORT_ONLY=1` archives and exports the app without uploading it, and says where it put it.
 4. **The app record.** In App Store Connect, choose **Apps > + > New App**: iOS, a name, your bundle id and any SKU. Then fill in the app's **TestFlight > Test Information**.
 5. **An account for Beta App Review.** External testers get a build once Beta App Review has passed it, and the reviewer has to sign in. Make a prod account for them with an address of your own choosing. It prints the email and where the password is, never the password itself:

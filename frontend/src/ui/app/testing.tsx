@@ -8,7 +8,7 @@
 //
 // Tests import this file; the app never does.
 
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { Suspense } from 'react';
@@ -107,6 +107,19 @@ export function holdDown(el: Element, init: PointerEventInit = {}) {
   heldFor += HOLD_MS;
   vi.spyOn(performance, 'now').mockImplementation(() => realNow() + heldFor);
 }
+
+/**
+ * Fake timers for tests that hold a press, so a hold's timer runs when `pass` moves time on rather than whenever a busy
+ * machine gets to it. They still move with the real clock, so findBy, waitFor and userEvent work as before.
+ */
+export const holdTimers = () => void vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+
+/**
+ * Moves holdTimers' clock on by ms, as a press held that long, and draws whatever the timers set off before it returns.
+ * A real wait raced the page: on a busy machine the hold's timer and the wait's ran back to back, and the test looked
+ * before the page had drawn the draft.
+ */
+export const pass = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 
 /** Renders one area on its own, with the same data, toast and navigation context it has in the app. */
 export function renderScreen(

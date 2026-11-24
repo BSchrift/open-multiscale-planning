@@ -10,7 +10,7 @@
 // Everything here is in local dates and minutes after midnight, as core/slots.ts works.
 
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, instantMs, weekDates } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { dayBaseAhead, dayFree, dragResult, DRAWN_DAY, isOpen, TIGHT_SHARE } from '../../../core/slots';
@@ -147,6 +147,11 @@ export interface WeekGridProps {
   done?: { finished: Readonly<Record<LocalDate, number>>; open(date: LocalDate): void };
   /** Hold to create, from HoldWeekGrid. */
   hold?: ReturnType<typeof useHoldToCreate>;
+  /**
+   * A right-click on empty time, with its minute, or Shift-F10 or the menu key on a day, with none: the caller opens a
+   * menu at `at` and says whether it did. Each day can then take focus, for the keys.
+   */
+  onEmptyMenu?(date: LocalDate, minute: number | null, at: { x: number; y: number }, from: HTMLElement): boolean;
 }
 
 const { from: FROM, to: TO } = DRAWN_DAY;
@@ -342,7 +347,22 @@ export function WeekGrid(props: WeekGridProps) {
                 style={{ height: gridH }}
                 data-drop-date={date}
                 // Empty time is the day itself and its closed hours; a block, an event or a suggested time keeps its own press.
-                onPointerDown={(e) => holdNew && !drag && !(e.target as Element).closest('.ev:not(.ev-closed), button') && holdNew.press(e)}
+                onPointerDown={(e) => holdNew && !drag && empty(e.target) && holdNew.press(e)}
+                {...(props.onEmptyMenu && {
+                  tabIndex: 0,
+                  role: 'group',
+                  'aria-label': `${dayName(date)}. Shift-F10 opens its menu.`,
+                  onContextMenu: (e: MouseEvent<HTMLElement>) => {
+                    if (drag || !empty(e.target)) return;
+                    const minute = FROM + ((e.clientY - e.currentTarget.getBoundingClientRect().top) * 60) / hr;
+                    if (props.onEmptyMenu!(date, minute, { x: e.clientX, y: e.clientY }, e.currentTarget)) e.preventDefault();
+                  },
+                  onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+                    if (e.target !== e.currentTarget || !(e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) return;
+                    const r = e.currentTarget.getBoundingClientRect();
+                    if (props.onEmptyMenu!(date, null, { x: r.left + 8, y: Math.max(0, r.top) + 8 }, e.currentTarget)) e.preventDefault();
+                  },
+                })}
               >
                 {closed.map((z, i) => (
                   <div key={`c${i}`} className="ev ev-closed" style={{ top: z.top, height: z.h }} aria-hidden="true" />
@@ -473,6 +493,9 @@ export function WeekGrid(props: WeekGridProps) {
     </div>
   );
 }
+
+/** Empty time is a day itself and its closed hours, not a block, an event or a suggested time. */
+const empty = (target: EventTarget) => !(target as Element).closest('.ev:not(.ev-closed), button');
 
 /** The blocks and calendar events on a draft's day at its time. */
 export const sharedWith = (held: Slot, blocks: readonly GridBlock[], ctx: SlotContext) =>

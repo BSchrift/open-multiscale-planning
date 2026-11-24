@@ -699,6 +699,8 @@ describe('Schedule on phone', () => {
     expect(await screen.findByText('Practice, 30m on Tue and Wed, around 7am')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Use this in future weeks too?' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    // A practice isn't a task to finish.
+    expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull();
 
     // The drawn day is 17 hours over 816px, so 48px is an hour.
     holdDown(session(), { clientY: 300 });
@@ -877,5 +879,107 @@ describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s'
     expect(item).toMatchObject({ title: 'Book dentist', estimate_min: 105 });
     expect(await blocks(t, item!.id as string)).toEqual([[at('2026-11-05', 15), at('2026-11-05', 16, 45)]]);
     expect(t.platform.haptics).toEqual([]);
+  });
+});
+
+describe.each(['desktop', 'phone'] as const)("Mark done on a placed task's card in Schedule, on %s", (layout) => {
+  it('finishes the task, takes its block off the calendar and moves on, saying so with Undo', async () => {
+    const t = await open({
+      layout,
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 'o1', start: at('2026-11-06', 11, 15), end: at('2026-11-06', 12, 45), tz: ZONE }, 'b1');
+      },
+    });
+    if (layout === 'phone') {
+      await userEvent.click(await screen.findByRole('button', { name: 'All picked tasks, 1 of 3 placed' }));
+      await userEvent.click(within(screen.getByRole('dialog', { name: 'All picked tasks' })).getByRole('button', { name: /^Paint the fence/ }));
+    } else {
+      expect(await screen.findByText('1 of 3 placed')).toBeInTheDocument();
+      await userEvent.click(rowButton(/^Paint the fence/));
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Mark done' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 'o1'))?.done_at).toBeTruthy());
+    expect(await blocks(t, 'o1')).toEqual([]);
+    const said = await screen.findByText('Marked Paint the fence done. Its 11:15am block came off the calendar, so that time is free.');
+    // The app's toast sits under the phone's flow, so phone says it above the dock, as the step's other messages do.
+    if (layout === 'phone') expect(said.closest('.pktoast')).not.toBeNull();
+    expect(await screen.findByText(layout === 'phone' ? 'Collect the sources' : '0 of 2 placed', layout === 'phone' ? { selector: '.strong, .strong .taskname' } : {})).toBeInTheDocument();
+    if (layout === 'desktop') expect(within(now()).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
+
+    await userEvent.click(within((said.closest('.pktoast, .toast') as HTMLElement)!).getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 'o1'))?.done_at).toBeFalsy());
+    expect(await blocks(t, 'o1')).toEqual([[at('2026-11-06', 11, 15), at('2026-11-06', 12, 45)]]);
+  });
+});
+
+describe('a new task in Schedule while a task waits, on desktop', () => {
+  // jsdom has no layout: Thursday's column on the editing grid, from 6am at 40px an hour.
+  const thursday = () => document.querySelector<HTMLElement>('.colbody[data-drop-date="2026-11-05"]')!;
+  const y = (minutes: number) => ((minutes - 360) * 40) / 60 + 1;
+  const ready = () => waitFor(() => expect(document.querySelector('.evdraft')).toHaveTextContent(/^Collect the sources/));
+  const save = async (t: Awaited<ReturnType<typeof open>>, when: string) => {
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    expect(within(capture).getByText(when)).toBeVisible();
+    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect((await listRecords(t.db, 'task')).some((x) => x.kind === 'inbox')).toBe(true));
+    return (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox')!;
+  };
+
+  it('a right-click on empty time offers New task here, which opens Capture on an hour there and leaves the waiting task as it was', async () => {
+    const t = await open();
+    await ready();
+    fireEvent.contextMenu(thursday(), { clientX: 20, clientY: y(16 * 60) });
+    const menu = await screen.findByRole('menu', { name: 'Thu Nov 5, 4pm' });
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'New task here' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.querySelector('.holddraft')).toHaveAttribute('title', '4pm to 5pm');
+    const item = await save(t, 'Thu Nov 5, 4pm to 5pm');
+    expect(await blocks(t, item.id as string)).toEqual([[at('2026-11-05', 16), at('2026-11-05', 17)]]);
+    expect(within(now()).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
+    expect(within(now()).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
+  });
+
+  it('Shift-F10 or the menu key on a day offers New task here at its first free hour, and Esc puts focus back on the day', async () => {
+    const t = await open();
+    await ready();
+    const day = screen.getByRole('group', { name: /^Thu Nov 5\./ });
+    day.focus();
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}');
+    const menu = await screen.findByRole('menu', { name: 'Thu Nov 5' });
+    await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'New task here' })).toHaveFocus());
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(day).toHaveFocus();
+
+    fireEvent.keyDown(day, { key: 'ContextMenu' });
+    await userEvent.click(within(await screen.findByRole('menu', { name: 'Thu Nov 5' })).getByRole('menuitem', { name: 'New task here' }));
+    // The default hours open at 7am, and nothing is on Thursday yet.
+    const item = await save(t, 'Thu Nov 5, 7am to 8am');
+    expect(await blocks(t, item.id as string)).toEqual([[at('2026-11-05', 7), at('2026-11-05', 8)]]);
+  });
+
+  it('a right-click on time gone by offers nothing', async () => {
+    await open();
+    await ready();
+    fireEvent.contextMenu(document.querySelector<HTMLElement>('.colbody[data-drop-date="2026-11-02"]')!, { clientX: 20, clientY: y(9 * 60) });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+});
+
+describe('a new task in Schedule while a task waits, on phone', () => {
+  it("+ in the step's bar is New task, which opens Capture at the first free hour of the day shown, and saves it there", async () => {
+    const t = await open({ layout: 'phone' });
+    await waitFor(() => expect(document.querySelector('.dragblock.draft')).toHaveTextContent(/^Collect the sources/));
+    await userEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    // The harness clock reads 2pm, and nothing is placed today.
+    expect(within(capture).getByText('Today, 2pm to 3pm')).toBeVisible();
+    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect((await listRecords(t.db, 'task')).some((x) => x.kind === 'inbox')).toBe(true));
+    const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox')!;
+    expect(await blocks(t, item.id as string)).toEqual([[at(WEEK, 14), at(WEEK, 15)]]);
   });
 });

@@ -2,26 +2,31 @@
 // its best time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here
 // puts it on the week, taking any block it lands on off to place again, and a shorter block leaves the rest to place.
 // Desktop places on the week grid beside the list, with the current task pinned above it under Now; phone compares days
-// in a strip over one day, with the current task in a dock. A task can be taken out of this week from the list.
+// in a strip over one day, with the current task in a dock. A task can be taken out of this week from the list, and a
+// placed task's block can finish the task, as Done does in Today's block popup. A new task can be made while one waits:
+// on desktop from a right-click on empty time, on phone from + in the step's bar; a hold on empty time makes one once
+// none waits.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
-import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, weekday, weekRange } from '../../../../core/dates';
+import { keepPracticeChange, moveBlock, nextBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
+import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, localDate, weekday, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
 import { sessionDay } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
-import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
+import { closestFit, defaultSlot, DRAFT_MIN, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
 import { SLIDER_STEP } from '../../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
+import { useNav } from '../../../app/nav';
 import { useApp, useMutation, useQuery } from '../../../app/store';
 import { isTaskBlock } from '../../../components/blocks/describe';
 import { KeepAsk } from '../../../components/editors/KeepAsk';
 import { useBothAsk } from '../../../components/blocks/BothAsk';
+import { useBlockCommands } from '../../../components/blocks/useBlockCommands';
 import { shortened, SplitAsk } from '../../../components/editors/SplitAsk';
 import type { Shortened } from '../../../components/editors/SplitAsk';
 import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
@@ -29,6 +34,7 @@ import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
 import { Popover } from '../../../components/Popover';
 import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
+import type { Say } from '../../../components/Toast';
 import { TaskName } from '../../../components/task/TaskName';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { dayName, slotRange } from '../../../components/weekgrid';
@@ -37,6 +43,7 @@ import type { GridBlock, GridGhost, PlacedBlock } from '../../../components/week
 import { DayStrip, PackedDay, weekFree } from '../../../components/week/DayStrip';
 import { DragDay } from '../../week/Phone';
 import { loadPlanning, weekModel } from '../model';
+import { useNewTask } from '../WeekFit';
 import { pickChange } from '../pick/PickStep';
 import { scheduleModel } from './model';
 import type { SchedRow } from './model';
@@ -95,7 +102,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   // Desktop: a row focused while scrolled under the pinned Now stops clear of it, so focus is never hidden behind it.
   useLayoutEffect(() => listBox.current?.style.setProperty('--now-h', `${nowBox.current?.offsetHeight ?? 0}px`));
   // The app's toast sits under a phone flow, so phone says it above the dock, as Pick tasks does.
-  const [flash, setFlash] = useState<{ text: string; undo?: () => Promise<unknown> } | null>(null);
+  const [flash, setFlash] = useState<{ text: string; undo?: () => unknown } | null>(null);
   useEffect(() => {
     if (!flash) return;
     const timer = setTimeout(() => setFlash(null), flash.undo ? 5000 : 3500);
@@ -103,6 +110,15 @@ export function ScheduleStep(props: ScheduleStepProps) {
   }, [flash]);
   const notify = (text: string, undo?: () => Promise<unknown>, focusUndo = false) =>
     phone ? setFlash({ text, ...(undo ? { undo } : {}) }) : toast.show(text, undo ? { undo, focusUndo } : {});
+  const say = useCallback<Say>((text, o) => setFlash({ text, ...(o?.undo ? { undo: o.undo } : {}) }), []);
+  // Mark done says what it did as Today's block popup does, in the step's own toast on phone.
+  const commands = useBlockCommands(phone ? say : undefined);
+  const nav = useNav();
+  /** Phone: New task's hour, which the day shown drafts and opens Capture on. */
+  const [newAt, setNewAt] = useState<{ date: LocalDate; minute: number } | null>(null);
+  // The phone's + in the step's bar is New task here, read from the latest render.
+  const newTaskRef = useRef<() => void>(() => {});
+  useNewTask(phone ? () => newTaskRef.current() : undefined);
 
   if (!data || !sessions) return null;
   const model = weekModel(data, clock);
@@ -204,6 +220,20 @@ export function ScheduleStep(props: ScheduleStepProps) {
     reset();
     setEditId(null);
     setSelected(cur.toPlace - len > 0 ? cur.id : null);
+  };
+  /**
+   * Mark done finishes the block's task as Done in Today's block popup does: one still to come comes off the calendar with
+   * the task's later blocks, and one under way ends now. On desktop its toast's Undo takes focus, as what was pressed has
+   * gone; phone's toast above the dock has no focus to give, as with the step's other messages.
+   */
+  const markDone = async (x: PlacedBlock) => {
+    const row = data.blocks.find((r) => r.id === x.id);
+    if (!row) return;
+    const sameDay = data.blocks.filter((r) => r.id !== row.id && localDate(r.start, zone) === x.date);
+    await commands.done(row, nextBlock(sameDay, clock));
+    setEditId(null);
+    setSelected(null);
+    reset();
   };
   const remove = async (x: PlacedBlock) => {
     const reverse = await run((w) => removeBlock(w, x.id));
@@ -380,11 +410,17 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   const buttons = (cls: string) =>
     editB ? (
-      <div className="row">
+      <div className="row schacts">
         {/* Not Done: that marks a task done wherever else a block offers it, and this only stops changing the block. */}
         <Button variant="primary" className={cls} type="button" onClick={done}>
           Done editing
         </Button>
+        {editB.task_id && isTaskBlock(editB.kind) && !editB.ended && (
+          <Button className={cls} type="button" onClick={() => void markDone(editB)}>
+            <Icon name="done" size={16} />
+            Mark done
+          </Button>
+        )}
         <Button className={cls} type="button" onClick={() => void remove(editB)}>
           Remove from calendar
         </Button>
@@ -533,8 +569,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
             ghosts={ghosts}
             editing
             lockPast
-            // Hold to create: never while the step's task is being placed or a placed block is chosen.
+            // Hold to create: never while the step's task is being placed or a placed block is chosen. New task here, always.
             holdOff={!!b}
+            newTaskMenu
             onChange={(id, slot) => {
               const x = blockOf(id);
               if (id === 'draft') setDraft({ key: draftKey, slot });
@@ -570,6 +607,17 @@ export function ScheduleStep(props: ScheduleStepProps) {
     lenFrom.current ??= editB;
     void run((w) => moveBlock(w, editB.id, slotInstants(slot, zone)));
   };
+  /** New task: the day shown's first free hour, else the next day's with one, else Capture with no time. */
+  const newTask = () => {
+    for (let d = day; d <= addDays(week, 6); d = addDays(d, 1)) {
+      const start = closestFit(d, 0, DRAFT_MIN, 'project', ctx);
+      if (start === null) continue;
+      if (d !== day) setLook({ key: curKey, date: d });
+      return setNewAt({ date: d, minute: start });
+    }
+    nav.openOverlay('capture');
+  };
+  newTaskRef.current = newTask;
   // A practice asks once the slider is let go.
   const lengthDone = () => {
     const was = lenFrom.current;
@@ -632,8 +680,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 .filter((o) => o.date === day)
                 .map((o) => ({ ...o, end: o.start + len, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => moveTo(o) }))}
               selected={editB?.id ?? null}
-              // Never while the step's task is being placed or a placed block is chosen.
+              // Never while the step's task is being placed or a placed block is chosen. New task, always.
               holdToCreate={!b}
+              newAt={newAt}
               onMoving={(slot) => setDraft({ key: draftKey, slot })}
               onDone={() => void place()}
               onChange={changeBlock}

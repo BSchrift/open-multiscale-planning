@@ -115,13 +115,14 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
   it('pushes in batches and pulls in pages', async () => {
     const a = await device(clock, send);
     const ids = [];
-    for (let i = 0; i < 600; i++) ids.push(await transact(a.db, clock, (w) => w.create('task', { kind: 'one_off', title: `Paint fence board ${i}` })));
+    // More than a page of 2,000, so the pull takes two.
+    for (let i = 0; i < 2100; i++) ids.push(await transact(a.db, clock, (w) => w.create('task', { kind: 'one_off', title: `Paint fence board ${i}` })));
     await a.sync(a.db);
     expect(await outboxSize(a.db)).toBe(0);
     const b = await device(clock, send);
     await b.sync(b.db);
-    for (const id of [ids[0]!, ids[350]!, ids[599]!]) expect(await fieldsOf(b.db, id)).toEqual(await fieldsOf(a.db, id));
-  });
+    for (const id of [ids[0]!, ids[1050]!, ids[2099]!]) expect(await fieldsOf(b.db, id)).toEqual(await fieldsOf(a.db, id));
+  }, 60_000);
 
   it('a record just under the limit can still be deleted, and the delete reaches the other device', async () => {
     const a = await device(clock, send);

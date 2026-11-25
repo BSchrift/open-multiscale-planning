@@ -21,6 +21,21 @@ export function nowCard(page: Page, phone: boolean): Locator {
 }
 
 /**
+ * On phone, the block in progress keeps to its own times, one line, until a tap selects it and shows its actions: this
+ * taps it, if it isn't already. Desktop's Current block card always has them.
+ */
+export async function showNow(page: Page, phone: boolean): Promise<Locator> {
+  const now = nowCard(page, phone);
+  if (!phone) return now;
+  await expect(now).toBeVisible();
+  if (await now.evaluate((el) => el.classList.contains('inlane'))) {
+    await now.click();
+    await expect(page.locator('.cev.raised.inlane')).toHaveCount(0);
+  }
+  return now;
+}
+
+/**
  * Opens a block from the day: a click on desktop; on phone the first tap selects it, raising it as a card over it, and a
  * second, on the card, opens it.
  */

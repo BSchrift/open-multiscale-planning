@@ -46,18 +46,31 @@ const card = (page: Page) => page.locator('.cev.raised:not(.settling)');
 /** Every animation on the page that ends has ended. */
 const settled = (page: Page) => page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 
-test('the block in progress is raised on the day with its time left, its ring and its two actions, each a whole tap target', async ({ page }) => {
+test('the block in progress stays within its own times and right of the hour labels, raised and a little wider, until a tap selects it', async ({ page }) => {
   await open(page, '14:10', day);
   const now = card(page);
   await expect(now).toContainText('Write chapter two');
   await expect(now).toContainText('50 min left');
-  // Wider than its lane on both sides, over the hour labels.
-  const lane = await page.getByRole('button', { name: /^Write chapter two, 1:30pm to 3pm/ }).boundingBox();
-  const raised = await now.boundingBox();
-  expect(raised!.x).toBeLessThan(lane!.x);
-  expect(raised!.x + raised!.width).toBeGreaterThan(lane!.x + lane!.width);
-  for (const name of ['Mark done now', 'Stop for now']) await expectTapTarget(now.getByRole('button', { name }));
-  await expectTapTarget(now.getByRole('button', { name: /^Pause, / }));
+  // Not tapped: exactly its block's times, its left edge clear of the hour labels and ticks, a little wider to the right.
+  const lane = (await page.getByRole('button', { name: /^Write chapter two, 1:30pm to 3pm/ }).boundingBox())!;
+  const gutter = (await page.locator('.day').boundingBox())!;
+  let raised = (await now.boundingBox())!;
+  expect(Math.abs(raised.y - lane.y)).toBeLessThan(1);
+  expect(Math.abs(raised.y + raised.height - (lane.y + lane.height))).toBeLessThan(1);
+  expect(raised.x).toBeGreaterThanOrEqual(gutter.x);
+  expect(raised.x + raised.width).toBeGreaterThan(lane.x + lane.width);
+  // Its actions wait for the tap.
+  await expect(now.getByRole('button', { name: 'Mark done now' })).toHaveCount(0);
+
+  // Tapped, it's selected: it grows past its times and over the gutter, with its actions, each a whole tap target.
+  await now.click();
+  await settled(page);
+  raised = (await card(page).boundingBox())!;
+  expect(raised.y).toBeLessThan(lane.y);
+  expect(raised.y + raised.height).toBeGreaterThan(lane.y + lane.height);
+  expect(raised.x).toBeLessThan(gutter.x);
+  for (const name of ['Mark done now', 'Stop for now']) await expectTapTarget(card(page).getByRole('button', { name }));
+  await expectTapTarget(card(page).getByRole('button', { name: /^Pause, / }));
   // The day opens an hour before it, with the morning folded into one row.
   await expect(page.getByRole('button', { name: /^Earlier, 7am to 12pm/, expanded: false })).toBeVisible();
 });
@@ -110,7 +123,10 @@ test('in the morning the next block is selected when it starts within the hour, 
   await open(page, '15:10', [...day.filter((r) => r.id !== 'b1')]);
   await expect(card(page)).toContainText('Next in 20 min, 3:30pm to 4pm');
   await card(page).getByRole('button', { name: 'Start early' }).click();
+  // Started, it's the block in progress, drawn within its own times until a tap shows its actions.
   await expect(card(page)).toContainText('Renew passport');
+  await expect(card(page)).toHaveClass(/inlane/);
+  await card(page).click();
   await expect(card(page).getByRole('button', { name: 'Mark done now' })).toBeVisible();
 });
 

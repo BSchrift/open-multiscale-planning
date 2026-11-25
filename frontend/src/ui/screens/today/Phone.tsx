@@ -208,6 +208,7 @@ export function PhoneToday(props: { data: TodayData; unplanned: boolean; pick: s
           ph,
           setPh,
           selected,
+          tapped: !!picked && picked === selected,
           select: setPicked,
           open,
           earlierOpen,

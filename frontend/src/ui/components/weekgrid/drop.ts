@@ -17,6 +17,11 @@ export const HOLD_MS = 400;
 export const SLOP_PX = 8;
 /** How far a mouse moves from its press before what it lifted follows, so a hand that shifts during a slow click still clicks. */
 export const DRAG_PX = 6;
+/**
+ * The pointers whose hold has lifted something, a block, a card or a draft, until they let go. A swipe from day to day
+ * leaves them be, so dragging what's held never also changes the day.
+ */
+export const heldPointers = new Set<number>();
 /** Near the top or bottom of the screen, where the strip and tab bar sit, a dragged card scrolls the page. */
 const EDGE_PX = 120;
 const SCROLL_PX = 12;
@@ -102,6 +107,7 @@ export function holdToDrag(
   const lift = () => {
     clearTimeout(timer);
     lifted = true;
+    heldPointers.add(event.pointerId);
     if (touch) void on.haptic?.();
     on.lift();
   };
@@ -149,6 +155,7 @@ export function holdToDrag(
   };
   const end = () => {
     clearTimeout(timer);
+    heldPointers.delete(event.pointerId);
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);

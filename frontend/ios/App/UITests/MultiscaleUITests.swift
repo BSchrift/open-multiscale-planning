@@ -614,6 +614,43 @@ final class ShellUITests: XCTestCase {
                        "Shape the loaf is \(again.frame.height)pt tall after a new launch, from \(before)pt")
     }
 
+    func testSwipingWeeksDayLeftShowsTheNextDayAndSwipingRightComesBack() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        app.openWeek()
+        // Today's block, which is drawn only while today is the day shown.
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        exists(block)
+
+        // As for a block held on the day: the block is scrolled to where its middle is clear of the week's top, which
+        // stays over the day, and of the Capture button, by the margin left of the day, where nothing is held.
+        let strip = app.webElement("Choose a day")
+        let capture = app.webButton("Capture a task")
+        exists(strip)
+        exists(capture)
+        let top = strip.frame.maxY + 44
+        let bottom = capture.frame.minY - 22
+        let clear = { block.frame.midY >= top && block.frame.midY <= bottom }
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        for _ in 0..<3 where !clear() {
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: (top + bottom) / 2 - block.frame.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
+
+        // A quick swipe left across the day, from right of the block's middle, well short of a hold: the next day, which
+        // has no block. Points on the screen, since the block goes.
+        let screen = app.coordinate(withNormalizedOffset: .zero)
+        let (right, left, y) = (block.frame.minX + block.frame.width * 0.85, block.frame.minX + block.frame.width * 0.15, block.frame.midY)
+        let away = right - left
+        screen.withOffset(CGVector(dx: right, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: left, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: block)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: patience), .completed, "Shape the loaf is still drawn after a swipe left of \(away)pt. On screen:\n\(app.debugDescription)")
+
+        // And a swipe right comes back to today, block and all.
+        screen.withOffset(CGVector(dx: left, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: right, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
+        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch)
+    }
+
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()

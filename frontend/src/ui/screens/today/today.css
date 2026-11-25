@@ -150,5 +150,7 @@
 [data-layout='phone'] .tdhead .tdtoday { margin-left: auto; align-self: center; }
 [data-layout='phone'] .tdhead .tdtoday + .tdmenu { margin-left: 0; }
 [data-layout='phone'] .tdpaged { display: flex; flex-direction: column; gap: var(--space-3); }
+/* A row's place, held while its count is read, the same height as the row to come. */
+[data-layout='phone'] .tdheld { visibility: hidden; }
 /* Anything brought into view, by focus or a find, stops clear of the day row stuck at the top. */
 [data-layout='phone'] .pane:has(.sffold) { scroll-padding-top: 100px; }

@@ -67,8 +67,9 @@ export interface PhoneDay {
   /** The block raised as a card; select(null) hands the selection back to the one Today picks. */
   selected: string | null;
   /**
-   * Whether the selected block was tapped. Until it is, the block in progress is drawn within its own times and lane,
-   * raised and a little wider, so the hours beside it show; a tap grows it into the card with its actions.
+   * Whether the selected block was tapped. Until it is, the block Today selected (in progress, just ended or next) is
+   * drawn within its own times and lane, raised and a little wider, so the hours beside it show; only a tap grows it
+   * into the card with its actions.
    */
   tapped: boolean;
   select(id: string | null): void;
@@ -95,6 +96,8 @@ const DAY_FROM = 7 * 60;
 const DAY_TO = 22 * 60;
 /** How far the raised card stands out past its block's time, above and below. */
 const RAISE_PX = 6;
+/** A block in its lane shorter than this has no room for a button on its line, so the button is a chip. */
+const MINI_PX = 32;
 
 const same = (a: Slot, b: Slot) => a.start === b.start && a.end === b.end;
 const range = (s: Slot) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;
@@ -516,8 +519,8 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
       if (e) at = Math.max(at, e.to);
     }
   }
-  // The block in progress, selected by Today rather than a tap, keeps to its own times and lane.
-  const inLane = (i: Item) => !!pd && !pd.tapped && pd.selected === i.id && !!i.block && raiseOf(i.block, data.blocks, clock) === 'now';
+  // A block selected by Today rather than a tap keeps to its own times and lane.
+  const inLane = (i: Item) => !!pd && !pd.tapped && pd.selected === i.id && !!i.block;
   // The card that was raised settles back into its lane as the next one grows, from where it was drawn.
   const shownRaised = pd && view === 'calendar' ? pd.selected : null;
   const raisedInLane = !!shownRaised && items.some((i) => i.id === shownRaised && inLane(i));
@@ -704,6 +707,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
           const raised = pd && view === 'calendar' && pd.selected === i.id && (
             <Raised
               inLane={lanes}
+              short={lanes && height < MINI_PX}
               onSelect={() => pd.select(i.id)}
               key={`raised${i.id}`}
               away={drag?.id === i.id}

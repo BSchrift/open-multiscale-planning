@@ -1,6 +1,7 @@
 import { expect, test } from '../platform';
 import type { Page } from '@playwright/test';
 import { skipPlanningOnToday, startPlanningThenUndo } from '../seed';
+import { askOnBlock } from '../today';
 import { addProject, chicago, firstRun, jumpTo, pane, slide, start, tab, TZ } from './journey';
 
 // Five weeks of planning and answering blocks, where Monday evenings never hold and Tuesday evenings always do.
@@ -36,7 +37,7 @@ async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
 async function answer(page: Page, phone: boolean, title: string, result: 'Done' | 'Not done') {
   if (phone) {
     await tab(page, phone, 'Today');
-    await page.locator('.cev.raised:not(.settling)').getByRole('button', { name: result, exact: true }).click();
+    await (await askOnBlock(page, new RegExp(`^${title}, `))).getByRole('button', { name: result, exact: true }).click();
     await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: new RegExp(`^${title}, .*${result}\\.`) })).toBeVisible();
     return;
   }

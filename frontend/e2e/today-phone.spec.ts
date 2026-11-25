@@ -4,7 +4,7 @@
 // a row, and the hours before the day opens fold into one row. Desktop's Today is unchanged, so these run on phone.
 
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, openSeeded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
@@ -110,24 +110,73 @@ test('with reduced motion the selection changes at once', async ({ page }) => {
   await expect(card(page)).toContainText('Renew passport');
 });
 
-test('a block that just ended asks on itself, with no sheet opening by itself, and Done answers it', async ({ page }) => {
+/**
+ * A block Today selects rather than a tap keeps to its own times, clear of the hour labels and ticks: its card's top and
+ * bottom are its block's, and its left edge is right of the gutter. Its one button can be pressed from 44pt around it.
+ */
+async function expectWithinTimes(page: Page, lane: Locator, button: Locator) {
+  const box = (await lane.boundingBox())!;
+  const gutter = (await page.locator('.day').boundingBox())!;
+  const raised = (await card(page).boundingBox())!;
+  await expect(card(page)).toHaveClass(/inlane/);
+  expect(Math.abs(raised.y - box.y)).toBeLessThan(1);
+  expect(Math.abs(raised.y + raised.height - (box.y + box.height))).toBeLessThan(1);
+  expect(raised.x).toBeGreaterThanOrEqual(gutter.x);
+  const b = (await button.boundingBox())!;
+  expect(b.y).toBeGreaterThanOrEqual(raised.y - 0.5);
+  expect(b.y + b.height).toBeLessThanOrEqual(raised.y + raised.height + 0.5);
+  const hits = await button.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+    return [y - 21, y + 21].map((at) => el.contains(document.elementFromPoint(x, at)));
+  });
+  expect(hits).toEqual([true, true]);
+}
+
+test('a block that just ended asks on itself within its own times, with no sheet opening by itself; How did it go? shows the answers, and Done answers it', async ({ page }) => {
   await open(page, '15:04', day);
-  await expect(card(page)).toContainText('Ended at 3pm');
+  const ask = card(page).getByRole('button', { name: 'How did it go?' });
+  await expectWithinTimes(page, page.getByRole('button', { name: /^Write chapter two, 1:30pm to 3pm/ }), ask);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await ask.click();
+  await settled(page);
+  await expect(card(page)).toContainText('Ended at 3pm');
   for (const name of ['Done', 'Partly', 'Not done']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
   await card(page).getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Write chapter two, 1:30pm to 3pm, Project\. Done\./ })).toBeVisible();
 });
 
-test('in the morning the next block is selected when it starts within the hour, so Start early shows', async ({ page }) => {
+test('in the morning the next block is selected when it starts within the hour, within its own times, with a compact Start early; a tap grows it', async ({ page }) => {
   await open(page, '15:10', [...day.filter((r) => r.id !== 'b1')]);
+  const lane = page.getByRole('slider', { name: /^Renew passport, 3:30pm to 4pm/ });
+  await expectWithinTimes(page, lane, card(page).getByRole('button', { name: 'Start early' }));
+  // A tap grows it past its times, as any tap does.
+  await card(page).locator('.blktitle').click();
+  await settled(page);
   await expect(card(page)).toContainText('Next in 20 min, 3:30pm to 4pm');
+  await expect(card(page)).not.toHaveClass(/inlane/);
+  expect((await card(page).boundingBox())!.y).toBeLessThan((await lane.boundingBox())!.y);
+  // Back to Today's own selection, it keeps to its times again, and its Start early starts it.
+  await page.locator('.day').click({ position: { x: 150, y: 10 } });
+  await settled(page);
+  await expect(card(page)).toHaveClass(/inlane/);
   await card(page).getByRole('button', { name: 'Start early' }).click();
   // Started, it's the block in progress, drawn within its own times until a tap shows its actions.
   await expect(card(page)).toContainText('Renew passport');
   await expect(card(page)).toHaveClass(/inlane/);
   await card(page).click();
   await expect(card(page).getByRole('button', { name: 'Mark done now' })).toBeVisible();
+});
+
+test('a next block too short for the button keeps to its times with a chip, and the chip still starts it', async ({ page }) => {
+  await open(page, '15:10', [settings, planned, task('t2', 'Renew passport', { kind: 'one_off', project_id: null, estimate_min: 15 }), block('b2', 't2', '15:30', '15:45')]);
+  const chip = card(page).getByRole('button', { name: 'Start early' });
+  await expect(chip).toHaveClass(/chip/);
+  await expectWithinTimes(page, page.getByRole('slider', { name: /^Renew passport, 3:30pm to 3:45pm/ }), chip);
+  await chip.click();
+  // Started, it's the block in progress, still within its times.
+  await expect(card(page)).toContainText(/min left$/);
+  await expect(card(page)).toHaveClass(/inlane/);
 });
 
 test('the hours before the day opens fold into a row that says what it holds, and open on a tap', async ({ page }) => {

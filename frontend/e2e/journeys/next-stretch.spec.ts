@@ -1,5 +1,6 @@
 import { expect, test } from '../platform';
 import { skipPlanningOnToday, startPlanningThenUndo } from '../seed';
+import { askOnBlock } from '../today';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
@@ -60,7 +61,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
     : expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible());
   await jumpTo(page, chicago('2026-12-07', '10:31'));
   // It asks how it went: in its prompt, and on phone on the block itself.
-  const asked = phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('dialog', { name: 'Block finished' });
+  const asked = phone ? await askOnBlock(page, /^Mix the starter, /) : page.getByRole('dialog', { name: 'Block finished' });
   await asked.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
 

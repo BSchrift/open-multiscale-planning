@@ -41,7 +41,11 @@ export async function showNow(page: Page, phone: boolean): Promise<Locator> {
  */
 export async function openBlock(page: Page, block: Locator, phone: boolean): Promise<void> {
   if (!phone) return block.click();
-  if (!(await block.getAttribute('aria-label'))?.endsWith('Selected.')) await block.tap();
+  if (!(await block.getAttribute('aria-label'))?.endsWith('Selected.')) {
+    // Selected by Today rather than a tap, it's drawn in its lane over its block, so the tap that grows it lands there.
+    const over = page.locator(`.cev.raised.inlane[data-raised="${await block.getAttribute('data-block')}"]`);
+    await ((await over.count()) > 0 ? over.locator('.blktitle') : block).tap();
+  }
   await expect(block).toHaveAccessibleName(/Selected\.$/);
   await nowCard(page, true).locator('.rctitle').tap();
 }
@@ -107,12 +111,19 @@ export async function closeWaiting(page: Page): Promise<void> {
   await expect(sheet).toHaveCount(0);
 }
 
-/** A block that ended unanswered asks on itself on phone: a tap selects it, raised with its answers. */
+/**
+ * A block that ended unanswered asks on itself on phone: a tap selects it, raised with its answers. Selected by Today
+ * rather than a tap, it keeps to its own times with one button, How did it go?, which grows it to them.
+ */
 export async function askOnBlock(page: Page, name: RegExp): Promise<Locator> {
   const block = page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name });
   const card = nowCard(page, true);
+  // Drawn with its block, so it's there once the block is.
+  await expect(block).toBeVisible();
+  const ask = card.getByRole('button', { name: 'How did it go?' });
+  if ((await ask.count()) > 0) await ask.click();
   // By its top, which shows above a raised card drawn over the rest of it, as a block beside the one under way is.
-  if (!(await block.getAttribute('aria-label'))?.endsWith('Selected.')) await block.click({ position: { x: 12, y: 4 } });
+  else if (!(await block.getAttribute('aria-label'))?.endsWith('Selected.')) await block.click({ position: { x: 12, y: 4 } });
   await expect(block).toHaveAccessibleName(/Selected\.$/);
   await expect(card).toContainText('How did it go?');
   return card;

@@ -201,9 +201,12 @@ describe("a practice's popup", () => {
       },
       'phone',
     );
-    // Selected as Today opens, raised with its three answers; a second tap on it opens its popup.
-    const ended = await screen.findByRole('button', { name: /^Piano practice, 1pm to 1:30pm, Practice\..* Selected\.$/ });
+    // Selected as Today opens, within its own times until a tap grows it with its three answers; a second tap on it
+    // opens its popup.
+    const ended = await screen.findByRole('button', { name: /^Piano practice, 1pm to 1:30pm, Practice\./ });
     expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
+    await userEvent.click(ended);
+    await waitFor(() => expect(ended).toHaveAccessibleName(/ Selected\.$/));
     await userEvent.click(ended);
     const popup = await popupOf('Piano practice');
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);

@@ -198,7 +198,8 @@ describe('block prompts', () => {
     await blockEnds(t);
     await userEvent.click(tab('Today'));
     await showsPane('Today');
-    await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).toHaveTextContent('Ended at 2:05pm'));
+    // Selected by Today, it keeps to its own times with How did it go?, which grows it to its answers.
+    await waitFor(() => expect(document.querySelector('.cev.raised.inlane')).toHaveTextContent('How did it go?'));
     expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
   });
 

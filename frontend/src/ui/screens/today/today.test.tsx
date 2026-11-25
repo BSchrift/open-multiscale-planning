@@ -679,13 +679,18 @@ describe('the end-of-block prompt', () => {
     expect(await getRecord(t.db, 'block_outcome', outcomeId('pb'))).toMatchObject({ result: 'done', logged_min: 30 });
   });
 
-  it('on phone the block asks on itself, raised on the day, with no sheet opening by itself; Done answers it', async () => {
+  it('on phone the block asks on itself, within its own times, with no sheet opening by itself; How did it go? shows the answers, and Done answers it', async () => {
     const t = await open(ended, { layout: 'phone' });
-    const card = await raisedCard();
-    expect(card).toHaveTextContent('Ended at 1pm');
-    expect(card).toHaveTextContent('How did it go?');
+    // Selected by Today, not a tap: it keeps to its own times, with one button.
+    const asking = await raisedCard();
+    expect(asking).toHaveClass('inlane');
+    expect(within(asking).queryByRole('button', { name: 'Done' })).toBeNull();
     expect(screen.getByRole('heading', { name: 'Write the report ended at 1pm. How did it go?' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.click(within(asking).getByRole('button', { name: 'How did it go?' }));
+    await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).not.toHaveClass('inlane'));
+    const card = await raisedCard();
+    expect(card).toHaveTextContent('Ended at 1pm');
     await userEvent.click(within(card).getByRole('button', { name: 'Done' }));
     await waitFor(async () => expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toMatchObject({ result: 'done' }));
   });
@@ -712,6 +717,7 @@ describe('the end-of-block prompt', () => {
 
   it("on phone, Partly on the block asks how much is left in the sheet, and a notification's tap still opens it", async () => {
     await open(ended, { layout: 'phone' });
+    await userEvent.click(within(await raisedCard()).getByRole('button', { name: 'How did it go?' }));
     await userEvent.click(within(await raisedCard()).getByRole('button', { name: 'Partly' }));
     expect(await dialog('How much is left?')).toHaveAttribute('aria-modal', 'true');
     await userEvent.keyboard('{Escape}');
@@ -3129,14 +3135,26 @@ describe('Today on phone', () => {
     await block(w, 'b2', 't2', '15:00', '16:00');
   };
 
-  it('in the morning, selects the next block when it starts within the hour, so Start early shows without a popup', async () => {
+  it('in the morning, selects the next block when it starts within the hour, so Start early shows without a popup, within its own times', async () => {
     const t = await open(day, { layout: 'phone', now: at('08:20') });
+    // Selected by Today, not a tap: within its own times, with a compact Start early.
     const card = await raisedCard();
-    expect(card).toHaveTextContent('Next in 40 min, 9am to 10am');
+    expect(card).toHaveClass('inlane');
+    expect(card).toHaveTextContent(/^Write the report\s*Start early$/);
     expect(screen.getByRole('heading', { name: 'Next: Write the report, at 9am' })).toBeInTheDocument();
     expect(screen.getByText('Free until 9am')).toBeVisible();
     await userEvent.click(within(card).getByRole('button', { name: 'Start early' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeTruthy());
+  });
+
+  it('only a tap grows the block Today selects: the next one, tapped, is the card with Start early and Details', async () => {
+    await open(day, { layout: 'phone', now: at('08:20') });
+    await userEvent.click(await raisedCard());
+    await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).not.toHaveClass('inlane'));
+    const card = await raisedCard();
+    expect(card).toHaveTextContent('Next in 40 min, 9am to 10am');
+    expect(within(card).getByRole('button', { name: 'Details' })).toBeVisible();
+    expect(screen.getByRole('slider', { name: /^Write the report, 9am to 10am/ })).toHaveAccessibleName(/Selected\.$/);
   });
 
   it('two hours before the next block, nothing is selected, and the next block says Next on itself', async () => {

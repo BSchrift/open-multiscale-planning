@@ -3,6 +3,8 @@
 // that ended unanswered asks how it went; the next shows Start early; any other offers Move. Details opens the one
 // popup every block opens. The card's text repeats its block's name, which screen readers have already heard from the
 // block just before it, so only its buttons are read.
+// Only a tap grows a block into the card. One Today selects by itself keeps to its own times and lane, with one line:
+// the block in progress its time left, the next block Start early, and one that ended How did it go?, which grows it.
 // It grows from the lane, its contents fading in, and the one selected before settles back into its lane: 200ms on the
 // app's curve. With reduced motion it changes at once.
 
@@ -67,10 +69,12 @@ export interface RaisedProps {
   /** Its last drawn height, for the card that settles back once another is selected. */
   onHeight(px: number): void;
   /**
-   * The block in progress, selected by Today rather than a tap: drawn within its own times and lane, a little wider,
-   * with one line for its time left, and a tap selects it, growing it into the card with its actions.
+   * Selected by Today rather than a tap: drawn within its own times and lane, a little wider, on one line, and a tap
+   * selects it, growing it into the card with its actions.
    */
   inLane?: boolean;
+  /** In its lane, too short for a button on its line, which is then a chip. */
+  short?: boolean;
   onSelect?(): void;
 }
 
@@ -104,7 +108,7 @@ export function Raised(props: RaisedProps) {
   };
   return (
     <div ref={ref} className={`cev raised r-${raise} ${props.cls}${props.inLane ? ' inlane' : ''}${props.away ? ' away' : ''}`} style={props.style} data-raised={block.id} onClick={open} onPointerDown={props.onHold}>
-      <div className="rcin">{props.inLane ? <InLane block={block} /> : <Body {...props} />}</div>
+      <div className="rcin">{props.inLane ? <InLane {...props} /> : <Body {...props} />}</div>
     </div>
   );
 }
@@ -235,8 +239,44 @@ function Carry(props: RaisedProps) {
   );
 }
 
-/** The block in progress in its lane: its ring, its name and its time left, on one line, for any block's height. */
-function InLane(props: { block: BlockRow }) {
+/**
+ * A block Today selected, in its lane, on one line for any block's height: the block in progress with its ring and time
+ * left; the next block with Start early; one that ended with How did it go?, which grows it to its answers. On a block
+ * too short for the button, the button is a chip in the caption's size. Either is pressed from 44pt around it.
+ */
+function InLane(props: RaisedProps) {
+  const { block, raise, actions } = props;
+  const title = (
+    <span className="blktitle" aria-hidden="true">
+      {block.title ?? 'Time block'}
+    </span>
+  );
+  const mini = `rcmini${props.short ? ' chip' : ''}`;
+  if (raise === 'next') {
+    return (
+      <div className="rcline">
+        {title}
+        <button className={`${mini} go`} type="button" disabled={actions.pending} onClick={() => void actions.startEarly(block)}>
+          Start early
+        </button>
+      </div>
+    );
+  }
+  if (raise === 'answer') {
+    return (
+      <div className="rcline">
+        {title}
+        <button className={mini} type="button" onClick={props.onSelect}>
+          How did it go?
+        </button>
+      </div>
+    );
+  }
+  return <NowLine block={block} />;
+}
+
+/** The block in progress in its lane: its ring, its name and its time left. */
+function NowLine(props: { block: BlockRow }) {
   const { block } = props;
   const now = useNow(1000);
   const left = Math.max(0, Math.ceil(timeLeftMs(block, now) / 60_000));

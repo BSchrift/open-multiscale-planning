@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
-import { openSeeded, pane, readRecord, saved, touchDrag } from './seed';
+import { openSeeded, pane, readRecord, saved } from './seed';
 import type { Seed } from './seed';
 
 // Practices at their set times: on opening, the app places each set day at its time, this week and next once its
@@ -38,6 +38,8 @@ async function open(page: Page) {
 async function shoot(page: Page, info: TestInfo, name: string) {
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme });
+    // Once a popup has finished coming in, so nothing is half drawn.
+    await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
     await page.screenshot({ path: info.outputPath(`set-times-${name}-${info.project.name}-${scheme}.png`) });
   }
   await page.emulateMedia({ colorScheme: 'light' });
@@ -128,16 +130,17 @@ test('Today shows the session at its set time, and Take off calendar puts it in 
   // The toast goes before the screen is kept.
   await expect(page.getByText(/^Placed 5 practice sessions/)).toHaveCount(0, { timeout: 15_000 });
   await shoot(page, info, 'today');
-  // Its quick menu: a right-click on desktop, a finger held and let go on phone.
-  if (info.project.name === 'phone') {
-    await block.scrollIntoViewIfNeeded();
-    const box = (await block.boundingBox())!;
-    await touchDrag(page, block, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
-  } else await block.click({ button: 'right' });
-  await expect(page.getByRole('menuitem', { name: 'Take off calendar' })).toBeVisible();
+  // Its popup, a dialog on desktop and a sheet on phone, says what taking it off does before it's chosen.
+  await block.click();
+  const popup = page.getByRole('dialog', { name: 'Morning run' });
+  await expect(popup.getByText("Taken off, it waits in To schedule for another time today. Next Tuesday it's back at 7am.")).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Change its set times' })).toBeVisible();
   await shoot(page, info, 'remove');
-  await page.getByRole('menuitem', { name: 'Take off calendar' }).click();
+  await popup.getByRole('button', { name: 'Take off calendar' }).click();
   await expect(page.getByText("Took Morning run off Tue 7am. It's in To schedule.")).toBeVisible();
+  // The popup stays, with the practice's fields; Cancel puts it away.
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
   const card = today.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: /^Morning run, Practice, 30 minutes on Tuesday around 7 AM/ });
   await expect(card.getByText('30m · usually 7am')).toBeVisible();
   await card.click();

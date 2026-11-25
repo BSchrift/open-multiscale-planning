@@ -394,7 +394,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
       pd.choose(b.id);
     } else nav.go('week', { edit: 'this' });
   };
-  // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Skip this session"
+  // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Take off calendar"
   // for a practice. None for a planning block, which has its own flow, nor for another calendar's event.
   const menuOf = (i: Item): MenuEntry[] | null => {
     const b = i.block;
@@ -403,7 +403,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
     const words = WORDS[practice ? 'practice' : 'task'];
     const done: MenuChoice = { id: 'done', label: words.done, icon: 'done', tone: 'ok' };
     const open: MenuChoice = { id: 'open', label: 'Open', icon: 'notes' };
-    const remove: MenuChoice[] = !removable(b) ? [] : [practice ? { id: 'remove', label: 'Skip this session', icon: 'bin', tone: 'danger' } : { id: 'remove', label: 'Remove from calendar', icon: 'close' }];
+    const remove: MenuChoice[] = !removable(b) ? [] : [practice ? { id: 'remove', label: 'Take off calendar', icon: 'close' } : { id: 'remove', label: 'Remove from calendar', icon: 'close' }];
     const del: MenuChoice[] = practice ? [] : [{ id: 'delete', label: 'Delete task…', icon: 'bin', tone: 'danger' }];
     const after = (rest: MenuChoice[]): MenuEntry[] => (rest.length ? ['separator', ...rest] : []);
     switch (stageOf(b, clock.now())) {

@@ -143,7 +143,7 @@ export function renderScreen(
   return renderInApp(
     <Screen params={options.params ?? {}} layout={layout} presentation={options.presentation ?? 'page'} close={options.close ?? (() => undefined)} />,
     options,
-    area !== 'task',
+    area !== 'task' && area !== 'practice',
   );
 }
 
@@ -159,13 +159,13 @@ export async function renderInApp(ui: ReactElement, options: HarnessOptions = {}
     nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
-  // A task's popup opens over whatever showed the task, so it renders here as the shell renders it. Other overlays,
-  // such as Process, are screens of their own, tested on their own.
+  // A task's popup, and a practice's, open over whatever showed them, so they render here as the shell renders them.
+  // Other overlays, such as Process, are screens of their own, tested on their own.
   const TaskPopup = () => {
     const overlay = useOverlay();
     const { closeOverlay } = useNav();
-    if (overlay?.area !== 'task') return null;
-    const { Screen: Popup } = AREAS.task;
+    if (overlay?.area !== 'task' && overlay?.area !== 'practice') return null;
+    const { Screen: Popup } = AREAS[overlay.area];
     return <Popup params={overlay.params} layout={layout} presentation="overlay" close={closeOverlay} />;
   };
   return harness(

@@ -1,7 +1,8 @@
 // The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Done, Partly with the
 // time left, Not done) and a practice's time logged (All, Partly with the time done, Skipped). Several missed blocks share one sheet, MissedSheet. On desktop
 // these sit in the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they
-// close. One that opens while you're typing or in another dialog waits until you're done.
+// close. One that opens while you're typing or in another dialog waits until you're done. The block's name opens its
+// popup, its task's or practice's, as it does anywhere a block is named.
 
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -16,6 +17,7 @@ import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
 import { Sheet } from '../Sheet';
 import { useDialogFocus } from '../useDialogFocus';
+import { BlockName } from './BlockName';
 import { useBlockActions } from './useBlockActions';
 import { Button } from '../ds/Button';
 import { Icon } from '../ds/Icon';
@@ -127,7 +129,7 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
     void actions.answer(block, logged ? { result: 'done', logged_min: logged } : { result: 'not', logged_min: 0 }).then(props.onClose);
   return (
     <PromptFrame label="Block finished" onClose={props.onClose}>
-      <Heading over="Block ended" title={block.title} />
+      <Heading over="Block ended" title={<BlockName block={block} />} />
       {minutes !== null && (
         <div className="stack8">
           <div className="between">
@@ -194,7 +196,7 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
   const resumable = paused && localDate(block.start, clock.zone()) === localDate(now, clock.zone());
   return (
     <PromptFrame label="Block finished" onClose={props.onClose}>
-      <Heading over="Block ended" title={block.title} />
+      <Heading over="Block ended" title={<BlockName block={block} />} />
       {spent && <div className="small">{spent}</div>}
       <div className="stack8">
         <div className="row">
@@ -242,7 +244,7 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
   const ago = Math.max(1, Math.round((clock.now() - instantMs(block.start)) / 60_000));
   return (
     <PromptFrame label="Have you started?" onClose={props.onClose}>
-      <Heading over={`Started ${ago} ${ago === 1 ? 'minute' : 'minutes'} ago`} title={`Have you started ${block.title ?? 'this block'}?`} />
+      <Heading over={`Started ${ago} ${ago === 1 ? 'minute' : 'minutes'} ago`} title={block.title ? <>Have you started <BlockName block={block} />?</> : 'Have you started this block?'} />
       <div className="stack8">
         <div className="row">
           <Button variant="primary" type="button" disabled={actions.pending} onClick={() => void actions.start(block).then(props.onClose)}>

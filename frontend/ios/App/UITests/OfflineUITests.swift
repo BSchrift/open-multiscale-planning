@@ -116,9 +116,10 @@ final class OfflineUITests: XCTestCase {
     func testOfflineTodayAsksAboutItsBlocksAndTheAnswersOutliveARestart() {
         let app = launchApp(seed: "Seed today", offline: true)
         allowNotificationsIfAsked()
-        // The block that ended half an hour ago asks first, then the one that began six minutes ago without a Start.
-        exists(app.webText("Feed the starter"))
-        app.tapWeb("Not done", until: app.webText("Have you started Shape the dough?"))
+        // The block that ended half an hour ago asks first, then the one that began six minutes ago without a Start. Each
+        // prompt's name is a button that opens its popup.
+        exists(app.webButton("Feed the starter"))
+        app.tapWeb("Not done", until: app.webButton("Yes, started"))
         app.tapWeb("Yes, started", until: app.webText("In progress, time left"))
 
         app.terminate()

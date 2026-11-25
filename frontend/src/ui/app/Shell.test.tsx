@@ -480,9 +480,11 @@ describe('first run', () => {
 describe('registry', () => {
   it.each(Object.keys(AREAS) as AreaId[])('renders %s on both layouts', async (area) => {
     for (const layout of ['desktop', 'phone'] as const) {
-      // A task's popup needs its task.
+      // A task's popup needs its task, and a practice's its practice.
       const task = area === 'task' ? { params: { task: 't1' }, seed: (w: Writer) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 't1') } : {};
-      const t = await renderScreen(area, { layout, ...task });
+      const practice =
+        area === 'practice' ? { params: { practice: 'pr' }, seed: (w: Writer) => w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr') } : {};
+      const t = await renderScreen(area, { layout, ...task, ...practice });
       // More than the toast region the layout always holds.
       await waitFor(() => expect(t.container.querySelector(`[data-layout='${layout}']`)?.childElementCount ?? 0).toBeGreaterThan(1));
       cleanup();

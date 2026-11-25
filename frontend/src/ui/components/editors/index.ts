@@ -5,7 +5,7 @@
 //   <MilestoneEditor plan={plan} ctx={ctx} milestoneId={id} onClose={close} /> omit the id to add one
 //   <OverdueFix plan={plan} ctx={ctx} />                                        renders nothing unless overdue
 //   <CloseProject plan={plan} ctx={ctx} onClosed={leave} />                     Finish, Change end date, Drop
-//   <PracticeFields practice={p} goals={objectives} onClose={close} />           edits in place, until Save or Cancel
+//   <PracticeFields practice={p} goals={objectives} onClose={close} />           edits in place, as planning ahead does
 //   <HomeForm item={title} kind="project" ... onSave={make} />                  a new home for an Inbox item
 
 import './editors.css';
@@ -15,7 +15,7 @@ export { HomeForm } from './HomeForm';
 export type { HomeKind } from './HomeForm';
 export { diamondFor, doneDiamond, MilestoneEditor } from './MilestoneEditor';
 export { OverdueFix, OverdueQuestion } from './OverdueFix';
-export { GoalSelect, PracticeAdd, PracticeFields, practiceRule, PracticeSheet } from './PracticeEditor';
+export { GoalSelect, PracticeAdd, PracticeFields, practiceRule } from './PracticeEditor';
 export { ProjectAdd } from './ProjectAdd';
 export { TaskEditor } from './TaskEditor';
 export { DATE_UNSET, useLeave } from './useLeave';

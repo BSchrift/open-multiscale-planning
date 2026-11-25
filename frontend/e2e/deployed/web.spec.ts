@@ -324,9 +324,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November prod's release step
-  // found the steps still open: on prod's large history, Save and exit's writes outlasted the 5 seconds checks waited
-  // then, as they take 3.6 to 5.2 seconds locally with 60,000 deleted records on desktop.
+  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November, and again on 25
+  // November past 15 seconds, prod's release step found the steps still open: on prod's large history, Save and exit's
+  // writes waited behind every open screen's reads. Writes now go ahead of reads still waiting (core/db.ts).
   await expect(steps).toHaveCount(0);
   await expect(wayIn).toBeVisible();
 });

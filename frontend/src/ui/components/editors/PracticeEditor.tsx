@@ -1,8 +1,8 @@
 // A practice's settings, changed as a draft that Save writes in one go and Cancel drops: name, goal (or none, never a
-// project) and its schedule (PracticeSchedule). Pause and End act at once. A practice at set times keeps its sessions
-// at them (core/setTimes.ts): Save moves those at the old set time and places new days, Pause takes off what's still to
-// come and Resume puts it back, and a new one is placed as it's added, each in the same Undo. Sessions moved by hand stay
-// put.
+// project) and its schedule (PracticeSchedule). Pause and End act at once, each with Undo. A practice at set times keeps
+// its sessions at them (core/setTimes.ts): Save moves those at the old set time and places new days, Pause takes off
+// what's still to come and Resume puts it back, and a new one is placed as it's added, each in the same Undo. Sessions
+// moved by hand stay put. The practice's popup (screens/practice) shares the draft and the actions.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode, Ref } from 'react';
@@ -17,7 +17,6 @@ import { atSetTime, followMessage, followSetTimes, pausedMessage, pausePractice,
 import { endPractice } from '../../../core/tasks';
 import type { Fields, LocalDate, Objective, Practice } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
-import { Sheet } from '../Sheet';
 import { useToast } from '../Toast';
 import { DAY_NAMES, newSchedule, practiceRule, scheduleFields, ScheduleFields, scheduleOf } from './PracticeSchedule';
 import type { ScheduleDraft } from './PracticeSchedule';
@@ -45,6 +44,18 @@ export async function addPractice(w: Writer, fields: Fields<'practice'>, id: str
   return {
     added: { writes: [...placed.writes, { type: 'practice', id, fields: { deleted_at: nowInstant(clock) } }] },
     said: followMessage({ moved: 0, to: [], waiting: 0, dropped: 0, placed: placed.placed }),
+  };
+}
+
+/** Writes a change built in its transaction, and says what it did, with Undo. Resolves to whether it saved. */
+function useSaidChange() {
+  const toast = useToast();
+  const saving = useMutation((w, build: (w: Writer) => Promise<SaidChange>) => build(w));
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
+  return async (build: (w: Writer) => Promise<SaidChange>) => {
+    const done = await saving.run(build);
+    if (done) toast.show(done.said, { undo: () => undo.run({ writes: done.writes }) });
+    return !!done;
   };
 }
 const NO_DAYS = 'Choose at least one day.';
@@ -162,28 +173,20 @@ function staysLine(placed: readonly { day: LocalDate; moved: boolean }[], s: Sch
 }
 
 /**
- * Edits a practice as a draft. Nothing is written until Save, which writes every change at once, with Undo; Cancel
- * drops them. A blank name or no days is never saved. Pause and End act at once, apart from Save and Cancel.
+ * A practice's name, goal and schedule as a draft, shared by its editor on Goals and its popup. Nothing is written until
+ * save, which writes every change at once, with Undo, and onClose then runs with the fields it wrote. A blank name or no
+ * days is never saved: save says so in error or daysError, with focus on Monday for the days.
  */
-export function PracticeFields(props: {
-  practice: Practice;
-  goals: readonly Objective[];
-  /** The editor's name, where nothing around it names it. */
-  label?: string;
-  heading?: ReactNode;
-  /** A goal control of the caller's own, in place of the select, as planning's links a new goal too. */
-  goalField?(value: string | null, onChange: (id: string | null) => void): ReactNode;
-  /** Saves the change instead, as planning does to log it with its Undo. Resolves to whether it saved. */
-  write?(build: (w: Writer) => Promise<SaidChange>): Promise<boolean>;
-  /** After Save, with the fields it wrote, or Cancel. */
-  onClose(saved?: Fields<'practice'>): void;
-  onEnded?(): void;
-  /** Set to the editor's other way out, for the caller's Esc, backdrop or toggle. It resolves to whether it closed. */
-  leaveRef?: { current: (() => boolean) | null };
-}) {
-  const p = props.practice;
-  const { clock, layout } = useApp();
-  const toast = useToast();
+export function usePracticeDraft(
+  p: Practice,
+  options: {
+    /** Saves the change instead, as planning does to log it with its Undo. Resolves to whether it saved. */
+    write?(build: (w: Writer) => Promise<SaidChange>): Promise<boolean>;
+    onClose(saved?: Fields<'practice'>): void;
+  },
+) {
+  const { clock } = useApp();
+  const said = useSaidChange();
   const live: Draft = { title: p.title, objective_id: p.objective_id ?? null, schedule: scheduleOf(p) };
   // Only the fields edited here are kept, so the rest show the practice as it is now, after a sync or Pause.
   const [edits, setEdits] = useState<Partial<Draft>>({});
@@ -198,13 +201,7 @@ export function PracticeFields(props: {
   };
   const next: Draft = { ...form, title: form.title.trim() };
   const changed = (Object.keys(next) as (keyof Draft)[]).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(live[k]));
-  const { saveRef, leave } = useLeave(changed.length > 0, () => props.onClose(), setError);
-  const { leaveRef } = props;
-  useEffect(() => {
-    if (!leaveRef) return;
-    leaveRef.current = leave;
-    return () => void (leaveRef.current = null);
-  });
+  const { saveRef, leave } = useLeave(changed.length > 0, () => options.onClose(), setError);
   // A goal made and linked at once, beside the select, replaces one picked here.
   useEffect(
     () =>
@@ -225,13 +222,7 @@ export function PracticeFields(props: {
       [p.id, p],
     ).data ?? [];
 
-  const saving = useMutation((w, build: (w: Writer) => Promise<SaidChange>) => build(w));
-  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
-  const said = (done: SaidChange | undefined) => {
-    if (done) toast.show(done.said, { undo: () => undo.run({ writes: done.writes }) });
-    return !!done;
-  };
-  const write = props.write ?? (async (build: (w: Writer) => Promise<SaidChange>) => said(await saving.run(build)));
+  const write = options.write ?? said;
   const save = async () => {
     if (!next.title) return setError('Give it a name.');
     if (!next.schedule.days.length) {
@@ -244,7 +235,7 @@ export function PracticeFields(props: {
       ...(changed.includes('objective_id') ? { objective_id: next.objective_id } : {}),
       ...(changed.includes('schedule') ? scheduleChanges(p, live.schedule, next.schedule) : {}),
     };
-    if (!Object.keys(fields).length) return props.onClose();
+    if (!Object.keys(fields).length) return options.onClose();
     const scheduled = SCHEDULE_KEYS.some((k) => k in fields);
     const text = scheduled ? `Saved ${next.title}: ${practiceRule({ ...p, ...fields })}.${staysLine(ahead, next.schedule)}` : `Saved ${next.title}.`;
     // Its sessions follow a new schedule in the same write, and the same toast says what they did.
@@ -256,22 +247,69 @@ export function PracticeFields(props: {
       return { writes: [...follow.writes, ...back.writes], said: more ? `${text} ${more}` : text };
     };
     // A failed save keeps the fields as they were, and has said so.
-    if (await write(build)) props.onClose(fields);
+    if (await write(build)) options.onClose(fields);
   };
+  return { form, edit, save, leave, saveRef, error, daysError, monday };
+}
 
-  // Pause takes its sessions still to come off, and Resume puts them back, each with Undo.
-  const pausing = useMutation(
-    async (w): Promise<SaidChange> =>
-      p.state === 'paused'
-        ? resumePractice(w, p.id, clock).then((r) => ({ writes: r.writes, said: resumedMessage(p.title, r.back) }))
-        : pausePractice(w, p.id, clock).then((r) => ({ writes: r.writes, said: pausedMessage(p.title, r.off) })),
-  );
+/**
+ * Pause or Resume, and End practice, which act at once, each with Undo. Pause takes its sessions still to come off, and
+ * Resume puts them back where their time is free. onEnded runs before End's toast.
+ */
+export function usePracticeActions(p: Practice, onEnded?: () => void) {
+  const { clock } = useApp();
+  const toast = useToast();
+  const said = useSaidChange();
   const ending = useMutation((w) => endPractice(w, p.id, clock));
-  const end = async () => {
-    const reverse = await ending.run();
-    props.onEnded?.();
-    if (reverse) toast.show(`${p.title} ended. Its history stays.`, { undo: () => undo.run(reverse) });
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
+  const paused = p.state === 'paused';
+  return {
+    paused,
+    pause: () =>
+      said((w) =>
+        paused
+          ? resumePractice(w, p.id, clock).then((r) => ({ writes: r.writes, said: resumedMessage(p.title, r.back) }))
+          : pausePractice(w, p.id, clock).then((r) => ({ writes: r.writes, said: pausedMessage(p.title, r.off) })),
+      ),
+    end: async () => {
+      const reverse = await ending.run();
+      onEnded?.();
+      if (reverse) toast.show(`${p.title} ended. Its history stays.`, { undo: () => undo.run(reverse) });
+    },
   };
+}
+
+/**
+ * Edits a practice as a draft. Nothing is written until Save, which writes every change at once, with Undo; Cancel
+ * drops them. A blank name or no days is never saved. Pause and End act at once, apart from Save and Cancel.
+ */
+export function PracticeFields(props: {
+  practice: Practice;
+  goals: readonly Objective[];
+  /** The editor's name, where nothing around it names it. */
+  label?: string;
+  heading?: ReactNode;
+  /** A goal control of the caller's own, in place of the select, as planning's links a new goal too. */
+  goalField?(value: string | null, onChange: (id: string | null) => void): ReactNode;
+  /** Saves the change instead, as planning does to log it with its Undo. Resolves to whether it saved. */
+  write?(build: (w: Writer) => Promise<SaidChange>): Promise<boolean>;
+  /** After Save, with the fields it wrote, or Cancel. */
+  onClose(saved?: Fields<'practice'>): void;
+  onEnded?(): void;
+  /** Set to the editor's other way out, for the caller's Esc, backdrop or toggle. It resolves to whether it closed. */
+  leaveRef?: { current: (() => boolean) | null };
+}) {
+  const p = props.practice;
+  const { layout } = useApp();
+  const { form, edit, save, leave, saveRef, error, daysError, monday } = usePracticeDraft(p, { ...(props.write ? { write: props.write } : {}), onClose: props.onClose });
+  const { pause, end } = usePracticeActions(p, props.onEnded);
+  const { leaveRef } = props;
+  useEffect(() => {
+    if (!leaveRef) return;
+    leaveRef.current = leave;
+    return () => void (leaveRef.current = null);
+  });
+
   const btn = { size: 'compact' as const, className: layout === 'phone' ? 'grow' : undefined };
 
   // Not a form, since planning's goal control holds a form of its own, so Enter in the name saves instead.
@@ -314,7 +352,7 @@ export function PracticeFields(props: {
         </Button>
       </div>
       <div className="row">
-        <Button size="compact" type="button" onClick={() => void pausing.run().then(said)}>
+        <Button size="compact" type="button" onClick={() => void pause()}>
           {p.state === 'paused' ? 'Resume' : 'Pause'}
         </Button>
         <Button size="compact" type="button" onClick={end}>
@@ -323,23 +361,6 @@ export function PracticeFields(props: {
       </div>
       <HomeNotes home={{ type: 'practice', id: p.id }} />
     </div>
-  );
-}
-
-/** The practice editor as a sheet, as tapping a practice opens it on phone. */
-export function PracticeSheet(props: { practice: Practice; goals: readonly Objective[]; onClose(saved?: Fields<'practice'>): void }) {
-  const leave = useRef<(() => boolean) | null>(null);
-  return (
-    <Sheet label="Edit practice" tall onClose={() => (leave.current ? leave.current() : props.onClose())}>
-      <PracticeFields
-        practice={props.practice}
-        goals={props.goals}
-        heading={<h2>Edit practice</h2>}
-        leaveRef={leave}
-        onClose={props.onClose}
-        onEnded={() => props.onClose()}
-      />
-    </Sheet>
   );
 }
 

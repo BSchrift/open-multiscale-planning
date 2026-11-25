@@ -36,7 +36,7 @@ test('a new install shows nothing, then an update shows its new lines once, date
   await expect(sheet(page)).toHaveCount(0);
 
   // The phone last saw the line before the newest two, and the update brought those two.
-  await page.evaluate(({ key, id }) => localStorage.setItem(key, String(id)), { key: WHATS_NEW_KEY, id: NEWEST - 2 });
+  await page.evaluate(({ key, id }) => localStorage.setItem(key, String(id)), { key: WHATS_NEW_KEY, id: WHATS_NEW[2]!.id });
   await page.reload();
   await expect(sheet(page)).toBeVisible();
   await expect(sheet(page).getByRole('heading')).toHaveText(['Multiscale has been updated!', "What's new"]);

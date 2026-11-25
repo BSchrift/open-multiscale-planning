@@ -14,9 +14,9 @@ name are in [.claude/skills](.claude/skills): Claude Code loads them from there,
   fixtures, docs. A known limit gets a `// shortcut: <the limit>, <when to upgrade>` comment. Never cut validation at a
   trust boundary, error handling that prevents data loss, security or accessibility.
 - **Match the code around you:** its naming, structure and comment density. Comments say why, not what.
-- **Say what's new.** A change someone will notice on the iPhone adds one line to the top of
-  [frontend/src/whatsNew.ts](frontend/src/whatsNew.ts), with the next id: one plain sentence saying what they can now
-  do. Each iPhone shows the lines it hasn't seen once, after the update that brings them
+- **Say what's new.** Every change someone will notice on the iPhone adds its own line to the top of
+  [frontend/src/whatsNew.ts](frontend/src/whatsNew.ts) in the same pull request, with the next id: one plain sentence
+  saying what they can now do. Each iPhone shows the lines it hasn't seen once, after the update that brings them
   ([docs/releasing.md](docs/releasing.md#whats-new)).
 - **Check your work as a person would.** Run the app, look at screenshots on desktop and phone, and say plainly what you
   didn't verify.

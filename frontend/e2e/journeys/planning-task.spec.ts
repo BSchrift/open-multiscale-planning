@@ -14,15 +14,24 @@ test('the prompt to plan, next week’s planning task, and finishing it', async 
   const errors = await start(page, chicago('2026-11-02', '07:30')); // Monday morning.
   await firstRun(page, 'Write a novel');
 
-  // The week started unplanned: the prompt says how long planning takes. Skip for now is saved, with Undo.
-  await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
-  await expect(page.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Choose a time to plan this week' })).toBeVisible();
-  const skip = page.getByRole('button', { name: phone ? 'Skip for now' : 'Skip planning this week' });
+  // The week started unplanned: the prompt says how long planning takes. Skip for now is saved, with Undo. On phone the
+  // prompt is a row above today's calendar, whose Plan it offers Choose a time, and its × is Skip for now.
+  const prompt = () => expect(phone ? page.getByText("This week isn't planned yet") : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
+  await prompt();
+  if (phone) {
+    await expect(page.getByText('About 30m to plan')).toBeVisible();
+    await page.getByRole('button', { name: 'Plan it' }).click();
+    await expect(page.getByRole('button', { name: 'Choose a time to plan this week' })).toBeVisible();
+    await page.keyboard.press('Escape');
+  } else {
+    await expect(page.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Choose a time to plan this week' })).toBeVisible();
+  }
+  const skip = page.getByRole('button', { name: 'Skip planning this week' });
   await skip.click();
   await expect(page.getByText('Skipped planning this week.')).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
+  await prompt();
   await skip.click();
   await expect(pane(page, 'Today').getByText("This week isn't planned", { exact: true })).toBeVisible();
 
@@ -84,7 +93,7 @@ test('the prompt to plan, next week’s planning task, and finishing it', async 
 
   // Monday: the week was planned on Friday, so nothing asks.
   await jumpTo(page, chicago('2026-11-09', '08:00'));
-  await expect(pane(page, 'Today').getByText('Monday, Nov 9')).toBeVisible();
+  await expect(pane(page, 'Today').getByText(phone ? 'Mon, Nov 9' : 'Monday, Nov 9')).toBeVisible();
   await expect(pane(page, 'Today').getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Plan your week' })).toHaveCount(0);
 

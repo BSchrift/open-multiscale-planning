@@ -122,9 +122,18 @@ test('capture, process each item to its place, then one offs across the week', a
   // Friday: the dated one is on Today with its tick, and ticking it there counts.
   await jumpTo(page, chicago('2026-11-06', '09:00'));
   await tab(page, phone, 'Today');
-  const today = page.getByRole('region', { name: 'One offs today' });
-  await today.getByRole('checkbox', { name: 'Return the library books done' }).click();
-  await expect(today.getByRole('button', { name: 'Show 1 completed in One offs today' })).toBeVisible();
+  if (phone) {
+    // A chip in the row of what's due today, which opens its tick.
+    const due = page.getByRole('group', { name: 'Due today' });
+    await due.getByRole('button', { name: 'Return the library books, one off due today' }).click();
+    await page.getByRole('dialog', { name: 'Return the library books' }).getByRole('checkbox', { name: 'Return the library books done' }).click();
+    await expect(due.getByRole('button', { name: 'Return the library books, one off due today, done' })).toBeVisible();
+    await page.keyboard.press('Escape');
+  } else {
+    const today = page.getByRole('region', { name: 'One offs today' });
+    await today.getByRole('checkbox', { name: 'Return the library books done' }).click();
+    await expect(today.getByRole('button', { name: 'Show 1 completed in One offs today' })).toBeVisible();
+  }
 
   await tab(page, phone, 'One offs');
   // Wednesday's ticks have cleared from the list, and today's waits behind Show completed; the repeating one waits for

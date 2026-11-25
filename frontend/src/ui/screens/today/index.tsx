@@ -1,5 +1,6 @@
 // Today: the block in progress or next, what needs attention, one offs due today and the day's timeline, then a line
-// into Done. When the week isn't planned it opens on a prompt to plan, and after time away on Welcome back.
+// into Done. When the week isn't planned it opens on a prompt to plan, and after time away on Welcome back. Phone has
+// its own Today, the day's calendar first (Phone.tsx), where the prompt to plan is a row above the day.
 
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -28,9 +29,9 @@ import { ShiftPanel } from './ShiftPanel';
 import { usePrompts, usePutAway } from './usePrompts';
 import type { PutAway } from './usePrompts';
 import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
+import { firstControl, PhoneToday } from './Phone';
 import './today.css';
 import { Button } from '../../components/ds/Button';
-import { Icon } from '../../components/ds/Icon';
 
 interface Alert {
   key: string;
@@ -38,8 +39,6 @@ interface Alert {
   text?: string;
   warn?: boolean;
   label: string;
-  /** Phone shows its action in blue, as the one to act on. */
-  go?: boolean;
   act(): void;
   skip?(): void;
 }
@@ -82,25 +81,6 @@ function Alerts(props: { alerts: readonly Alert[] }) {
   );
 }
 
-/** Phone shows each as its own quiet row, with × beside one that can wait. */
-function AttnRow(props: { alert: Alert }) {
-  const { alert } = props;
-  const row = (
-    <button className={alert.skip ? 'attn grow' : 'attn'} type="button" onClick={alert.act}>
-      <span>{alert.title}</span> <span className={alert.go ? 'attngo' : 'quiet'}>{alert.label}</span>
-    </button>
-  );
-  if (!alert.skip) return row;
-  return (
-    <div className="row nowrap stretchdue">
-      {row}
-      <button className="icbtn" type="button" aria-label={`Skip for now: ${alert.title}`} onClick={alert.skip}>
-<Icon name="close" />
-</button>
-    </div>
-  );
-}
-
 function Head(props: { date: string; title: string }) {
   const { layout } = useApp();
   return (
@@ -111,15 +91,7 @@ function Head(props: { date: string; title: string }) {
   );
 }
 
-/** The first control at or after an element, for focus once the control that was before it has gone. */
-function firstControl(from: Element | null): HTMLElement | null {
-  for (let el = from; el; el = el.nextElementSibling) {
-    const found = el.matches('button,a[href]') ? el : el.querySelector('button:not([disabled]),a[href]');
-    if (found) return found as HTMLElement;
-  }
-  return null;
-}
-
+/** Today on desktop; phone has its own (Phone.tsx). */
 function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null; putAway: PutAway }) {
   const { data, unplanned } = props;
   const { clock, layout, sync } = useApp();
@@ -128,21 +100,16 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   const { call } = useCalendarCall();
   const [panel, setPanel] = useState<'shift' | 'queue' | null>(null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
-  const phone = layout === 'phone';
 
   const shift = shiftRestOfToday(data.blocks, data.events, data.settings.availability, clock);
   const clash = shift && `${shift.conflict.block.title} conflicts with ${'event' in shift.conflict ? shift.conflict.event.title : shift.conflict.running.title}.`;
   const queued = data.queue.length;
 
   const alerts: Alert[] = [];
-  if (shift && !phone) alerts.push({ key: 'shift', title: 'Scheduling conflict', text: clash!, warn: true, label: 'Shift rest of today', act: () => setPanel('shift') });
+  if (shift) alerts.push({ key: 'shift', title: 'Scheduling conflict', text: clash!, warn: true, label: 'Shift rest of today', act: () => setPanel('shift') });
   if (missed) alerts.push({ key: 'missed', title: missed.title, label: 'Review', act: missed.review });
   if (queued) {
-    alerts.push(
-      phone
-        ? { key: 'queue', title: `${queued} ${queued === 1 ? 'task needs' : 'tasks need'} a new time`, label: 'Review', act: () => setPanel('queue') }
-        : { key: 'queue', title: 'Needs a new time', text: `${queued} ${queued === 1 ? 'task' : 'tasks'} that didn't get done. Choose when it suits you.`, label: 'Review', act: () => setPanel('queue') },
-    );
+    alerts.push({ key: 'queue', title: 'Needs a new time', text: `${queued} ${queued === 1 ? 'task' : 'tasks'} that didn't get done. Choose when it suits you.`, label: 'Review', act: () => setPanel('queue') });
   }
   // Connecting needs a sign-in. Skipped, it asks again the next week.
   const week = thisWeek(clock);
@@ -172,21 +139,10 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   const skipped = unplanned && !!data.planning.this.plan?.planning_skipped_at;
 
   return (
-    <div className={phone ? 'stack today' : 'wrap stack24 today'}>
+    <div className="wrap stack24 today">
       <Head date={data.date} title="Today" />
       {skipped && !nextRow && <Banner />}
-      {phone && shift && (
-        <div className="warn shiftwarn" role="status">
-          <div className="grow100">
-            <div className="strong">Scheduling conflict</div>
-            <div>{clash}</div>
-          </div>
-          <Button type="button" aria-expanded={panel === 'shift'} onClick={() => setPanel(panel === 'shift' ? null : 'shift')}>
-            Shift rest of today
-          </Button>
-        </div>
-      )}
-      {phone ? alerts.map((a) => <AttnRow key={a.key} alert={a} />) : <Alerts alerts={alerts} />}
+      <Alerts alerts={alerts} />
       {panel === 'shift' && shift && <ShiftPanel plan={shift} connected={data.connected} onClose={() => setPanel(null)} />}
       {panel === 'queue' && <QueuePanel items={data.queue} onClose={() => setPanel(null)} />}
       {unplanned && !work ? (
@@ -207,7 +163,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       <NotesToday />
       {(work || !unplanned) && <DayTimeline data={data} events={data.events} />}
       <DoneLine />
-      {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
+      {data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
       {prompt}
     </div>
   );
@@ -264,6 +220,8 @@ export default function Screen(_props: ScreenProps) {
     );
   }
   if (welcome) return frame('Welcome back', <Welcome blocks={welcome.blocks} onReturned={() => setPicking(true)} />);
+  const todaysPick = pick?.date === data.date ? pick.id : null;
+  if (layout === 'phone') return <PhoneToday data={data} unplanned={!data.planned} pick={todaysPick} putAway={putAway} />;
   if (weekGate(data.planning.this, clock) === 'gate') {
     return frame(
       'Plan your week',
@@ -273,5 +231,5 @@ export default function Screen(_props: ScreenProps) {
       </>,
     );
   }
-  return <TodayView data={data} unplanned={!data.planned} pick={pick?.date === data.date ? pick.id : null} putAway={putAway} />;
+  return <TodayView data={data} unplanned={!data.planned} pick={todaysPick} putAway={putAway} />;
 }

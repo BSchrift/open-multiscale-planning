@@ -30,6 +30,43 @@ export function scrollerOf(el: Element): Element {
   return document.scrollingElement ?? document.documentElement;
 }
 
+/**
+ * While something held is dragged near the top or bottom of the screen, where the strip and tab bar sit, what scrolls
+ * under `el` keeps scrolling, and `scrolled` runs after each step so what's dragged follows the time under the finger.
+ * Only once the pointer has left the edge it started at, so a press near the top doesn't scroll the page away as it lifts.
+ */
+export function edgeScroll(el: Element, scrolled: () => void) {
+  const scroller = scrollerOf(el);
+  const top = scroller.scrollTop;
+  let y = 0;
+  let armed = false;
+  let raf = 0;
+  const edge = () => (!armed ? 0 : y > innerHeight - EDGE_PX ? SCROLL_PX : y < EDGE_PX ? -SCROLL_PX : 0);
+  const step = () => {
+    raf = 0;
+    const by = edge();
+    if (!by) return;
+    const was = scroller.scrollTop;
+    scroller.scrollTop += by;
+    if (scroller.scrollTop === was) return;
+    scrolled();
+    raf = requestAnimationFrame(step);
+  };
+  return {
+    follow(at: number) {
+      y = at;
+      armed ||= at > EDGE_PX && at < innerHeight - EDGE_PX;
+      if (edge() && !raf) raf = requestAnimationFrame(step);
+    },
+    /** How far it has scrolled since the press. */
+    scrolled: () => scroller.scrollTop - top,
+    stop() {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    },
+  };
+}
+
 /** The drop target under a point: a day to place on, or To schedule. */
 function under(x: number, y: number) {
   const el = document.elementFromPoint?.(x, y);
@@ -173,7 +210,15 @@ export function dragCard(
   event: ReactPointerEvent<HTMLElement>,
   item: { length: number; offers: readonly Slot[] },
   ctx: SlotContext,
-  on: { preview(slot: Slot | null): void; drop(slot: Slot): void; /** The platform's light tap, as a held card lifts. */ haptic?(): unknown },
+  on: {
+    preview(slot: Slot | null): void;
+    drop(slot: Slot): void;
+    /** The platform's light tap, as a held card lifts. */
+    haptic?(): unknown;
+    /** As the card lifts, and as it's put down, dropped or not: a sheet it was in steps aside meanwhile. */
+    lift?(): void;
+    put?(): void;
+  },
 ) {
   const card = event.currentTarget;
   const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
@@ -182,23 +227,11 @@ export function dragCard(
   let when: HTMLElement | null = null;
   let last: Slot | null = null;
   let at = { x: x0, y: y0 };
-  let raf = 0;
-  const scroller = scrollerOf(card);
-  // Keeps scrolling while the card is held near an edge, and the time under it follows. Only once it has left the edge
-  // it started at, so a card near the top doesn't scroll the page away as it lifts.
-  let armed = false;
-  const edge = () => (!armed ? 0 : at.y > innerHeight - EDGE_PX ? SCROLL_PX : at.y < EDGE_PX ? -SCROLL_PX : 0);
-  const scroll = () => {
-    raf = 0;
-    if (!ghost || !edge()) return;
-    const was = scroller.scrollTop;
-    scroller.scrollTop += edge();
-    if (scroller.scrollTop !== was) follow(at.x, at.y);
-  };
+  // Keeps scrolling while the card is held near an edge, and the time under it follows.
+  const edges = edgeScroll(card, () => ghost && follow(at.x, at.y));
   const follow = (x: number, y: number) => {
     at = { x, y };
-    armed ||= y > EDGE_PX && y < innerHeight - EDGE_PX;
-    if (edge() && !raf) raf = requestAnimationFrame(scroll);
+    edges.follow(y);
     ghost!.style.left = `${x - 16}px`;
     ghost!.style.top = `${y - (touch ? 48 : 12)}px`;
     const slot = slotAt(x, y, item.length, ctx, item.offers);
@@ -207,11 +240,12 @@ export function dragCard(
     when!.textContent = slot ? formatTimeOfDay(slot.start) : '';
   };
   const put = () => {
-    cancelAnimationFrame(raf);
+    edges.stop();
     ghost?.remove();
     ghost = null;
     card.classList.remove('lifted');
     on.preview(null);
+    on.put?.();
   };
   holdToDrag(event, {
     lift: () => {
@@ -224,6 +258,7 @@ export function dragCard(
       // Inside the layout, so its styles still apply.
       (card.closest('[data-layout]') ?? document.body).appendChild(ghost);
       card.classList.add('lifted');
+      on.lift?.();
       follow(x0, y0);
     },
     drag: (_dx, _dy, e) => follow(e.clientX, e.clientY),

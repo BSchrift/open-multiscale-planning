@@ -50,11 +50,17 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   // started, so starting late in a minute counted 29m rather than 30m.
   await tab(page, phone, 'Today');
   await jumpTo(page, chicago('2026-12-07', '10:00'));
+  // On phone, Next up is what Start something offers in the free time.
+  if (phone) await page.getByRole('button', { name: 'Start something' }).click();
   await page.getByRole('region', { name: 'Next up' }).getByRole('button', { name: 'Start Mix the starter' }).click();
   // Saved before the clock moves on, or the block would start at the later time.
-  await expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible();
+  await (phone
+    ? expect(page.locator('.cev.raised:not(.settling)')).toContainText('Mix the starter')
+    : expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible());
   await jumpTo(page, chicago('2026-12-07', '10:31'));
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Done', exact: true }).click();
+  // It asks how it went: in its prompt, and on phone on the block itself.
+  const asked = phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('dialog', { name: 'Block finished' });
+  await asked.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
 
   // The Saturday after Christmas: the stretch ends Dec 31, so it's time to plan Jan 1 to Mar 31.

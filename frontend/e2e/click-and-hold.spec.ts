@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled, touchDrag } from './seed';
+import { openBlock, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -70,8 +71,10 @@ async function opens(page: Page, title: string, press: () => Promise<void>) {
 test('Today: a click that wobbles opens any block, one that moves included, and only a hold drags it', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page);
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   const day = page.getByRole('region', { name: "Today's timeline" });
+  // On phone the morning is folded into the Earlier row until it's opened.
+  if (phone) await day.getByRole('button', { name: /^Earlier, / }).click();
   // On phone a block that moves is a slider, as on Week.
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const blocks: [string, Locator][] = [
@@ -79,15 +82,16 @@ test('Today: a click that wobbles opens any block, one that moves included, and 
     ['Paint the fence', day.getByRole('button', { name: /^Paint the fence, 9am to 10am/ })],
     ['Check the figures', day.getByRole('button', { name: /^Check the figures, 1:30pm to 2:30pm/ })],
   ];
-  for (const [title, block] of blocks) await opens(page, title, () => (phone ? block.tap() : wobblyClick(page, block)));
+  // On phone a tap selects a block, and a second, on the card it's raised as, opens it.
+  for (const [title, block] of blocks) await opens(page, title, () => (phone ? openBlock(page, block, true) : wobblyClick(page, block)));
   // None of those clicks moved anything.
   await expect(page.getByText(/ is now /)).toHaveCount(0);
 
-  // Held, then dragged 15px, which is half an hour at the first zoom.
+  // Held, then dragged half an hour: 15px at desktop's first zoom, 36pt on the phone's day.
   await report.scrollIntoViewIfNeeded();
   const box = (await report.boundingBox())!;
   const from = { x: box.x + box.width / 3, y: box.y + box.height / 2 };
-  if (phone) await touchDrag(page, report, { x: from.x, y: from.y + 15 });
+  if (phone) await touchDrag(page, report, { x: from.x, y: from.y + 36 });
   else {
     await holdMouse(page, from);
     await page.mouse.move(from.x, from.y + 8, { steps: 2 });
@@ -156,7 +160,7 @@ test("Today: a block's quick menu opens on a right-click or Shift-F10 on desktop
   const phone = info.project.name === 'phone';
   const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
   const errors = await open(page);
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   const day = page.getByRole('region', { name: "Today's timeline" });
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const figures = day.getByRole('button', { name: /^Check the figures, 1:30pm to 2:30pm/ });
@@ -225,7 +229,7 @@ test("Today: Move… in a block's popup offers its quick menu's new times, and t
   const day = page.getByRole('region', { name: "Today's timeline" });
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await report.scrollIntoViewIfNeeded();
-  await (phone ? report.tap() : report.click());
+  await openBlock(page, report, phone);
   const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
   const buttons = section.getByRole('button');
   await expect(buttons).toHaveText(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
@@ -290,7 +294,7 @@ test("Today: Move… in a block's popup, Tomorrow asks first when tomorrow has a
   const report = page.getByRole('region', { name: "Today's timeline" }).getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const press = (target: Locator) => (phone ? target.tap() : target.click());
   await report.scrollIntoViewIfNeeded();
-  await press(report);
+  await openBlock(page, report, phone);
   const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
   await press(section.getByRole('button', { name: 'Move…' }));
   await press(page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));

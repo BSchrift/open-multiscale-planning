@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openSeeded, pane } from './seed';
 import type { Seed } from './seed';
+import { answerLater } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -33,8 +34,8 @@ const records: Seed[] = [
 async function openAnalytics(page: Page, phone: boolean) {
   await page.clock.setFixedTime(NOW);
   await openSeeded(page, records);
-  // Thursday's unanswered block asks on whatever page is showing; leave it unanswered.
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Answer later' }).click();
+  // Thursday's unanswered block asks on whatever page is showing, or on phone on the block itself; leave it unanswered.
+  await answerLater(page);
   const nav = page.getByRole('navigation', { name: 'Main' });
   if (phone) {
     await nav.getByRole('button', { name: 'More' }).click();
@@ -91,7 +92,7 @@ test('reads a week, moves between weeks, and acts on a pattern', async ({ page }
 test('the back button above Analytics, opened from Week, is a text link with room above the title', async ({ page }) => {
   await page.clock.setFixedTime(NOW);
   await openSeeded(page, records);
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Answer later' }).click();
+  await answerLater(page);
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   await page.getByRole('button', { name: "See this week's analytics" }).click();
   const back = page.getByRole('button', { name: 'Back to Week' });

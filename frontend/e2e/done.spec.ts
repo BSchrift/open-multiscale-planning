@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
+import { answerLater } from './today';
 
 // Done: a day's list of what was finished and the time worked, reached from Today's line, Week's day headings, the
 // sidebar on desktop and More on phone.
@@ -65,8 +66,8 @@ async function open(page: Page) {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
-  // Today asks about the block that ended unanswered; it can wait for Done.
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Answer later' }).click();
+  // Today asks about the block that ended unanswered; it can wait for Done. On phone it asks on the block itself.
+  await answerLater(page);
   return errors;
 }
 

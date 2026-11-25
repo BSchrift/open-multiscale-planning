@@ -128,6 +128,7 @@ word. Answer badges are round, in ink rather than the kind's colour: 16px on Tod
 | Inbox, not yet sorted | Planning's wash with a dashed ink-3 edge, the inbox icon and the word Inbox. Once Process files it, it takes its kind's look. |
 | Another calendar's event | Grey stripes with a line-coloured edge. |
 | Information only | No fill, a dashed line-coloured outline. |
+| Selected, on the phone's Today | Its state's look, raised out of its lane as a card: over both lane edges and its own hour labels, a little taller each way, on the card's radius with `--shadow-3`, and what it can do now on it. It grows from the lane in `--dur-medium` on `--ease`, at once with reduced motion. |
 
 Only Done is ever struck through. The current-time line passes behind blocks, with only its dot in front.
 

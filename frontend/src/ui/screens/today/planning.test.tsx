@@ -151,11 +151,27 @@ describe('the prompt to plan this week', () => {
   const MONDAY = at(THIS, '09:00');
   const unplanned = (options: HarnessOptions = {}) => renderScreen('today', { now: MONDAY, zone: ZONE, ...options, seed: inbox });
 
-  it('says how long planning takes, and offers Start planning, Choose a time and Skip for now, stacked on phone', async () => {
-    await unplanned({ layout: 'phone' });
-    expect(await screen.findByRole('heading', { name: 'Plan your week' })).toBeVisible();
-    expect(screen.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
-    for (const name of ['Start planning', 'Choose a time to plan this week', 'Skip for now']) expect(screen.getByRole('button', { name })).toBeVisible();
+  it("on phone is a row above today's calendar: Plan it offers Start planning and Choose a time, and × is the same saved skip, with Undo", async () => {
+    const t = await unplanned({ layout: 'phone' });
+    expect(await screen.findByText("This week isn't planned yet")).toBeVisible();
+    expect(screen.getByText('About 30m to plan')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Plan your week' })).toBeNull();
+    expect(screen.getByRole('region', { name: "Today's timeline" })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Plan it' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Plan this week' });
+    for (const name of ['Start planning', 'Choose a time to plan this week']) expect(within(sheet).getByRole('button', { name })).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Skip planning this week' }));
+    expect(await screen.findByText('Skipped planning this week.')).toBeVisible();
+    await waitFor(() => expect(screen.queryByText("This week isn't planned yet")).toBeNull());
+    // Skipped, it stays as a way back to planning, with no × of its own.
+    expect(screen.getByText("This week isn't planned")).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Plan it' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Skip planning this week' })).toBeNull();
+    expect((await getRecord(t.db, 'week_plan', weekPlanId(THIS)))?.planning_skipped_at).toBe(MONDAY);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText("This week isn't planned yet")).toBeVisible();
   });
 
   it('on desktop keeps to one line, with × as Skip for now, whose toast has Undo; the skip is saved for every device', async () => {

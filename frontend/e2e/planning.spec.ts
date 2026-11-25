@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { EST_STEPS } from '../src/ui/components/EstimateSlider';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectTapTarget, openSeeded, startPlanningOnToday } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -26,7 +26,7 @@ const steps = (page: Page) => page.getByRole('navigation', { name: 'Planning ste
 async function startPlanning(page: Page, extra: readonly Seed[] = []) {
   await page.clock.install({ time: NOW });
   await openSeeded(page, [...records, ...extra]);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await expect(steps(page)).toBeVisible();
 }
 
@@ -256,6 +256,8 @@ test('week arrows have no limit, with This week to come back, and the step is ke
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await page.getByRole('button', { name: 'Save and exit' }).click();
   await expect(steps(page)).toHaveCount(0);
+  // On phone, Today's prompt is a row whose Plan it offers it.
+  if (await page.getByRole('button', { name: 'Plan it' }).isVisible()) await page.getByRole('button', { name: 'Plan it' }).click();
   await page.getByRole('button', { name: /Start planning|Continue planning/ }).first().click();
   await expect(steps(page).locator('[aria-current="step"]')).toHaveText(/Pick/);
 });

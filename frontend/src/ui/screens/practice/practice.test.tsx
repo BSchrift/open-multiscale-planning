@@ -72,7 +72,10 @@ describe("a practice's popup", () => {
   for (const layout of ['desktop', 'phone'] as const) {
     it(`opens from a session on Today's calendar in the task popup's frame, with the block's section, then the practice's fields (${layout})`, async () => {
       await open('today', later, layout);
-      await userEvent.click(await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ }));
+      const session = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ });
+      await userEvent.click(session);
+      // On phone the first tap selects it, and the second opens it.
+      if (layout === 'phone') await userEvent.click(session);
       const popup = await popupOf('Piano practice');
       expect(popup).toHaveAttribute('aria-modal', 'true');
       await waitFor(() => expect(within(popup).getByRole('heading', { name: 'Piano practice' })).toHaveFocus());
@@ -173,7 +176,7 @@ describe("a practice's popup", () => {
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.state).toBe('active'));
   });
 
-  it("opens from its name in the prompt that logs a session, whose section asks how it went in a practice's words", async () => {
+  it("opens from a session that ended, which asks on itself on phone, and its section asks how it went in a practice's words", async () => {
     const t = await open(
       'today',
       async (w) => {
@@ -182,8 +185,10 @@ describe("a practice's popup", () => {
       },
       'phone',
     );
-    const prompt = await screen.findByRole('dialog', { name: 'Block finished' });
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Piano practice' }));
+    // Selected as Today opens, raised with its three answers; a second tap on it opens its popup.
+    const ended = await screen.findByRole('button', { name: /^Piano practice, 1pm to 1:30pm, Practice\..* Selected\.$/ });
+    expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
+    await userEvent.click(ended);
     const popup = await popupOf('Piano practice');
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
     const asks = within(popup).getByRole('group', { name: 'How did it go?' });

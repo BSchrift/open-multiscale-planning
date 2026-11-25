@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, openSeeded, pane } from './seed';
+import { waitingSheet } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -38,7 +39,10 @@ test('a one off dated today offers Change date, which takes it off Today with Un
   const phone = info.project.name === 'phone';
   const fence: Seed = { type: 'task', id: 't2', fields: { kind: 'one_off', title: 'Paint the fence', estimate_min: 60, schedule: { type: 'once', from: '2026-11-02' } } };
   const errors = await open(page, [planned, fence]);
-  const list = page.getByRole('region', { name: 'One offs today' });
+  // On phone it's a chip above the day, which opens its row in a sheet.
+  const chip = page.getByRole('group', { name: 'Due today' }).getByRole('button', { name: 'Paint the fence, one off due today' });
+  const list = phone ? page.getByRole('dialog', { name: 'Paint the fence' }) : page.getByRole('region', { name: 'One offs today' });
+  if (phone) await chip.click();
   await expect(list.getByRole('checkbox', { name: 'Paint the fence done' })).toBeVisible();
   const [find, change] = [list.getByRole('button', { name: 'Find a time for Paint the fence' }), list.getByRole('button', { name: 'Change date for Paint the fence' })];
   if (phone) {
@@ -55,6 +59,7 @@ test('a one off dated today offers Change date, which takes it off Today with Un
   await expect(list).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo' })).toBeFocused();
   await page.getByRole('button', { name: 'Undo' }).click();
+  if (phone) await chip.click();
   await expect(list.getByRole('checkbox', { name: 'Paint the fence done' })).toBeVisible();
 
   // Find a time goes to Week with the one off being placed, at its best time to start with.
@@ -65,7 +70,7 @@ test('a one off dated today offers Change date, which takes it off Today with Un
   // Placed, it's on the calendar, so no longer waiting on Today.
   await tab(page, 'Today');
   await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'One offs today' })).toHaveCount(0);
+  await expect(page.getByRole(phone ? 'group' : 'region', { name: phone ? 'Due today' : 'One offs today' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -83,11 +88,10 @@ test('Needs a new time places a row at its best time in one tap with Undo, delet
     block('b3', 't3', october(28, '09:00'), october(28, '10:00')),
     notDone('b3', october(28, '10:00')),
   ]);
-  await (phone
-    ? page.getByRole('button', { name: '2 tasks need a new time Review' })
-    : page.getByRole('status').filter({ hasText: "2 tasks that didn't get done." }).getByRole('button', { name: 'Review' })
-  ).click();
-  const queue = phone ? page.getByRole('dialog', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
+  // On phone, behind Today's row of what's waiting for a time.
+  if (phone) await expect(page.getByRole('button', { name: '2 waiting for a time' })).toBeVisible();
+  else await page.getByRole('status').filter({ hasText: "2 tasks that didn't get done." }).getByRole('button', { name: 'Review' }).click();
+  const queue = phone ? (await waitingSheet(page)).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Not done today')).toBeVisible();
   await expect(queue.getByText('Ignored at last planning')).toBeVisible();
   await expect(queue.getByText('Still want this?')).toBeVisible();
@@ -143,14 +147,15 @@ test('after a week away Today opens on Welcome back; returning the missed blocks
   if (phone) await expectTapTarget(pick);
   await pick.click();
 
-  // Picking skips planning this week, and the pick leads Next up.
+  // Picking skips planning this week, and the pick leads Next up: on phone, Start something's in the free time.
   await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
-  await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
+  if (phone) await page.getByRole('button', { name: 'Start something' }).click();
+  else await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
   const next = page.getByRole('region', { name: 'Next up' });
   await expect(next.getByText('Your pick for today')).toBeVisible();
   await expect(next.getByRole('button', { name: /^Start / }).first()).toHaveAccessibleName('Start Paint the fence');
   // The missed block went back to its project: it isn't asked about again.
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toHaveCount(0);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: /^Block finished|missed/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

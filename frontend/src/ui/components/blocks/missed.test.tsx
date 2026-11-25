@@ -307,9 +307,16 @@ describe('the missed blocks sheet', () => {
     expect(await sheet()).toBeVisible();
   });
 
-  it('on phone is a modal sheet with a way to put it away', async () => {
+  it("on phone, today's blocks ask on themselves on the day, and earlier days' open the sheet from the waiting row: a modal sheet with a way to put it away", async () => {
     await open('phone');
-    const dialog = await sheet();
+    await screen.findByRole('region', { name: "Today's timeline" });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    cleanup();
+    // The next day, they're from an earlier day; the practice, a day's own, has passed.
+    await renderScreen('today', { now: localToInstant('2026-11-03', 14 * 60, ZONE), zone: ZONE, layout: 'phone', seed: morning });
+    await userEvent.click(await screen.findByRole('button', { name: '4 missed blocks to check in on' }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'Waiting for a time' })).getByRole('button', { name: 'Review' }));
+    const dialog = await sheet(4);
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(within(dialog).getByRole('button', { name: 'Later' })).toBeVisible();
   });

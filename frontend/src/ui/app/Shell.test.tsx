@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { answerBlock } from '../../core/blocks';
-import { listRecords, updateSettings, weekPlanId } from '../../core/records';
+import { listRecords, outcomeId, updateSettings, weekPlanId } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { setAppearance } from './appearance';
 import { AREAS, DESKTOP_TABS, PHONE_TABS, tabForArea } from './registry';
@@ -181,8 +181,8 @@ describe('block prompts', () => {
     return act(() => t.write((w) => w.create('task', { kind: 'inbox', title: 'Rake the leaves' })));
   };
 
-  it.each(['desktop', 'phone'] as const)('on %s, asks when a block ends while another tab is showing', async (layout) => {
-    const t = await renderApp({ layout, seed: running });
+  it('on desktop, asks when a block ends while another tab is showing', async () => {
+    const t = await renderApp({ layout: 'desktop', seed: running });
     await screen.findByRole('region', { name: 'Current block' });
     await userEvent.click(tab('Week'));
     await showsPane('Week');
@@ -190,7 +190,20 @@ describe('block prompts', () => {
     expect(await screen.findByRole('dialog', { name: 'Block finished' })).toBeVisible();
   });
 
-  it.each(['desktop', 'phone'] as const)('on %s, waits for Capture to close rather than take its typing', async (layout) => {
+  it("on phone, a block that ends asks on itself on Today's day, with no sheet over another tab", async () => {
+    const t = await renderApp({ layout: 'phone', seed: running });
+    await screen.findByRole('button', { name: /^Write the report, 1pm to 2:05pm/ });
+    await userEvent.click(tab('Week'));
+    await showsPane('Week');
+    await blockEnds(t);
+    await userEvent.click(tab('Today'));
+    await showsPane('Today');
+    await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).toHaveTextContent('Ended at 2:05pm'));
+    expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
+  });
+
+  it('on desktop, waits for Capture to close rather than take its typing', async () => {
+    const layout = 'desktop';
     const t = await renderApp({ layout, seed: running });
     await screen.findByRole('region', { name: 'Current block' });
     await userEvent.click(screen.getByRole('button', { name: /^Capture/ }));
@@ -250,8 +263,14 @@ describe('shell on phone', () => {
     expect(screen.queryByRole('button', { name: 'Back to More' })).toBeNull();
   });
 
-  it('has Done under More with today’s line, and Today’s Done line opens it with a way back to Today', async () => {
-    await renderApp({ layout: 'phone', seed: planned });
+  it('has Done under More with today’s line, and Today’s Done line, there in the evening, opens it with a way back to Today', async () => {
+    const answered = async (w: Writer) => {
+      await planned(w);
+      await w.create('task', { kind: 'one_off', title: 'Write the report' }, 't1');
+      await w.create('time_block', { task_id: 't1', start: '2026-11-02T19:00:00Z', end: '2026-11-02T20:00:00Z', tz: 'America/Chicago' }, 'b1');
+      await w.create('block_outcome', { result: 'not', answered_at: '2026-11-02T20:00:00Z' }, outcomeId('b1'));
+    };
+    await renderApp({ layout: 'phone', seed: answered, now: '2026-11-03T03:00:00Z' });
     await userEvent.click(await screen.findByRole('button', { name: 'Done: nothing finished yet today' }));
     await showsPane('Done');
     expect(tab('More')).toHaveAttribute('aria-current', 'page');

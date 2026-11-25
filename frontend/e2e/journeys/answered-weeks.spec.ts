@@ -32,8 +32,14 @@ async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
   await expect(page.getByText('Week planned.')).toBeVisible();
 }
 
-/** Answers the block that just ended, which asks on whatever page is showing. */
-async function answer(page: Page, title: string, result: 'Done' | 'Not done') {
+/** Answers the block that just ended, which asks on whatever page is showing, or on phone on itself, on Today's day. */
+async function answer(page: Page, phone: boolean, title: string, result: 'Done' | 'Not done') {
+  if (phone) {
+    await tab(page, phone, 'Today');
+    await page.locator('.cev.raised:not(.settling)').getByRole('button', { name: result, exact: true }).click();
+    await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: new RegExp(`^${title}, .*${result}\\.`) })).toBeVisible();
+    return;
+  }
   const prompt = page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText(title)).toBeVisible();
   await prompt.getByRole('button', { name: result, exact: true }).click();
@@ -77,9 +83,9 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
     }
 
     await jumpTo(page, chicago(monday, '18:01'));
-    await answer(page, draft, 'Not done');
+    await answer(page, phone, draft, 'Not done');
     await jumpTo(page, chicago(nextDay(monday), '18:01'));
-    await answer(page, notes, 'Done');
+    await answer(page, phone, notes, 'Done');
   }
 
   // Analytics for the fifth week, then the stretch so far.

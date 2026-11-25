@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { belongsTo, expectTapTarget, openSeeded, pane } from './seed';
+import { openBlock } from './today';
 import type { Seed } from './seed';
 
 // The task popup is the same wherever a task opens: from a list it can Start now, Mark done and Schedule…, and set its
@@ -146,7 +147,7 @@ test("from a block on Today: the block's section takes the actions' place, and M
   // On phone a block still to come is a slider.
   const block = page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
   await block.scrollIntoViewIfNeeded();
-  await (phone ? block.tap() : block.click());
+  await openBlock(page, block, phone);
   const popup = popupOf(page, 'Draft the summary');
   const section = popup.getByRole('region', { name: 'Time block' });
   await expect(section.getByRole('button')).toHaveText(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);

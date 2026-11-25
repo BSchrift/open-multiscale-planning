@@ -173,14 +173,15 @@ test('every screen of a lived-in week renders cleanly', async ({ page }, info) =
   await look(page, info, 'today');
 
   // A toast floats over the page in the app's own type, with Undo in reach.
-  await page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Mark done now' }).click();
+  // The Now card's, or on phone the block raised on the day.
+  await (phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' })).getByRole('button', { name: 'Mark done now' }).click();
   const toast = page.locator('.toast');
   await expect(toast).toContainText('Marked done after 19m.');
   expect(await toast.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
   expect(await toast.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Instrument Sans');
   await page.screenshot({ path: info.outputPath('toast.png'), scale: 'css' });
   await toast.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Mark done now' })).toBeVisible();
+  await expect((phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' })).getByRole('button', { name: 'Mark done now' })).toBeVisible();
 
   for (const name of ['Week', 'Inbox', 'Goals', 'Plan', 'One offs', 'Notes', 'Analytics', 'Settings']) {
     await tab(page, phone, name);
@@ -255,13 +256,13 @@ test('the links between areas reach their page and come back', async ({ page }, 
 
   if (phone) {
     // Today: work that needs a new time goes to the Week, ready to place, and Cancel comes back.
-    await page.getByRole('button', { name: /needs? a new time/ }).click();
-    await page.getByRole('dialog', { name: 'Needs a new time' }).getByRole('button', { name: 'Place on calendar' }).click();
+    await page.getByRole('button', { name: /waiting for a time/ }).click();
+    await page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('button', { name: 'Place on calendar' }).first().click();
     await expect(shown('Week')).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(shown('Today')).toBeVisible();
     // Back where it was left, sheet and all.
-    await page.getByRole('dialog', { name: 'Needs a new time' }).getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('button', { name: 'Close' }).click();
   }
 
   // Week to that week's analytics, and back.

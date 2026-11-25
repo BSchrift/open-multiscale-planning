@@ -116,15 +116,16 @@ final class OfflineUITests: XCTestCase {
     func testOfflineTodayAsksAboutItsBlocksAndTheAnswersOutliveARestart() {
         let app = launchApp(seed: "Seed today", offline: true)
         allowNotificationsIfAsked()
-        // The block that ended half an hour ago asks first, then the one that began six minutes ago without a Start. Each
-        // prompt's name is a button that opens its popup.
-        exists(app.webButton("Feed the starter"))
-        app.tapWeb("Not done", until: app.webButton("Yes, started"))
-        app.tapWeb("Yes, started", until: app.webText("In progress, time left"))
+        // The one that began six minutes ago without a Start asks whether it has, its name a button that opens its popup.
+        // The one that ended half an hour ago asks on itself once a tap selects it.
+        exists(app.webButton("Shape the dough"))
+        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+        app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Not done"))
+        app.tapWeb("Not done", until: app.webButton("Mark done now"))
 
         app.terminate()
         app.launchLoaded()
-        onToday(app.webText("In progress, time left"), in: app)
+        onToday(app.webButton("Mark done now"), in: app)
         // A block gone by says how it went, so the answer was kept. Any kind of element, as iOS types a block by whether
         // it opens a popup.
         let answered = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Feed the starter, ' AND label ENDSWITH '. Not done.'")).firstMatch

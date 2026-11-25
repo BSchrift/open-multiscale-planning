@@ -475,13 +475,18 @@ final class ShellUITests: XCTestCase {
         // Work dropped on today lands no earlier than now and ends by 11pm, which the seeded app's morning clock leaves
         // room for at any hour.
         let app = launchApp(seed: "Seed to schedule")
-        // Its own label, since the block it becomes is a button too once it's under way.
-        let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
-        onToday(card, in: app)
+        // To schedule waits in the sheet behind Today's row of what's waiting for a time.
+        // A button that opens a sheet, which iOS types as a pop-up button: matched by its label alone.
+        let waiting = app.webElement(startingWith: "1 waiting for a time")
+        onToday(waiting, in: app)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)
+        // Its own label, since the block it becomes is a button too once it's under way.
+        let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
+        app.tapWeb(anyStartingWith: "1 waiting for a time", until: card)
 
-        // Held past the lift, and let go once the drag has caught up. Wherever it's let go, it lands no earlier than now.
+        // Held past the lift, the sheet steps aside, and it's let go on the day once the drag has caught up. Wherever
+        // it's let go, it lands no earlier than now.
         let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let to = day.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0)).withOffset(CGVector(dx: 0, dy: 140))
         from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
@@ -613,14 +618,21 @@ final class ShellUITests: XCTestCase {
                        "Shape the loaf is \(again.frame.height)pt tall after a new launch, from \(before)pt")
     }
 
-    func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
+    func testTodayAsksWhetherTheCurrentBlockHasStartedAndAFinishedOneAsksOnItself() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()
 
-        // The block that ended half an hour ago asks first, its name a button that opens its popup. Partly opens the
-        // slider at the time left.
-        exists(app.webButton("Feed the starter"))
+        // The one that began six minutes ago without a Start asks Have you started, with its name a button that opens its
+        // popup. Its sheet hides the toast from the tree. The one that ended half an hour ago opens no sheet of its own.
+        exists(app.webButton("Yes, started"))
+        exists(app.webButton("Shape the dough"))
+        XCTAssertFalse(app.webText("Block ended").exists, "a finished block's sheet opened by itself")
+        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+
+        // A tap on the block that ended selects it: raised out of its lane as a card, it asks how it went. Any kind of
+        // element, as iOS types a block by whether it opens a popup. Partly opens the slider at the time left.
         let left = app.page.sliders["Time left"]
+        app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Partly"))
         app.tapWeb("Partly", until: left)
         XCTAssertEqual(left.value as? String, "1h")
         // XCUITest can't set a web slider's value, so the thumb is dragged. The slider's steps are EstimateSlider.tsx's
@@ -632,21 +644,31 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(["30m", "35m", "40m", "45m", "50m", "55m"].contains(set), "the slider reads \(set)")
         app.tapWeb("Save")
 
-        // Then the one that began six minutes ago without a Start, which asks Have you started with its name a button
-        // that opens its popup. Its sheet hides the toast from the tree.
-        exists(app.webButton("Yes, started"))
-        exists(app.webButton("Shape the dough"))
-        app.tapWeb("Yes, started")
-        exists(app.webText("In progress, time left"))
-
-        app.tapWeb(startingWith: "1 task needs a new time")
+        // The rest of it waits for a new time, in the sheet behind Today's waiting row.
+        app.tapWeb(anyStartingWith: "1 waiting for a time")
         exists(app.webText("Partly done today, \(set) left"))
+    }
+
+    func testATapOnTodaysDaySelectsABlockAndASecondOpensIt() throws {
+        let app = launchApp(seed: "Seed today")
+        allowNotificationsIfAsked()
+        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+        // The block in progress is selected as Today opens. A tap on another selects it, raised with how it went, and
+        // the one in progress settles back, its buttons gone.
+        let ended = app.webElement(startingWith: "Feed the starter, ")
+        app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Not done"))
+        XCTAssertTrue(app.webButton("Mark done now").waitForNonExistence(timeout: patience), "the block in progress is still raised")
+        XCTAssertTrue(ended.label.hasSuffix("Selected."), "the selected block's name doesn't say so: \(ended.label)")
+        // A second tap opens its popup, the task's own.
+        ended.tap()
+        exists(app.webButton("Delete task"))
     }
 
     func testABlocksNotificationActionAnswersItInToday() {
         let app = launchApp(seed: "Seed soon", remindingOnLeave: true)
         allowNotificationsIfAsked()
-        onToday(app.webText("In progress, time left"), in: app)
+        // The block in progress, raised on the day with its buttons.
+        onToday(app.webButton("Mark done now"), in: app)
 
         // The block's end notification, brought forward. A task is never finished from a notification, so there's no Done.
         answerNotification(with: "Not done", alsoOffering: ["Still going", "Partly"], notOffering: ["Done"])

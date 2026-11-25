@@ -225,6 +225,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Set times: two devices placing the same sessions offline make one each day, and a take-off on one wins | covered (stack/set-times: "two devices placing the same practice offline…"; unit: core/setTimes.test.ts) | n/a | missing | missing |
 | Set times: the bundle before shows, skips and moves what the update placed, and the update leaves them | covered (compat: "the update places a practice at its set times…") | n/a | n/a | n/a |
 | Set times: an edit moves the sessions at the old time, Pause and Resume take them off and put them back, away dates take them off | covered (unit: editors/PracticeEditor.test.tsx, screens/settings/settings.test.tsx, core/setTimes.test.ts) | covered (same) | missing | missing |
+| One offs at a time of day: asked only with one date, placed as added or on opening, moved with a new time, kept by the bundle before through a date change | covered (set-times: "a one off added with a date and a time of day…"; oneoffs: "a one off at a time of day"; compat: "a one off's time of day…"; stack/set-times: "two devices placing the same one off…"; unit: core/setTimes.test.ts) | covered (same) | missing | missing |
 
 ### One offs
 

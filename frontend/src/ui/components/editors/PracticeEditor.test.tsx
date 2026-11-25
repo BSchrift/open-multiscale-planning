@@ -207,7 +207,7 @@ describe('the practice editor', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
     await userEvent.click(screen.getByRole('button', { name: /^Morning run/ }));
-    const editor = screen.getByRole('group', { name: 'Edit Morning run' });
+    const editor = await screen.findByRole('dialog', { name: 'Morning run' });
     fireEvent.change(within(editor).getByLabelText('Usual time'), { target: { value: '07:30' } });
     await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved Morning run: 30m on Tue and Wed, around 7:30am. Moved 2 sessions to 7:30am.')).toBeVisible();
@@ -226,14 +226,15 @@ describe('the practice editor', () => {
     const live = async () => (await listRecords(t.db, 'time_block')).filter((b) => !b.cancelled).length;
     await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
     await userEvent.click(screen.getByRole('button', { name: /^Morning run/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    const popup = await screen.findByRole('dialog', { name: 'Morning run' });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Pause practice' }));
     expect(await screen.findByText('Paused Morning run. Took 2 sessions off the calendar.')).toBeVisible();
     expect(await live()).toBe(0);
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect(await live()).toBe(2));
-    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await userEvent.click(within(popup).getByRole('button', { name: 'Pause practice' }));
     await screen.findByText('Paused Morning run. Took 2 sessions off the calendar.');
-    await userEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    await userEvent.click(await within(popup).findByRole('button', { name: 'Resume practice' }));
     expect(await screen.findByText('Resumed Morning run. 2 sessions are back on the calendar.')).toBeVisible();
     expect(await live()).toBe(2);
   });

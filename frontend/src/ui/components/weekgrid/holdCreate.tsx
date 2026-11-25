@@ -19,7 +19,7 @@ import { useApp } from '../../app/store';
 import type { CaptureSlot } from '../../screens/capture';
 import { blockClass } from '../ds/Block';
 import { useToast } from '../Toast';
-import { DRAG_PX, edgeScroll, HOLD_MS, SLOP_PX, swallowClick } from './drop';
+import { DRAG_PX, edgeScroll, heldPointers, HOLD_MS, SLOP_PX, swallowClick } from './drop';
 import './hold.css';
 
 /** Long enough for the ring's spread, which is twice --dur-slow. */
@@ -203,6 +203,7 @@ export function useHoldToCreate(opts: {
         return;
       }
       held = { date: slot.date, start: slot.start, end: slot.end };
+      heldPointers.add(event.pointerId);
       setDraft({ slot: held, moved: slot.moved, name: '', open: false, fresh: true });
       setRing({ x: x0, y: y0, key: pressed });
       if (live.current.edges) edges = edgeScroll(el, () => follow(last.x, last.y));
@@ -266,6 +267,7 @@ export function useHoldToCreate(opts: {
     const stop = () => {
       clearTimeout(timer);
       edges?.stop();
+      heldPointers.delete(event.pointerId);
       pressing.current = null;
       for (const [k, f] of Object.entries(on)) window.removeEventListener(k, f);
     };

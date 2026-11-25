@@ -100,7 +100,9 @@ style keeps its ratio to it, so at the default each matches its Apple text style
 - **Layers, lowest first:** `--z-raised` (a lift within a component), `--z-sticky`, `--z-nav`, `--z-overlay` (scrims
   and sheets), `--z-dialog`, `--z-toast`.
 - **Motion:** `--dur-fast` (120ms: hover and press), `--dur-medium` (200ms: things that appear), `--dur-slow` (250ms:
-  sheets), on one curve, `--ease`. With `prefers-reduced-motion`, fades only.
+  sheets), on one curve, `--ease`. With `prefers-reduced-motion`, fades only. The one exception follows a finger:
+  swiping from day to day settles by a spring from the finger's speed, with the values in `swipePhysics.ts`, and with
+  `prefers-reduced-motion` the day changes as the finger lifts.
 
 ## Focus
 

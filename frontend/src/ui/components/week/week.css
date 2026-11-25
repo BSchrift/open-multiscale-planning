@@ -17,3 +17,25 @@
   border-radius: var(--radius-circle);
   background: var(--practice);
 }
+
+/* Swiping from day to day (DayPager): vertical scrolling stays the phone's, and a finger moving sideways is the
+   swipe's. While a swipe lasts, the days either side sit beside the day, clipped to its frame, and placed by the swipe
+   as it moves. */
+[data-layout] .dpager {
+  touch-action: pan-y;
+}
+
+[data-layout] .dpager[data-swiping] {
+  overflow: hidden;
+}
+
+[data-layout] .dptrack {
+  position: relative;
+}
+
+[data-layout] .dpside {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}

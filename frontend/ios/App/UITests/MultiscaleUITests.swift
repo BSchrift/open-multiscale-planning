@@ -481,6 +481,9 @@ final class ShellUITests: XCTestCase {
         onToday(waiting, in: app)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)
+        // Where the drop goes, read while the day can still be found: under the sheet's scrim, iOS leaves the day out of
+        // what the test can query.
+        let dayFrame = day.frame
         // Its own label, since the block it becomes is a button too once it's under way.
         let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
         app.tapWeb(anyStartingWith: "1 waiting for a time", until: card)
@@ -488,7 +491,7 @@ final class ShellUITests: XCTestCase {
         // Held past the lift, the sheet steps aside, and it's let go on the day once the drag has caught up. Wherever
         // it's let go, it lands no earlier than now.
         let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = day.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0)).withOffset(CGVector(dx: 0, dy: 140))
+        let to = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: dayFrame.minX + dayFrame.width * 0.4, dy: dayFrame.minY + 140))
         from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
         // Any kind of element: a block is a slider until it's under way, which one placed at now soon is.
         exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)

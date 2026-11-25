@@ -361,7 +361,7 @@ const together: Seed[] = [
   { type: 'time_block', id: 'bp', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:30'), end: at(6, '18:45'), tz: 'America/Chicago' } },
 ];
 
-test('phone: blocks at the same time sit side by side with their time once, and each opens its sheet', async ({ page }, info) => {
+test('phone: blocks at the same time sit side by side with their time once, and each opens its popup', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', "The day's rows are the phone layout");
   const errors = await openWeek(page, together);
   await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(4).click();
@@ -387,9 +387,9 @@ test('phone: blocks at the same time sit side by side with their time once, and 
   await page.screenshot({ path: info.outputPath('week-phone-together-320.png') });
 
   await meals.click();
-  const sheet = page.getByRole('dialog', { name: 'Plan meals for the week' });
-  await expect(sheet.getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
-  await sheet.getByRole('button', { name: 'Close' }).click();
+  const popup = page.getByRole('dialog', { name: 'Plan meals for the week' });
+  await expect(popup.getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
+  await popup.getByRole('button', { name: 'Cancel' }).click();
   await plan.click();
   await expect(page.getByRole('dialog', { name: 'Plan the week of Nov 9' }).getByText('Fri Nov 6, 5:30pm to 6:45pm')).toBeVisible();
   expect(errors).toEqual([]);

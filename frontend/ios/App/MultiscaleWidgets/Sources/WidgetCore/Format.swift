@@ -20,9 +20,10 @@ public enum Format {
         return h > 0 ? "\(h)h" : "\(m)m"
     }
 
-    /// How long a pause has run, in words: "1 minute", "12 minutes", "1h 10m".
-    public static func pause(_ minutes: Int) -> String {
+    /// How long a pause has run, in words: "1 minute", "12 minutes", "1h 10m", or where room is short, "12 min".
+    public static func pause(_ minutes: Int, short: Bool = false) -> String {
         if minutes >= 60 { return Format.minutes(minutes) }
+        if short { return "\(minutes) min" }
         return minutes == 1 ? "1 minute" : "\(minutes) minutes"
     }
 

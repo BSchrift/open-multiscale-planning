@@ -28,6 +28,7 @@ import type { SetTimeWhy } from './setTimes';
 import { practicesLeft, slotContext } from './slots';
 import { runSync } from './sync';
 import { fakeSyncServer } from './sync-testing';
+import { resetWeek } from './weekReset';
 import type { Fields, Practice } from './types';
 import { openTestDb } from '../platform/node-sqlite';
 
@@ -290,13 +291,12 @@ describe('a week reset', () => {
   it('is not filled again, and Place the rest puts its sessions back at their set times', async () => {
     const t = await setup();
     await t.place();
-    // What Reset this week's plan does to next week's sessions still to come: delete them.
-    const next = (await t.sessions()).map((s) => s[0]!).filter((id) => id >= 'session:run:2026-11-30');
-    await t.run(async (w) => {
-      for (const id of next) await w.delete('time_block', id);
-    });
+    // Reset next week's plan: its sessions still to come are deleted, as anything planned is.
+    await t.run((w) => resetWeek(w, NEXT, t.clock));
+    expect((await t.sessions()).map((s) => s[0])).toEqual(['session:run:2026-11-27']);
     expect((await t.place()).placed).toEqual([]);
     expect(practicesLeft([await practice(t)], await context(t, NEXT))[0]?.dates).toHaveLength(5);
+    // Planned again, Place the rest puts them back at their set times.
     await t.run((w) => placeWeekPractices(w, NEXT, t.clock));
     expect((await t.sessions()).filter((s) => s[1]!.startsWith('2026-12-01'))).toEqual([['session:run:2026-12-01', at('2026-12-01', '07:00'), at('2026-12-01', '07:30')]]);
   });

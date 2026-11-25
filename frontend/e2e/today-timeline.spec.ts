@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled as screensLoaded, touchDrag } from './seed';
-import { nowCard, phoneView, todayRead } from './today';
+import { nowCard, phoneView, showNow, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -243,7 +243,7 @@ test('the block under way keeps its start and changes only its end, from its edg
     await page.mouse.up();
   }
   await expect(page.getByText('Paint the fence is now 1:30pm to 3:30pm.')).toBeVisible();
-  await expect(nowCard(page, phone).getByText(phone ? '1:30pm to 3:30pm' : 'Now, 1:30pm to 3:30pm')).toBeVisible();
+  await expect((await showNow(page, phone)).getByText(phone ? '1:30pm to 3:30pm' : 'Now, 1:30pm to 3:30pm')).toBeVisible();
   if (!phone) {
     const longer = page.getByRole('button', { name: /^Paint the fence, 1:30pm to 3:30pm/ });
     await longer.focus();

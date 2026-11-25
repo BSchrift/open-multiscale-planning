@@ -51,6 +51,11 @@ extension XCUIApplication {
         MultiscaleUITests.exists(row, file: file, line: line)
         row.tap()
     }
+    /// Today's heading for the block in progress once it's started, which says its time left. The block keeps to its own
+    /// times, with no buttons, until a tap selects it.
+    func startedNow(_ title: String) -> XCUIElement {
+        page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH 'left'", "Now: \(title), ")).firstMatch
+    }
     /// Any kind of element by the start of its label, such as a row that opens a popup, which iOS calls a pop-up button.
     func webElement(startingWith prefix: String) -> XCUIElement {
         page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
@@ -668,7 +673,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webButton("Yes, started"))
         exists(app.webButton("Shape the dough"))
         XCTAssertFalse(app.webText("Block ended").exists, "a finished block's sheet opened by itself")
-        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
 
         // A tap on the block that ended selects it: raised out of its lane as a card, it asks how it went. Any kind of
         // element, as iOS types a block by whether it opens a popup. Partly opens the slider at the time left.
@@ -693,9 +698,10 @@ final class ShellUITests: XCTestCase {
     func testATapOnTodaysDaySelectsABlockAndASecondOpensIt() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()
-        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
-        // The block in progress is selected as Today opens. A tap on another selects it, raised with how it went, and
-        // the one in progress settles back, its buttons gone.
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
+        // The block in progress keeps to its own times until a tap selects it, raised with its buttons. A tap on another
+        // selects that, raised with how it went, and the one in progress settles back, its buttons gone.
+        app.tapWeb(anyStartingWith: "Shape the dough, ", until: app.webButton("Mark done now"))
         let ended = app.webElement(startingWith: "Feed the starter, ")
         app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Not done"))
         XCTAssertTrue(app.webButton("Mark done now").waitForNonExistence(timeout: patience), "the block in progress is still raised")
@@ -726,8 +732,8 @@ final class ShellUITests: XCTestCase {
     func testABlocksNotificationActionAnswersItInToday() {
         let app = launchApp(seed: "Seed soon", remindingOnLeave: true)
         allowNotificationsIfAsked()
-        // The block in progress, raised on the day with its buttons.
-        onToday(app.webButton("Mark done now"), in: app)
+        // The block in progress, on the day within its own times.
+        onToday(app.startedNow("Proof the loaf"), in: app)
 
         // The block's end notification, brought forward. A task is never finished from a notification, so there's no Done.
         answerNotification(with: "Not done", alsoOffering: ["Still going", "Partly"], notOffering: ["Done"])

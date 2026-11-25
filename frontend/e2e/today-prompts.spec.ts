@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
-import { askOnBlock, nowCard, openBlock, waitingSheet } from './today';
+import { askOnBlock, nowCard, openBlock, showNow, waitingSheet } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -52,7 +52,7 @@ const named = (now: ReturnType<typeof nowCard>, phone: boolean, name: string) =>
 test('Do next block instead trades the work of the block now and the next, which keep their times, and Undo trades it back', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:58', '15:00'), block('b2', 't2', '16:00', '17:00')]);
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   await named(now, phone, 'Write the report');
   const instead = now.getByRole('button', { name: 'Do next block instead' });
   if (phone) await expectTapTarget(instead);
@@ -104,7 +104,7 @@ test('free time before the next block offers Start early, which moves that block
 test('Mark done now with nothing after says the time spent and that nothing else is planned, and Undo brings the block back', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   const left = () => (phone ? expect(now.getByText('38 min left')).toBeVisible() : expect(now.getByRole('timer')).toHaveText('38:00'));
   await left();
   await now.getByRole('button', { name: 'Mark done now' }).click();
@@ -121,7 +121,7 @@ test('Mark done now with nothing after says the time spent and that nothing else
 test('Stop for now asks how much is left, ends the block with that, and Undo brings the block back as it was', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, project, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   const left = () => (phone ? expect(now.getByText('38 min left')).toBeVisible() : expect(now.getByRole('timer')).toHaveText('38:00'));
   await left();
   const stop = now.getByRole('button', { name: 'Stop for now' });
@@ -149,7 +149,7 @@ test('Stop for now asks how much is left, ends the block with that, and Undo bri
 test('Start now on another block stops the one counting, Undo puts both back, and the stopped one asks how it went', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, project, report, fence, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') }), block('b2', 't2', '16:00', '17:00')]);
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   const counting = () =>
     phone
       ? expect(page.getByRole('button', { name: /^Write the report, 1:38pm to 2:38pm, Project\. Now\./ })).toBeVisible()
@@ -207,7 +207,7 @@ test('a block not started a few minutes in asks whether it has; Do next block in
   await check.getByRole('button', { name: 'Do next block instead' }).click();
   await expect(check).toHaveCount(0);
   await expect(page.getByText('Swapped with your next block')).toBeVisible();
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   await expect(times(now, phone, '1:50pm to 3pm')).toBeVisible();
   await named(now, phone, 'Paint the fence');
   await expect(page.getByRole(role(phone), { name: /^Write the report, 4pm to 5pm, Project\./ })).toBeVisible();
@@ -234,6 +234,9 @@ test('Skip, choose a new time later takes the block off the calendar into To sch
   else await expect(page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: /^Write the report, Project, 1h 10m/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'Undo' }).click();
+  // Back, it's the block in progress again: on phone, a tap shows its card.
+  await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: /^Write the report, 1:50pm to 3pm/ })).toBeVisible();
+  await showNow(page, phone);
   await expect(times(now, phone, '1:50pm to 3pm')).toBeVisible();
   await named(now, phone, 'Write the report');
   if (phone) await expect(page.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
@@ -289,7 +292,7 @@ test('Still going adds half an hour to a block just ended, which carries on in t
   if (!phone) await expect(prompt).toHaveCount(0);
   await expect(page.getByText('Added 30 minutes')).toBeVisible();
 
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   await expect(times(now, phone, '1pm to 2:28pm')).toBeVisible();
   await (phone ? expect(now.getByText('28 min left')).toBeVisible() : expect(now.getByRole('timer')).toHaveText('28:00'));
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);

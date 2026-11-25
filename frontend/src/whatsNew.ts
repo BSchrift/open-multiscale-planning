@@ -8,6 +8,8 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 13, text: 'Capture shows the time estimate right under the name, so you can set it without Add details.' },
+  { id: 12, text: "See what's now and next on your Lock Screen, and the rest of your day in a Today widget." },
   { id: 11, text: "Add the This week widget to your Home Screen to see your week's plan at a glance." },
   { id: 10, text: "Reset this week's or next week's plan from Week to plan it again from the start." },
   { id: 7, text: "A practice's session and a planning block now open one popup, wherever you tap them." },

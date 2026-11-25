@@ -80,6 +80,7 @@ const PLAN_PARAMS: Params = {
   offset: 0,
   since: '2026-11-02T05:00:00Z',
   task_id: 'task-3-45',
+  id: 'block-3-45',
   memo_id: 'note:inbox-3',
   day: '2026-11-02',
   project_id: 'project-3',

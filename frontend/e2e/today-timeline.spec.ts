@@ -38,7 +38,7 @@ async function open(page: Page, records: Seed[]) {
 /** To schedule, above the day, changes height once it has read the week, so blocks are measured after that. */
 const settled = (page: Page) => expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
 
-test('the timeline switches to a list of the day in order, which opens a practice in place, and the choice lasts after a reload', async ({ page }, info) => {
+test('the timeline switches to a list of the day in order, whose practice opens its popup, and the choice lasts after a reload', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const calendar: Seed = {
     type: 'calendar',
@@ -81,21 +81,14 @@ test('the timeline switches to a list of the day in order, which opens a practic
   }
   await page.screenshot({ path: info.outputPath(`today-list-${info.project.name}.png`) });
 
-  // A practice's session opens its details: in place on desktop, over the page on phone.
-  if (phone) {
-    await timeline.getByRole('button', { name: 'Piano practice, 6pm to 6:30pm, Practice.' }).click();
-    const sheet = page.getByRole('dialog', { name: 'Piano practice' });
-    await expect(sheet.getByText('6pm to 6:30pm')).toBeVisible();
-    await expect(sheet.getByText(/^Practice:/)).toBeVisible();
-    await sheet.getByRole('button', { name: 'Close' }).click();
-    await expect(sheet).toHaveCount(0);
-  } else {
-    const row = timeline.getByRole('button', { name: /^6pm to 6:30pm\s*Piano practice/ });
-    await expect(row).toHaveAttribute('aria-expanded', 'false');
-    await row.click();
-    await expect(row).toHaveAttribute('aria-expanded', 'true');
-    await expect(timeline.getByText(/^Practice:/)).toBeVisible();
-  }
+  // A practice's session opens its popup, as it does on the calendar, on both layouts.
+  await timeline.getByRole('button', phone ? { name: 'Piano practice, 6pm to 6:30pm, Practice.' } : { name: /^6pm to 6:30pm\s*Piano practice/ }).click();
+  const popup = page.getByRole('dialog', { name: 'Piano practice' });
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Mon Nov 2, 6pm to 6:30pm')).toBeVisible();
+  await expect(section.getByText(/^Practice:/)).toBeVisible();
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
 
   // The choice is kept on this device.
   await page.reload();

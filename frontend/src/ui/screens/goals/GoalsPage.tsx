@@ -1,6 +1,7 @@
 // Goals as a quiet hierarchy: each goal opens to its practices and projects, with a pen in its title to rename or
 // delete it. A closed goal shows its worst project when one needs you, and asks "Still a goal?" when nothing is
 // active and nothing under it has changed for a cadence. Finished and dropped projects and archived goals wait under Archived, each with Restore.
+// A practice's row opens the practice's popup, the one its sessions open everywhere, with no block.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -13,11 +14,12 @@ import { deleteGoal, goalContents } from '../../../core/tasks';
 import type { Fields, Objective, Practice } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
-import { PracticeAdd, PracticeFields, practiceRule, PracticeSheet, ProjectAdd, usePlanChange } from '../../components/editors';
+import { PracticeAdd, ProjectAdd, usePlanChange } from '../../components/editors';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { useFocusLanding } from '../../components/useFocusLanding';
+import { PracticePopupFor } from '../practice';
 import { BacklogAdd, BacklogBody, backlogFor, backlogSummary } from './BacklogView';
 import type { GoalsData } from './data';
 import { ProjectBody } from './ProjectView';
@@ -174,16 +176,6 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
   const loosePractices = practices.filter((p) => homeOf(p.objective_id) === NO_GOAL);
 
   const toggle = (id: string) => setOpen({ ...open, [id]: !open[id] });
-  // Each open practice's way out other than Save or Cancel, so its row's toggle keeps unsaved changes rather than
-  // dropping them.
-  // shortcut: folding the goal around an open practice, or leaving Goals, still drops them; guard those too if anyone
-  // loses typing that way.
-  const leaves = useRef(new Map<string, { current: (() => boolean) | null }>());
-  const leaveOf = (id: string) => {
-    let leave = leaves.current.get(id);
-    if (!leave) leaves.current.set(id, (leave = { current: null }));
-    return leave;
-  };
   const closePractice = (id: string, saved?: Fields<'practice'>) => {
     const key = `practice:${id}`;
     const home = saved && 'objective_id' in saved ? homeOf(saved.objective_id) : null;
@@ -191,7 +183,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
     const was = heads.current.get(key);
     setPracticeOpen(null);
     // A new goal moves the row under it, so that opens and focus follows the row there, once it has arrived.
-    setOpen((o) => ({ ...o, [key]: false, ...(home ? { [home]: true } : {}) }));
+    if (home) setOpen((o) => ({ ...o, [home]: true }));
     land(() => {
       const head = heads.current.get(key);
       return moved && head === was ? null : head;
@@ -203,8 +195,8 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
     const practice = practices.find((p) => p.id === props.show);
     const section = practice ? homeOf(practice.objective_id) : goals.find((g) => g.id === props.show)?.id;
     if (!section) return;
-    setOpen((o) => ({ ...o, [section]: true, ...(practice && !phone ? { [`practice:${practice.id}`]: true } : {}) }));
-    if (practice && phone) setPracticeOpen(practice.id);
+    setOpen((o) => ({ ...o, [section]: true }));
+    if (practice) setPracticeOpen(practice.id);
   }, [props.show]);
   const change = (goal: Objective, fields: Fields<'objective'>, message: string, then: () => HTMLElement | null | undefined) => async () => {
     land(then);
@@ -231,7 +223,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
     if (phone) {
       return (
         <div key={p.id}>
-          <button ref={headRef(`practice:${p.id}`)} className="projbtn" type="button" onClick={() => setPracticeOpen(p.id)}>
+          <button ref={headRef(`practice:${p.id}`)} className="projbtn" type="button" aria-haspopup="dialog" onClick={() => setPracticeOpen(p.id)}>
             <span className="grow">
               <span className="lineblock">
                 {p.title} {paused}
@@ -243,33 +235,16 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
         </div>
       );
     }
-    const key = `practice:${p.id}`;
-    const leave = leaveOf(p.id);
     return (
       <div key={p.id} className="prow">
         <div className="prowhead">
-          <button
-            ref={headRef(key)}
-            className="pmain"
-            type="button"
-            aria-expanded={!!open[key]}
-            onClick={() => (open[key] && leave.current ? leave.current() : toggle(key))}
-          >
-            <span className="qcaret" aria-hidden="true">
-              <Icon name={open[key] ? 'chevron-down' : 'chevron-right'} size={16} />
-            </span>
+          <button ref={headRef(`practice:${p.id}`)} className="pmain" type="button" aria-haspopup="dialog" onClick={() => setPracticeOpen(p.id)}>
             <span className="grow">
               <span className="strong">{p.title}</span> {paused}
               <span className="small quiet lineblock">Practice{p.state === 'active' && time ? `, ${time}` : ''}</span>
             </span>
           </button>
         </div>
-        {open[key] && (
-          <div className="detail stack8">
-            <div className="small quiet">{practiceRule(p)}</div>
-            <PracticeFields practice={p} goals={data.objectives} label={`Edit ${p.title}`} leaveRef={leave} onClose={(saved) => closePractice(p.id, saved)} />
-          </div>
-        )}
       </div>
     );
   };
@@ -582,7 +557,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
           {!loosePractices.length && !looseProjects.length && addForms(null)}
         </>
       )}
-      {sheetPractice && <PracticeSheet practice={sheetPractice} goals={data.objectives} onClose={(saved) => closePractice(sheetPractice.id, saved)} />}
+      {sheetPractice && <PracticePopupFor id={sheetPractice.id} close={(saved) => closePractice(sheetPractice.id, saved)} />}
       {deleting && <DeleteGoal goal={deleting} onClose={() => setDeleting(null)} onDeleted={() => setRenaming(null)} />}
       {addingTo && <BacklogAdd goal={addingTo} onClose={() => setAddingTo(null)} />}
       {archivedCount > 0 && (

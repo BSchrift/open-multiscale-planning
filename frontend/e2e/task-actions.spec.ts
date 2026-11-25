@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { belongsTo, expectTapTarget, openSeeded, pane } from './seed';
+import { belongsTo, expectNoSideways, expectTapTarget, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 // The task popup is the same wherever a task opens: from a list it can Start now, Mark done and Schedule…, and set its
@@ -18,6 +18,7 @@ const records: Seed[] = [
   { type: 'task', id: 't1', fields: { kind: 'project', project_id: 'p1', milestone_id: 'm1', title: 'Draft the summary', estimate_min: 120 } },
   { type: 'task', id: 'o1', fields: { kind: 'one_off', title: 'Return the drill', estimate_min: 30, schedule: { type: 'once', from: '2026-11-07' }, next_due: '2026-11-07' } },
   { type: 'task', id: 'i1', fields: { kind: 'inbox', title: 'Call the bank' } },
+  { type: 'task', id: 'o2', fields: { kind: 'one_off', title: 'Put the bins out', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-11-02' }, next_due: '2026-11-02' } },
   { type: 'week_plan', id: 'week:2026-11-02', fields: { week_start: '2026-11-02', finished_at: '2026-11-02T14:00:00Z' } },
   { type: 'time_block', id: 'b1', fields: { task_id: 't1', start: '2026-11-02T22:00:00Z', end: '2026-11-02T23:00:00Z', tz: 'America/Chicago' } },
 ];
@@ -162,5 +163,36 @@ test("from a block on Today: the block's section takes the actions' place, and M
   await expect(block).toHaveCount(0);
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(block).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("phone: no popup scrolls sideways, whatever its fields, from a list or a block", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The sheet is a phone matter');
+  const errors = await open(page);
+  // From a block on Today: a project's task, with its date field.
+  const block = page.getByRole('slider', { name: /^Draft the summary, 4pm to 5pm/ });
+  await block.scrollIntoViewIfNeeded();
+  await block.tap();
+  let popup = popupOf(page, 'Draft the summary');
+  await expectNoSideways(popup);
+  await popup.getByRole('button', { name: 'Cancel' }).tap();
+  await expect(popup).toHaveCount(0);
+
+  // A one off with a date, then a range; one that repeats weekly; and an Inbox item.
+  await openOneOffs(page, true);
+  await pane(page, 'One offs').getByRole('button', { name: 'Return the drill', exact: true }).tap();
+  popup = popupOf(page, 'Return the drill');
+  await expectNoSideways(popup);
+  await popup.getByRole('button', { name: '+ End date' }).tap();
+  await expectNoSideways(popup);
+  await popup.getByRole('button', { name: 'Cancel' }).tap();
+  await pane(page, 'One offs').getByRole('button', { name: 'Put the bins out', exact: true }).tap();
+  popup = popupOf(page, 'Put the bins out');
+  await expect(popup.getByLabel('How often')).toBeVisible();
+  await expectNoSideways(popup);
+  await popup.getByRole('button', { name: 'Cancel' }).tap();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /^Inbox/ }).tap();
+  await pane(page, 'Inbox').getByRole('button', { name: 'Call the bank', exact: true }).tap();
+  await expectNoSideways(popupOf(page, 'Call the bank'));
   expect(errors).toEqual([]);
 });

@@ -432,6 +432,35 @@ final class ShellUITests: XCTestCase {
         XCTAssertFalse(app.page.textViews["Description"].exists)
     }
 
+    /// iOS draws a date field its own way, wider than the browsers the web tests run in, and once pushed a task popup's
+    /// body wider than the sheet, so it slid sideways and cut off its left. Every field stays inside the sheet's gutter.
+    func testATaskPopupWithADateFitsThePhoneAndNeverSlidesSideways() {
+        let app = launchApp(seed: "Seed dated one off")
+        // The first tap after a launch is now and then lost on CI's Simulator, so More is tapped until One offs shows.
+        app.tapWeb("More", until: app.webButton(startingWith: "One offs"))
+        app.tapWeb(startingWith: "One offs")
+        app.tapWeb("Return the drill", until: app.webButton("Start now"))
+        // The field, which holds the date, not its label, which has the same name. iOS calls both the field and Belongs
+        // to's button "other" rather than a text field or a button.
+        let other = XCUIElement.ElementType.other.rawValue
+        let field = NSPredicate(format: "label == 'Date (optional)' AND elementType == %d AND value != nil AND value != ''", other)
+        let date = app.page.descendants(matching: .any).matching(field).firstMatch
+        let belongs = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Belongs to: '")).firstMatch
+        let start = app.webButton("Start now")
+        for element in [date, belongs, start] { exists(element) }
+        let screen = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(date.frame.maxX, belongs.frame.maxX + 1, "the date field reaches past the other fields: \(date.frame) against \(belongs.frame)")
+        XCTAssertLessThanOrEqual(date.frame.maxX, screen.maxX, "the date field runs off the screen: \(date.frame) in \(screen)")
+        // A drag leftwards across the popup, along Repeats' label where nothing takes a tap, leaves it where it was.
+        let label = app.webText("Repeats")
+        exists(label)
+        let before = start.frame.minX
+        label.coordinate(withNormalizedOffset: CGVector(dx: 3, dy: 0.5)).press(forDuration: 0.1, thenDragTo: label.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)))
+        XCTAssertEqual(start.frame.minX, before, accuracy: 1, "the popup slid sideways")
+        XCTAssertGreaterThanOrEqual(start.frame.minX, screen.minX, "Start now is cut off on the left")
+        app.tapWeb("Cancel")
+    }
+
     func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
         // On the real clock, since the link launches the app with none of the test's settings, its clock included.
         let app = launchApp(seed: "Seed plan", realClock: true)

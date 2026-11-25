@@ -26,7 +26,7 @@ import { NavProvider, useNav, useOverlay } from './nav';
 import type { Nav, Overlay, Route } from './nav';
 import { AREAS } from './registry';
 import type { AreaId, Layout, Presentation, RouteParams } from './registry';
-import { Shell } from './Shell';
+import { MorePage, Shell } from './Shell';
 import { AppProvider } from './store';
 import type { AppSync } from '../../core/syncRunner';
 import type { AppPlace, NativeUpdates, UpdateStatus, Updater } from '../../core/updates';
@@ -69,7 +69,12 @@ export interface Harness extends RenderResult {
   nav(): Nav & { overlay: Overlay | null };
 }
 
+// The app loads the code of Capture, a task's popup and the More tab as soon as it has drawn, so a tap opens them at
+// once. Tests start from there.
+const loadedAhead = Promise.all([AREAS.capture.Screen, AREAS.task.Screen, MorePage].map((s) => s.preload?.()));
+
 async function prepare(options: HarnessOptions) {
+  await loadedAhead;
   const clock = fixedClock(options.now ?? '2026-11-02T20:00:00Z', options.zone ?? 'America/Chicago');
   const platform: TestPlatform = Object.assign(
     await createTestPlatform(),

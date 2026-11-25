@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, overNowLine, touchDrag } from './seed';
 import type { Seed } from './seed';
 
@@ -23,10 +23,10 @@ const records: Seed[] = [
   { type: 'calendar', id: 'calendar', fields: { connected: true, events: [{ id: 'e1', calendar: 'work', title: 'Quiz night', start: at(3, '18:30'), end: at(3, '19:30') }] } },
 ];
 
-async function openWeek(page: Page, list = records) {
+async function openWeek(page: Page, list = records, now = NOW) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.clock.install({ time: NOW });
+  await page.clock.install({ time: now });
   await openSeeded(page, list);
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   return errors;
@@ -252,6 +252,73 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   await expect(page.getByText('Moved Draft the summary to Sat Nov 7, 6:15pm')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Sat Nov 7' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Draft the summary, 6:15pm to 7:15pm/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('phone: each day in the strip draws its free, planned and busy time in the colours of the legend above it', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The strip is the phone layout');
+  // A week like the one reported: Tuesday the 24th at 1pm, Monday's work done, and most days ahead free but for an
+  // hour or two of calendar events.
+  const event = (id: string, day: number, start: string, end: string) => ({ id, calendar: 'work', title: `Meeting ${id}`, start: at(day, start), end: at(day, end) });
+  const week: Seed[] = [
+    { type: 'week_plan', id: 'week:2026-11-23', fields: { week_start: '2026-11-23', finished_at: at(23, '08:00') } },
+    records[1]!,
+    records[2]!,
+    { type: 'time_block', id: 'b9', fields: { task_id: 't1', start: at(23, '09:00'), end: at(23, '10:00'), tz: 'America/Chicago' } },
+    { type: 'block_outcome', id: 'outcome:b9', fields: { result: 'done', answered_at: at(23, '10:00') } },
+    {
+      type: 'calendar',
+      id: 'calendar',
+      fields: {
+        connected: true,
+        events: [
+          event('e1', 24, '08:00', '09:00'),
+          event('e2', 24, '15:00', '16:00'),
+          event('e3', 25, '08:00', '09:00'),
+          event('e4', 25, '09:00', '10:00'),
+          event('e5', 26, '12:00', '13:00'),
+          event('e6', 27, '09:00', '10:00'),
+          event('e7', 27, '14:00', '15:30'),
+          event('e8', 28, '11:00', '12:00'),
+        ],
+      },
+    },
+  ];
+  const errors = await openWeek(page, week, new Date('2026-11-24T19:00:00Z'));
+  const strip = page.getByRole('group', { name: 'Choose a day' });
+  const wed = strip.getByRole('button', { name: 'Wed Nov 25, 13h free' });
+  await expect(wed).toBeVisible();
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`week-day-bars-${scheme}.png`) });
+  }
+
+  const fill = (target: Locator) => target.evaluate((e) => getComputedStyle(e).backgroundColor);
+  const none = 'rgba(0, 0, 0, 0)';
+  const legend = page.locator('.wkkeys');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    // Wednesday is free from 7am to 10pm but for 8am to 10am: both show, free as a light track, not in busy's grey.
+    const free = await fill(wed.locator('.sl.free').first());
+    const busy = await fill(wed.locator('.sl.busy').first());
+    expect(free).not.toBe(none);
+    expect(free).not.toBe(busy);
+    expect(await wed.locator('.sl.free').count()).toBe(26);
+    expect(await wed.locator('.sl.busy').count()).toBe(4);
+    // Before 7am is sleep, drawn as nothing.
+    expect(await fill(wed.locator('.sl').first())).toBe(none);
+    // Each colour in the strip is the one its legend entry shows.
+    expect(await fill(legend.locator('.skey.free'))).toBe(free);
+    expect(await fill(legend.locator('.skey.busy'))).toBe(busy);
+    expect(await fill(legend.locator('.skey.planned'))).toBe(await fill(strip.getByRole('button').first().locator('.sl.planned').first()));
+    // Today's morning has gone by: drawn as nothing, as sleep is and the legend says, but for its 8am event, still busy.
+    await expect(legend.getByText('unavailable')).toBeVisible();
+    expect(await fill(legend.locator('.skey.closed'))).toBe(none);
+    const today = strip.getByRole('button').nth(1);
+    expect(await fill(today.locator('.sl').nth(2))).toBe(none);
+    expect(await fill(today.locator('.sl').nth(4))).toBe(busy);
+    expect(await fill(today.locator('.sl').nth(20))).toBe(free);
+  }
   expect(errors).toEqual([]);
 });
 
@@ -497,14 +564,20 @@ test('phone: a card held, then dragged down onto the day, is placed where it is 
   expect(errors).toEqual([]);
 });
 
-test("a set-day practice waits above its own days: Friday's 9:30 places it, Undo takes it back, and a new time can be kept for Tuesdays", async ({ page }, info) => {
+test("a set-day practice taken off its set times waits above its own days: Friday's 9:30 places it, Undo takes it back, and a new time can be kept for Tuesdays", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const run: Seed = {
     type: 'practice',
     id: 'run',
     fields: { title: 'Morning run', target_min: 30, per: 'day', days: [0, 1, 4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' },
   };
-  const errors = await openWeek(page, [...records.filter((r) => r.id !== 'pr' && r.id !== 'b2'), run]);
+  // Taken off their set times, Tuesday's and Friday's wait above their days, as the app would otherwise place them there.
+  const off = (day: number, start: string, end: string): Seed => ({
+    type: 'time_block',
+    id: `session:run:2026-11-0${day}`,
+    fields: { practice_id: 'run', start: at(day, start), end: at(day, end), tz: 'America/Chicago', cancelled: true },
+  });
+  const errors = await openWeek(page, [...records.filter((r) => r.id !== 'pr' && r.id !== 'b2'), run, off(3, '07:00', '07:30'), off(6, '09:30', '10:00')]);
   const friday = 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule';
   if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Fri Nov 6, .*1 to schedule$/ }).click();
   await expect(page.getByRole('button', { name: friday })).toBeVisible();

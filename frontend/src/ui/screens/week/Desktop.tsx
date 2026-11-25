@@ -34,6 +34,7 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { ResetWeek } from './reset';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
@@ -279,6 +280,8 @@ export function DesktopWeek(props: WeekProps) {
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
             </Button>
           )}
+          {/* Last, apart from the button to edit: it takes the plan out, after asking. */}
+          {!editing && !plan && <ResetWeek data={data} offset={offset} />}
         </div>
       </div>
       {props.gated && <PlanPrompt week={data.week} />}
@@ -454,6 +457,7 @@ export function DesktopWeek(props: WeekProps) {
                         alt: x.practice ? `${x.title}, Practice, ${laneWords(x)}, to schedule` : `${KIND_WORD[x.kind]}: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
                         planning: x.kind === 'planning',
                         practice: x.kind === 'practice',
+                        warn: !!x.why,
                         open: openItem === x.id,
                         onToggle: () => toggleItem(x.id),
                         ...(isThis ? { onPointerDown: (e: ReactPointerEvent<HTMLElement>) => dragCard(e, x, model.ctx, dragItem(x)) } : {}),

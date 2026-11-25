@@ -4,6 +4,8 @@
 
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { applyPlanChange } from '../../../core/plan';
+import type { PlanChange } from '../../../core/plan';
 import { isRepeating, onceWhen, setOnceDates, validateSchedule } from '../../../core/schedule';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
@@ -31,13 +33,20 @@ export function OneOffDateForm(props: {
   onClose(): void;
 }) {
   const { task, onClose } = props;
-  const { layout } = useApp();
+  const { clock, layout } = useApp();
   const toast = useToast();
-  const write = useMutation((w, fields: Fields<'task'>) => w.set('task', task.id, fields));
+  // A one off at a time of day takes its block to the new date, in the same Undo.
+  const write = useMutation(async (w, fields: Fields<'task'>) => {
+    const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] });
+    const { followOneOff } = await import('../../../core/setTimes');
+    const follow = await followOneOff(w, task, { ...task, ...fields }, clock);
+    return { writes: [...follow.writes, ...back.writes], said: follow.said };
+  });
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const save = async (from: LocalDate | null, to: LocalDate | null) => {
-    const previous = await write.run(setOnceDates(from, to));
-    if (previous) toast.show(`${task.title}, ${onceWhen({ type: 'once', from, to }) || 'no date'}.`, { undo: () => write.run(previous) });
-    return previous;
+    const done = await write.run(setOnceDates(from, to));
+    if (done) toast.show([`${task.title}, ${onceWhen({ type: 'once', from, to }) || 'no date'}.`, done.said].filter(Boolean).join(' '), { undo: () => undo.run(done) });
+    return done;
   };
   const commit = props.commit ?? save;
   const s = task.schedule?.type === 'once' ? task.schedule : null;

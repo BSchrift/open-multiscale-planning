@@ -6,7 +6,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, PlaywrightWorkerArgs, PlaywrightWorkerOptions, TestInfo } from '@playwright/test';
-import { openSeeded, pane } from './seed';
+import { openSeeded, pane, saved } from './seed';
 import type { Seed } from './seed';
 
 test.describe.configure({ mode: 'default' });
@@ -111,7 +111,7 @@ test('opens the IndexedDB file a bundle from before OPFS kept, and keeps it curr
   let page = await withoutOpfs(context);
   await openSeeded(page, [{ type: 'task', fields: { kind: 'inbox', title: 'Ask about the boiler' } }]);
   await capture(page, 'Before the update', info);
-  await page.waitForTimeout(600);
+  await saved(page, 'Before the update');
   await page.close();
 
   // This one moves the data to OPFS, and copies each change back to IndexedDB soon after.
@@ -119,19 +119,34 @@ test('opens the IndexedDB file a bundle from before OPFS kept, and keeps it curr
   await launch(page, ['Ask about the boiler', 'Before the update']);
   expect(await onOpfs(page)).toBe(true);
   await capture(page, 'After the update', info);
-  await page.waitForTimeout(600);
+  await saved(page, 'After the update');
   await page.close();
 
   // Rolled back, the bundle before finds that change, and makes one of its own.
   page = await withoutOpfs(context);
   await launch(page, ['Before the update', 'After the update']);
   await capture(page, 'During the rollback', info);
-  await page.waitForTimeout(600);
+  await saved(page, 'During the rollback');
   await page.close();
 
   // Updated again, this one takes the copy the bundle before changed, rather than its own older database.
   page = await context.newPage();
   await launch(page, ['Before the update', 'After the update', 'During the rollback']);
+  await context.close();
+});
+
+test('copies a change to IndexedDB soon after it, though the page goes on reading', async ({ playwright, browserName }, info) => {
+  const context = await profile(playwright, browserName, info);
+  const page = await context.newPage();
+  await openSeeded(page);
+  // A read every 50ms, well inside the 200ms the copy waits, as a page busy drawing and loading screens reads on.
+  await page.evaluate(() => {
+    const read = (window as unknown as { multiscaleRecord(type: string, id: string): Promise<unknown> }).multiscaleRecord;
+    setInterval(() => void read('settings', 'settings'), 50);
+  });
+  await capture(page, 'Read on', info);
+  await saved(page, 'Read on');
+  expect(await onOpfs(page)).toBe(true);
   await context.close();
 });
 
@@ -141,7 +156,7 @@ test('without OPFS, keeps the database in IndexedDB as before', async ({ context
   await openSeeded(page);
   await capture(page, 'Return the books', info);
   // It saves the whole file 200ms after a change, as the browser build did before OPFS.
-  await page.waitForTimeout(600);
+  await saved(page, 'Return the books');
   await page.reload();
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
   await expectInInbox(page, ['Return the books']);

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -563,9 +565,30 @@ describe('Week on desktop', () => {
     expect(within(ask).getAllByRole('button').map((b) => b.textContent)).toEqual(['No, just this week', 'Yes, on Wednesdays', 'Yes, every day']);
     await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every day' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
-    expect(await screen.findByText('Piano practice is now 7:15am every day.')).toBeVisible();
+    // Set to a time now, its days still ahead land at it, in the same Undo.
+    expect(await screen.findByText('Piano practice is now 7:15am every day. Placed 5 sessions at their set times.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toBeNull());
+    expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-05'))?.cancelled).toBe(true);
+  });
+
+  it('Yes to a new time moves the other sessions at the old set time, as editing the practice does', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await planned(w);
+        await w.set('practice', 'pr', { days: [2, 3, 4], preferred_times: [7 * 60] });
+        for (const d of ['2026-11-05', '2026-11-06']) await w.create('time_block', { practice_id: 'pr', start: at('07:00', d), end: at('07:30', d), tz: ZONE }, `session:pr:${d}`);
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    (await screen.findByRole('group', { name: /^Piano practice, Wed/ })).focus();
+    await userEvent.keyboard('{ArrowDown}');
+    const ask = await screen.findByRole('group', { name: 'Use 7:15am in future weeks too?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Yes, on Wednesdays, Thursdays and Fridays' }));
+    expect(await screen.findByText(/^Piano practice is now 7:15am .*\. Moved 2 sessions to 7:15am\.$/)).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-06'))?.start).toBe(at('07:15', '2026-11-06'));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-06'))?.start).toBe(at('07:00', '2026-11-06')));
   });
 
   it('a practice moved to another day stays the session of its own day, for this week only, and a day with one refuses it', async () => {
@@ -753,12 +776,40 @@ describe('To schedule on Week', () => {
     expect(await getRecord(t.db, 'time_block', 'session:pr:2026-11-05')).toMatchObject({ practice_id: 'pr' });
   });
 
+  it('a set day waiting because its set time is taken says so on its card, and one with its time free says its usual time', async () => {
+    const seed = async (w: Writer) => (await picks(w), w.set('practice', 'pr', { preferred_times: [18 * 60 + 30] }));
+    await open({ seed });
+    // Tuesday's 6:30pm is under Quiz night. On desktop it waits above Tuesday, with the warning.
+    const tue = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' });
+    expect(tue.querySelector('[data-icon="warning"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' }).querySelector('[data-icon="warning"]')).toBeNull();
+    await userEvent.click(tue);
+    expect(within(screen.getByRole('group', { name: 'Piano practice' })).getByText('6:30pm is taken by Quiz night, so 7:30pm')).toBeVisible();
+    cleanup();
+
+    // On phone, Tuesday's card says so in words.
+    await open({ seed, layout: 'phone' });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue/ }));
+    const card = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' });
+    expect(within(card).getByText('Tue · 6:30pm is taken')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: /^Thu/ }));
+    const thu = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' });
+    expect(within(thu).getByText('30m · usually 6:30pm')).toBeVisible();
+  });
+
+  it('a day away has no set-day session waiting', async () => {
+    await open({ seed: async (w) => (await picks(w), w.create('away_period', { start: '2026-11-05', end: '2026-11-06' })) });
+    await screen.findByRole('button', { name: /^Piano practice, Practice, 30 minutes on Tuesday/ });
+    expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on (Thursday|Friday)/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Piano practice, Practice, 30 minutes on Saturday/ })).toBeVisible();
+  });
+
   it('Skip Thursday skips that one session this week, with Undo, and a suggestion says why it moved', async () => {
     const t = await open({ seed: async (w) => (await picks(w), w.set('practice', 'pr', { preferred_times: [18 * 60 + 30] })) });
-    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday around 6:30 PM, to schedule' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' }));
     // Tuesday's 6:30pm is under Quiz night and the summary's block, so it moves.
     const panel = screen.getByRole('group', { name: 'Piano practice' });
-    expect(within(panel).getByText('6:30pm is taken, so 7:30pm')).toBeVisible();
+    expect(within(panel).getByText('6:30pm is taken by Quiz night, so 7:30pm')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Piano practice' })).getByRole('button', { name: 'Skip Thursday' }));
     expect(await screen.findByText('Skipped Piano practice on Thursday this week.')).toBeVisible();
@@ -898,6 +949,24 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on Week, o
   });
 });
 
+/**
+ * One finger swiped sideways across the phone's day from `el`, by `dx`, as pointer events. jsdom has no layout, so the
+ * day is given a width, and reduced motion settles the swipe at once rather than by a spring.
+ */
+function swipeDay(el: Element, dx: number, y = 10) {
+  const card = el.closest<HTMLElement>('.wkdaycard')!;
+  Object.defineProperty(card, 'clientWidth', { value: 300, configurable: true });
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+  try {
+    const at = (i: number) => ({ clientX: 200 + (dx * i) / 10, clientY: y, pointerType: 'touch', pointerId: 7 });
+    fireEvent.pointerDown(el, { ...at(0), button: 0 });
+    for (let i = 1; i <= 10; i++) fireEvent.pointerMove(window, at(i));
+    fireEvent.pointerUp(window, at(10));
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
 describe('Week on phone', () => {
   const phone = (options: Parameters<typeof open>[0] = {}) => open({ layout: 'phone', ...options });
 
@@ -956,7 +1025,7 @@ describe('Week on phone', () => {
     expect(days[0]).not.toHaveClass('tight');
     expect(days[0]!.querySelector('.wfree')).toBeEmptyDOMElement();
     // The strip draws open time gone by like closed time, never in the free colour; Thursday's is still free.
-    const freeLook = (day: Element) => [...day.querySelectorAll('.wshape .sl')].filter((c) => c.className.trim() === 'sl').length;
+    const freeLook = (day: Element) => day.querySelectorAll('.wshape .sl.free').length;
     expect(freeLook(days[0]!)).toBe(0);
     expect(freeLook(days[3]!)).toBeGreaterThan(0);
     // Today's open morning has gone by; only its evening is free.
@@ -1002,6 +1071,27 @@ describe('Week on phone', () => {
     expect(days[1]!.querySelectorAll('.sl.planned:not(.maint):not(.practice)').length).toBeGreaterThan(0);
     expect(days[2]!.querySelectorAll('.sl.planned.practice').length).toBeGreaterThan(0);
     expect(days[2]!.querySelectorAll('.sl.planned:not(.practice)')).toHaveLength(0);
+  });
+
+  it("the strip draws a day's free time as free, never in busy's colour, and the legend shows each colour it uses", async () => {
+    await phone();
+    const days = within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button');
+    // Tuesday is open 7am to 9am and 5pm to 10pm, with project work at 6pm and Quiz night until 7:30pm.
+    const tue = [...days[1]!.querySelectorAll('.wshape .sl')].map((s) => s.className.replace(/^sl /, ''));
+    expect(new Set(tue)).toEqual(new Set(['closed', 'free', 'planned', 'busy']));
+    expect(tue.filter((c) => c === 'free')).toHaveLength(11);
+    expect(tue.filter((c) => c === 'busy')).toHaveLength(1);
+    // The legend has a key for each of them, in the colour the strip draws it.
+    const keys = [...document.querySelectorAll('.wksum .skey')].map((k) => k.className.replace(/^skey /, ''));
+    expect(keys).toEqual(['free', 'planned', 'busy', 'closed']);
+    expect(screen.getByText('unavailable')).toBeVisible();
+    const sheet = readFileSync(join(import.meta.dirname, '../../styles/phone.css'), 'utf8');
+    const fill = (selector: string) => sheet.match(new RegExp(`${selector.replaceAll('.', '\\.')}\\{[^}]*background:([^;}]+)`))?.[1];
+    for (const look of ['free', 'planned', 'busy', 'closed']) expect(fill(`.sl.${look}`), look).toBe(fill(`.skey.${look}`));
+    expect(fill('.sl.free')).not.toBe(fill('.sl.busy'));
+    // Free is the light track desktop's time bar draws it as.
+    expect(fill('.sl.free')).toBe('var(--wash)');
+    expect(fill('.sl.closed')).toBe('transparent');
   });
 
   it('a block in progress still opens, and only a finished one reads as ended', async () => {
@@ -1243,6 +1333,31 @@ describe('Week on phone', () => {
     expect(await screen.findByRole('button', { name: /^Paint the fence, 8pm to 9pm/ })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('17:00')));
+  });
+
+  it('a block held on the day and dragged sideways before it is let go moves, and keeps the day rather than swiping to the next', async () => {
+    const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
+    const el = await screen.findByRole('button', { name: /^Paint the fence, 5pm to 6pm/ });
+    expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();
+    // jsdom has no layout: the free row after it, from 6pm to 10pm, is drawn 240px tall, so y 60 is 7pm.
+    const free = document.querySelector('.tlrow[data-drop-from="1080"]')!;
+    vi.spyOn(free, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 240, top: 0, left: 0, right: 300, bottom: 240, x: 0, y: 0, toJSON: () => ({}) });
+    Object.defineProperty(document, 'elementFromPoint', { value: () => free, configurable: true });
+    try {
+      // 150px left and 50px down: far more sideways than down, as a swipe to the next day would be.
+      holdDown(el, { clientX: 200, clientY: 10, pointerType: 'touch' });
+      fireEvent.pointerMove(window, { clientX: 150, clientY: 27, pointerType: 'touch' });
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
+      fireEvent.pointerUp(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint');
+    }
+    await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('19:00')));
+    expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();
+
+    // The same sideways move without a hold is still a swipe to the next day.
+    swipeDay(await screen.findByRole('button', { name: /^Paint the fence, 7pm to 8pm/ }), -200);
+    expect(await screen.findByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
   });
 
   it('a block held and let go over a later row is drawn there at once, while the day has yet to redraw; Undo, or a failed save, puts it back', async () => {
@@ -1797,11 +1912,12 @@ describe('hold to create on Week', () => {
       expect(t.platform.haptics).toEqual(['light']);
 
       const free = rowFrom(18 * 60);
-      fireEvent.touchStart(free, { touches: [{ clientX: 20, clientY: 50 }] });
+      Object.defineProperty(free.closest('.wkdaycard'), 'clientWidth', { value: 300, configurable: true });
       press(free, 50, 'phone');
       await pass(450);
       expect(draft()).not.toBeNull();
-      fireEvent.touchEnd(free, { changedTouches: [{ clientX: 220, clientY: 60 }] });
+      // Dragged sideways after the hold, the draft moves with the finger and the day stays.
+      for (const x of [40, 120, 220]) fireEvent.pointerMove(window, { clientX: x, clientY: 60, pointerType: 'touch', pointerId: 1 });
       letGo(60, 'phone', 220);
       await screen.findByRole('dialog', { name: 'Capture' });
       expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();

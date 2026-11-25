@@ -28,7 +28,7 @@ import { Button } from '../components/ds/Button';
 // The iPhone's widgets and their links: loaded only where they exist, so the browser's first load doesn't carry them.
 const WidgetSync = lazy(() => import('./widgets'));
 
-const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', inbox: 'inbox', goals: 'goals', more: 'more' };
+const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', plan: 'calendar', inbox: 'inbox', goals: 'goals', more: 'more' };
 
 declare global {
   interface Window {

@@ -43,7 +43,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await add.getByRole('slider', { name: 'Each session' }).fill('15');
   await add.getByLabel('Usual time').fill('07:30');
   await add.getByRole('button', { name: 'Add practice' }).click();
-  await expect(page.getByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
+  await expect(page.getByText(`Practice added. It waits in ${phone ? 'To schedule' : 'To schedule on Week'} until you give it a time.`)).toBeVisible();
 
   // Do the starter's one task now, from Today's Next up, and answer the block. Started on the hour: the clock has run on
   // since 9am while the steps above took real time, and a block starts on the minute but counts from the second it was

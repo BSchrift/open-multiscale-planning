@@ -117,9 +117,11 @@ describe('the task popup opens from', () => {
       await closeBackTo(block);
     });
 
+    // On phone, Week is Today's, whose block opens it as the test above shows.
+    if (layout === 'desktop')
     it(`a block on Week, by a tap on the block itself (${layout})`, async () => {
       await open('week', layout);
-      const block = await screen.findByRole('button', { name: layout === 'phone' ? /^Draft the summary, 4pm to 5pm/ : /^Draft the summary/ });
+      const block = await screen.findByRole('button', { name: /^Draft the summary/ });
       expect(block).toHaveAttribute('aria-haspopup', 'dialog');
       await userEvent.click(block);
       expect(within(blockSection(await popup('Draft the summary'))).getByRole('button', { name: 'Move…' })).toBeVisible();

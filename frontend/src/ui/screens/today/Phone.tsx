@@ -37,6 +37,7 @@ import { LaneCard, laneCount } from '../week/lane';
 import type { WeekData } from '../week/data';
 import { useWeekScreen } from '../week/index';
 import { PhoneWeek } from '../week/Phone';
+import { fitZoom, usePinchZoom } from '../../components/week/pinch';
 import type { HostWeek } from '../week/Phone';
 import { dayOfWeek } from './data';
 import type { TodayData } from './data';
@@ -54,6 +55,22 @@ import { useWeekActions } from '../week/useWeekActions';
 import { usePrompts } from './usePrompts';
 import type { PutAway } from './usePrompts';
 import { NextUp } from './Views';
+
+/**
+ * The zoom at which the drawn day fits between the strip's day row, folded, and whatever covers the bottom of the
+ * screen: a tray and the tab bar.
+ */
+function leastZoom(zoom: number) {
+  const day = document.querySelector<HTMLElement>('.tdphone .dppane:not(.dpside) .day, .tdphone .tdpager .day');
+  const strip = document.querySelector('.tdphone .sffold')?.getBoundingClientRect();
+  if (!day || !strip) return 1;
+  const top = strip.top + FOLDED_PX;
+  const bottom = Math.min(innerHeight, ...[...document.querySelectorAll('.tray, .tabs')].map((el) => el.getBoundingClientRect().top));
+  // Down to whole points an hour, as the day is drawn, so rounding its hours never draws it taller than the room.
+  return Math.floor(PHONE_ZOOM * fitZoom(bottom - top, day.getBoundingClientRect().height / zoom)) / PHONE_ZOOM;
+}
+/** The strip's day row folded: the slim bar and its margin. */
+const FOLDED_PX = 56;
 
 /** The first control at or after an element, for focus once the control that was before it has gone. */
 export function firstControl(from: Element | null): HTMLElement | null {
@@ -77,7 +94,13 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
   const [startUntil, setStartUntil] = useState<string | null>(null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
-  const [ph, setPh] = useState(PHONE_ZOOM);
+  // Pinched, or stepped from the menu, the day's hours are kept on this device as a multiple of the usual 72pt, from
+  // the size that fits the whole day under the strip to three times. Week's own zoom ('week.zoom') isn't read.
+  const zoomNow = useRef(1);
+  const { zoom, set: setZoom, handlers: pinch } = usePinchZoom('today.zoom', () => leastZoom(zoomNow.current));
+  zoomNow.current = zoom;
+  const ph = Math.round(PHONE_ZOOM * zoom);
+  const setPh = (to: number) => setZoom(to / PHONE_ZOOM);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number; from: HTMLElement; week: HostWeek } | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   // Another day's selected block, which goes with its day.
@@ -179,7 +202,9 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
     view,
     ph,
     setPh,
+    pinch,
     choose: w.move,
+    length: w.length,
     ...(current ? { onDrafting: w.drafting } : {}),
   });
 
@@ -192,6 +217,7 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
       host={{
         className: 'today tdphone',
         busy: false,
+        hourPx: ph,
         head: (w) => (
           <>
             <div className="tdhead">
@@ -338,6 +364,9 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
                   setMenuAt(null);
                 }}
                 onChoose={(id) => {
+                  // The item chosen goes with the menu, so focus goes back to the button, where a sheet the choice
+                  // opens, such as Reset's, returns it once closed.
+                  menuAt.from.focus({ preventScroll: true });
                   setMenuAt(null);
                   choose(id, menuAt.week);
                 }}

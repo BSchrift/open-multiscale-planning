@@ -1374,7 +1374,7 @@ describe('the timeline', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00')));
 
     await pick('Back to To schedule');
-    expect(await screen.findByText("Took Write the report off the calendar. It's in To schedule on Week.")).toBeVisible();
+    expect(await screen.findByText(`Took Write the report off the calendar. It's in ${layout === 'phone' ? 'To schedule' : 'To schedule on Week'}.`)).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull());
@@ -2736,7 +2736,7 @@ describe('To schedule on Today', () => {
     expect(within(await screen.findByRole('region', { name: 'To schedule' })).getByRole('button', { name: 'Climbing, Practice, 1 more this week, 1h each, to schedule' })).toBeVisible();
   });
 
-  it.each(['desktop', 'phone'] as const)("on %s, a practice's suggested times have no numbers, and Choose a time opens Week to place its session by hand", async (layout) => {
+  it.each(['desktop', 'phone'] as const)("on %s, a practice's suggested times have no numbers, and Choose a time opens its week to place its session by hand", async (layout) => {
     const run = (w: Writer) => w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', days: [1, 4], preferred_times: [7 * 60 + 30], state: 'active' }, 'run');
     // Tuesday at 6am, before its 7:30 run.
     const t = await open(run, { layout, now: '2026-11-03T12:00:00Z' });
@@ -2748,7 +2748,8 @@ describe('To schedule on Today', () => {
     expect(times[0]).toHaveTextContent(/^Tue 7:30am to 8am$/);
     for (const time of times) expect(time).toHaveTextContent(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d/);
     await userEvent.click(within(panel).getByRole('button', { name: 'Choose a time' }));
-    expect(t.nav().route).toMatchObject({ area: 'week', params: { place: 'run:2026-11-03' } });
+    // Week on desktop; on phone Week is Today's, which places it over its day (weekOnToday.test.tsx).
+    expect(t.nav().route).toMatchObject({ area: layout === 'phone' ? 'today' : 'week', params: { place: 'run:2026-11-03' } });
   });
 
   it('a card dragged onto the day is placed where it is let go', async () => {
@@ -3292,5 +3293,47 @@ describe("Today on phone, with the week's strip over the day", () => {
     expect(within(await strip()).getByRole('button', { name: /^Tue Nov 3/ })).toHaveAttribute('aria-pressed', 'true');
     await userEvent.click(screen.getByRole('button', { name: 'Today' }));
     await heading('Today');
+  });
+});
+
+describe("on phone, Week's tab is Today's strip, and Plan has the week's cards", () => {
+  const week = async (w: Writer) => {
+    await planned(w);
+    await w.create('project', { title: 'Finish the essay', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+    await task(w, 't1', 'Write the report');
+    await block(w, 'b1', 't1', '16:00', '17:00');
+    await task(w, 't3', 'Read the notes', { estimate_min: 60 });
+    await setWeekPick(w, DAY, 't3', 60);
+  };
+  const main = () => screen.getByRole('navigation', { name: 'Main' });
+
+  it("a link to Week opens Today on that week, with the same params: here, editing this week's plan", async () => {
+    await renderApp({ layout: 'phone', now: NOW, zone: ZONE, seed: week, initial: { area: 'week', params: { edit: 'this' } } });
+    expect(await screen.findByRole('button', { name: 'Done editing' })).toBeVisible();
+    expect(within(main()).getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
+    expect(within(main()).queryByRole('button', { name: 'Week' })).toBeNull();
+  });
+
+  it("Plan opens the Plan page with this week's and next week's cards, and Edit this week's plan goes to Today", async () => {
+    await renderApp({ layout: 'phone', now: NOW, zone: ZONE, seed: week });
+    await screen.findByRole('navigation', { name: 'Main' });
+    await userEvent.click(within(main()).getByRole('button', { name: 'Plan' }));
+    const thisWeek = await screen.findByRole('region', { name: 'This week' });
+    expect(within(thisWeek).getByText('Nov 2 to Nov 8')).toBeVisible();
+    expect(within(thisWeek).getByText('1h planned, 97h free, 1 to schedule.')).toBeVisible();
+    expect(within(thisWeek).getByRole('button', { name: 'Schedule one at a time' })).toBeVisible();
+    expect(within(thisWeek).getByRole('button', { name: "See this week's analytics" })).toBeVisible();
+    expect(within(await screen.findByRole('region', { name: 'Next week' })).getByText('Not planned yet.')).toBeVisible();
+    await userEvent.click(within(thisWeek).getByRole('button', { name: "Edit this week's plan" }));
+    expect(await screen.findByRole('button', { name: 'Done editing' })).toBeVisible();
+    expect(within(main()).getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('More no longer has a Plan row', async () => {
+    await renderApp({ layout: 'phone', now: NOW, zone: ZONE, seed: week });
+    await screen.findByRole('navigation', { name: 'Main' });
+    await userEvent.click(within(main()).getByRole('button', { name: 'More' }));
+    expect(await screen.findByRole('button', { name: /^Notes/ })).toBeVisible();
+    expect(screen.queryAllByRole('button', { name: /^Plan\b/ }).filter((b) => !main().contains(b))).toEqual([]);
   });
 });

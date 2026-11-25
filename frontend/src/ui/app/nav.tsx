@@ -10,7 +10,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
-import { DESKTOP_TABS, PHONE_TABS, tabForArea, tabLabel } from './registry';
+import { areaOn, DESKTOP_TABS, PHONE_TABS, tabForArea, tabLabel } from './registry';
 import type { AreaId, Layout, RouteParams, TabId } from './registry';
 
 export interface Route {
@@ -85,10 +85,11 @@ const stackOf = (state: NavState, tab: TabId): Route[] => state.stacks[tab] ?? [
 export function NavProvider(props: { layout: Layout; initial?: Route; children: ReactNode }) {
   const { layout, initial, children } = props;
   const [state, setState] = useState<NavState>(() => {
-    const tab = initial ? tabForArea(initial.area, layout) : 'today';
+    const opened = initial && { ...initial, area: areaOn(initial.area, layout) };
+    const tab = opened ? tabForArea(opened.area, layout) : 'today';
     return {
       tab,
-      stacks: { [tab]: initial && initial.area !== tab ? [root(tab), initial] : [initial ?? root(tab)] },
+      stacks: { [tab]: opened && opened.area !== tab ? [root(tab), opened] : [opened ?? root(tab)] },
       flow: null,
       topSignal: 0,
     };
@@ -98,7 +99,8 @@ export function NavProvider(props: { layout: Layout; initial?: Route; children: 
   const closeOverlay = useCallback(() => setOverlay(null), []);
 
   const go = useCallback(
-    (area: AreaId, params: RouteParams = {}) => {
+    (to: AreaId, params: RouteParams = {}) => {
+      const area = areaOn(to, layout);
       setState((s) => {
         const tab = tabForArea(area, layout);
         const isRoot = area === tab && Object.keys(params).length === 0;
@@ -117,13 +119,15 @@ export function NavProvider(props: { layout: Layout; initial?: Route; children: 
     [layout],
   );
 
-  const selectTab = useCallback((tab: TabId) => {
+  const selectTab = useCallback((to: TabId) => {
+    // A widget's This week link selects Week, which on phone is Today's.
+    const tab = areaOn(to, layout);
     setState((s) =>
       s.tab === tab && !s.flow
         ? { ...s, stacks: { ...s.stacks, [tab]: [root(tab)] }, topSignal: s.topSignal + 1 }
         : { ...s, tab, flow: null, stacks: { ...s.stacks, [tab]: stackOf(s, tab) } },
     );
-  }, []);
+  }, [layout]);
 
   const back = useCallback(() => {
     setState((s) => {

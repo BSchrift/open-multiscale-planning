@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled as screensLoaded, touchDrag } from './seed';
-import { nowCard, phoneView, todayRead } from './today';
+import { nowCard, openBlock, phoneView, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -266,12 +266,20 @@ test('an Inbox item’s block shows it isn’t sorted yet, on Today and on Week:
   await expect(drawn.locator('svg[data-icon="inbox"]')).toBeVisible();
   expect(await drawn.evaluate((el) => getComputedStyle(el).borderLeftStyle)).toBe('dashed');
 
+  // The phone has no Week: Today's day is the week's day there, where the block says so in words too, and opens as any
+  // block does.
+  if (phone) {
+    await expect(drawn).toContainText('Inbox, 5:45pm to 6:45pm');
+    await openBlock(page, drawn, true);
+    await expect(page.getByRole('dialog', { name: 'Book dentist' })).toBeVisible();
+    expect(errors).toEqual([]);
+    return;
+  }
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
-  const week = page.getByRole('button', { name: phone ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.' });
+  const week = page.getByRole('button', { name: 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.' });
   await week.scrollIntoViewIfNeeded();
   await expect(week).toHaveClass(/\bk-inbox\b/);
   await expect(week.locator('svg[data-icon="inbox"]')).toBeVisible();
-  if (phone) await expect(week).toContainText('Inbox, 1h');
   await week.click();
   await expect(page.getByRole('dialog', { name: 'Book dentist' })).toBeVisible();
   expect(errors).toEqual([]);

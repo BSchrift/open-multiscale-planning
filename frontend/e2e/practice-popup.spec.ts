@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, openSeeded } from './seed';
-import { askOnBlock, closeWaiting, openBlock, phoneView, waitingSheet } from './today';
+import { askOnBlock, closeWaiting, openBlock, phoneView, todayRead, waitingSheet } from './today';
 import type { Seed } from './seed';
 
 // A practice's session and a planning block open one popup everywhere, in the task popup's frame: from Today's
@@ -173,19 +173,28 @@ test("Goals: a practice's row opens the same popup, with Pause practice and no b
   expect(errors).toEqual([]);
 });
 
-test("Week: a session opens the same popup from the grid, while editing too, and from the phone's day with its length", async ({ page }, info) => {
+test("Week: a session opens the same popup from the grid, while editing too, and on phone from the week Today draws, with its length while editing", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
   const errors = await open(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   const popup = page.getByRole('dialog', { name: 'Piano practice' });
   if (phone) {
-    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).click();
-    await page.getByRole('button', { name: /^Piano practice, 7am to 7:30am/ }).click();
+    // Wednesday's session, on the strip of the week Today draws: a tap selects it, raised as a card, and a second opens it.
+    await todayRead(page, true);
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).tap();
+    await openBlock(page, page.getByRole('slider', { name: /^Piano practice, 7am to 7:30am/ }), true);
+    await expectFrame(popup, 'Time block', phone);
+    await shoot(page, popup, shot('week'));
+    await popup.getByRole('button', { name: 'Cancel' }).click();
+    // Editing the week, its section has the session's length too.
+    await phoneView(page, "Edit this week's plan");
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).tap();
+    await page.getByRole('slider', { name: /^Piano practice\./ }).tap();
     await expectFrame(popup, 'Time block', phone);
     await expectTapTarget(popup.getByRole('region', { name: 'Time block' }).getByRole('slider', { name: 'Length' }));
-    await shoot(page, popup, shot('week'));
+    await shoot(page, popup, shot('week-editing'));
   } else {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
     await page.getByRole('button', { name: /^Piano practice, Wed Nov 4, 7am to 7:30am/ }).click();
     await expectFrame(popup, 'Time block', phone);
     await shoot(page, popup, shot('week'));

@@ -22,7 +22,6 @@ import { loadDoneWeek } from '../done/data';
 import { loadWeek, weekModel } from './data';
 import type { WeekData, WeekModel } from './data';
 import { DesktopWeek } from './Desktop';
-import { PhoneWeek } from './Phone';
 import './week.css';
 
 /** What both layouts get: the week, its figures, and how to move between weeks and modes. */
@@ -91,8 +90,9 @@ function weekTitle(offset: number, editing: boolean) {
 export default function WeekScreen(props: ScreenProps) {
   const shared = useWeekScreen(props, 'week');
   if (!shared) return null;
-  // Keyed by week, so what's open on one week doesn't carry to the next.
-  return props.layout === 'phone' ? <PhoneWeek key={shared.data.week} {...shared} /> : <DesktopWeek key={shared.data.week} {...shared} />;
+  // Keyed by week, so what's open on one week doesn't carry to the next. On phone, Week is Today's (areaOn), so this is
+  // never reached there.
+  return props.layout === 'phone' ? null : <DesktopWeek key={shared.data.week} {...shared} />;
 }
 
 /**

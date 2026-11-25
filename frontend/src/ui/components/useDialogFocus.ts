@@ -10,8 +10,9 @@ export function useDialogFocus<E extends HTMLElement>(onClose: () => void) {
   const ref = useRef<E>(null);
   const close = useRef(onClose);
   close.current = onClose;
-  // Read while rendering, before an autoFocus field inside can take focus.
-  const [returnTo] = useState(() => (pressed?.isConnected ? pressed : (document.activeElement as HTMLElement | null)));
+  // Read while rendering, before an autoFocus field inside can take focus. A menu's item goes as it's chosen, so a
+  // dialog it opens goes back to where the menu's opener put focus instead.
+  const [returnTo] = useState(() => (pressed?.isConnected && !pressed.closest('[role="menu"]') ? pressed : (document.activeElement as HTMLElement | null)));
   useEffect(() => {
     const element = ref.current;
     if (!element) return;

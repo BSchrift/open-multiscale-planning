@@ -40,9 +40,10 @@ async function planned(w: Writer) {
 const open = (options: HarnessOptions = {}) => renderScreen('week', { zone: ZONE, seed: planned, ...options });
 const resetButton = () => screen.findByRole('button', { name: "Reset this week's plan" });
 
-describe.each(['desktop', 'phone'] as const)("Reset this week's plan, on %s", (layout) => {
+// On phone the week is Today's, whose menu resets it: those are in today/weekOnToday.test.tsx.
+describe("Reset this week's plan, on desktop", () => {
   it('shows only while the week has something to reset, and never on a past week', async () => {
-    await open({ layout });
+    await open();
     await userEvent.click(await resetButton());
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Previous week' }));
@@ -51,13 +52,13 @@ describe.each(['desktop', 'phone'] as const)("Reset this week's plan, on %s", (l
   });
 
   it('is not there with nothing planned: only what has already happened', async () => {
-    await open({ layout, seed: async (w) => w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't1').then(() => w.create('time_block', { task_id: 't1', start: at(WEEK, '07:30'), end: at(WEEK, '08:30'), tz: ZONE })) });
+    await open({ seed: async (w) => w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't1').then(() => w.create('time_block', { task_id: 't1', start: at(WEEK, '07:30'), end: at(WEEK, '08:30'), tz: ZONE })) });
     await screen.findByText(/This week isn't planned yet/);
     expect(screen.queryByRole('button', { name: /^Reset/ })).toBeNull();
   });
 
   it('asks first, saying what goes and what stays, and Cancel changes nothing', async () => {
-    const t = await open({ layout });
+    const t = await open();
     const button = await resetButton();
     await userEvent.click(button);
     const dialog = screen.getByRole('dialog', { name: "Reset this week's plan?" });
@@ -75,7 +76,7 @@ describe.each(['desktop', 'phone'] as const)("Reset this week's plan, on %s", (l
 
   it('takes the plan out on Reset plan, says so with Undo, and Undo puts it all back', async () => {
     localStorage.setItem(`multiscale.planning.step.${WEEK}`, '3');
-    const t = await open({ layout });
+    const t = await open();
     await userEvent.click(await resetButton());
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset plan' }));
 
@@ -105,7 +106,6 @@ describe.each(['desktop', 'phone'] as const)("Reset this week's plan, on %s", (l
 
   it("offers Reset next week's plan on next week, which leaves this week alone", async () => {
     const t = await open({
-      layout,
       seed: async (w) => {
         await planned(w);
         await w.create('week_plan', { week_start: NEXT, finished_at: at(WEEK, '09:00') }, weekPlanId(NEXT));

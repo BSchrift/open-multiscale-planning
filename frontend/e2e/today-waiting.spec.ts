@@ -35,7 +35,7 @@ async function open(page: Page, records: Seed[]) {
 
 const tab = (page: Page, name: string) => page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name, exact: true }).click();
 
-test('a one off dated today offers Change date, which takes it off Today with Undo, and Find a time, which places it from Week', async ({ page }, info) => {
+test('a one off dated today offers Change date, which takes it off Today with Undo, and Find a time, which places it from Week, or on phone from Today', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const fence: Seed = { type: 'task', id: 't2', fields: { kind: 'one_off', title: 'Paint the fence', estimate_min: 60, schedule: { type: 'once', from: '2026-11-02' } } };
   const errors = await open(page, [planned, fence]);
@@ -62,9 +62,11 @@ test('a one off dated today offers Change date, which takes it off Today with Un
   if (phone) await chip.click();
   await expect(list.getByRole('checkbox', { name: 'Paint the fence done' })).toBeVisible();
 
-  // Find a time goes to Week with the one off being placed, at its best time to start with.
+  // Find a time goes to Week with the one off being placed, at its best time to start with; on phone, to Today, which
+  // draws the week.
   await list.getByRole('button', { name: 'Find a time for Paint the fence' }).click();
-  await expect(pane(page, 'Week')).toBeVisible();
+  if (phone) await expect(pane(page, 'Today').getByText(/^Placing Paint the fence, /)).toBeVisible();
+  else await expect(pane(page, 'Week')).toBeVisible();
   await page.getByRole('button', { name: 'Place here' }).click();
   await expect(page.getByText(/^Placed Paint the fence, /)).toBeVisible();
   // Placed, it's on the calendar, so no longer waiting on Today.

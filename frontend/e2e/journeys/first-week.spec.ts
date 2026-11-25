@@ -153,15 +153,17 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   const queue = phone ? page.getByRole('dialog', { name: 'To schedule' }).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Partly done today, 45m left')).toBeVisible();
   if (phone) {
+    // Placed from Today, which draws the week on phone: Thursday, chosen on the strip.
     await queue.getByRole('button', { name: 'Place on calendar' }).click();
-    await expect(pane(page, 'Week')).toBeVisible();
-    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(3).click();
-    await expect(page.getByRole('heading', { name: 'Thu Nov 5' })).toBeVisible();
+    await expect(pane(page, 'Today').getByText(/^Placing Write the opening scene, /)).toBeVisible();
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Thu Nov 5/ }).click();
+    await expect(page.getByRole('heading', { name: 'Thursday', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Place here' }).click();
     const toast = page.getByText(/^Placed Write the opening scene, Thu Nov 5, /);
     const time = (await toast.textContent())!.replace('Placed Write the opening scene, Thu Nov 5, ', '');
     await page.getByRole('button', { name: 'Done editing' }).click();
-    await expect(page.getByRole('button', { name: new RegExp(`^Write the opening scene, ${time} to `) })).toBeVisible();
+    // Still to come, so a slider on Thursday's day.
+    await expect(page.getByRole('slider', { name: new RegExp(`^Write the opening scene, ${time} to `) })).toBeVisible();
   } else {
     const offer = queue.getByRole('button', { name: /^Place Write the opening scene, / });
     const label = (await offer.getAttribute('aria-label'))!.replace('Place Write the opening scene, ', '');

@@ -125,7 +125,7 @@ describe("next week's planning row", () => {
     expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-07', '09:00'), end: at('2026-11-07', '09:50') }]);
   });
 
-  it.each(['desktop', 'phone'] as Layout[])('on %s, Choose another time opens Week with the block waiting at its best time, at the length chosen, to place by hand', async (layout) => {
+  it.each(['desktop', 'phone'] as Layout[])('on %s, Choose another time opens its week with the block waiting at its best time, at the length chosen, to place by hand', async (layout) => {
     const t = await open({ layout });
     await userEvent.click(within(await row(layout)).getByRole('button', { name: 'Choose a time to plan next week' }));
     const sheet = await screen.findByRole('dialog', { name: 'When will you plan next week?' });
@@ -137,9 +137,10 @@ describe("next week's planning row", () => {
     await userEvent.click(within(sheet).getByRole('button', { name: 'Choose another time' }));
     expect(screen.queryByRole('dialog', { name: 'When will you plan next week?' })).toBeNull();
     const route = t.nav().route;
-    expect(route).toMatchObject({ area: 'week', params: { place: NEXT_ID } });
+    // Week on desktop; on phone Week is Today's, which places it over its day (weekOnToday.test.tsx).
+    expect(route).toMatchObject({ area: layout === 'phone' ? 'today' : 'week', params: { place: NEXT_ID } });
     expect(planningToPlace(route.params)).toEqual({ for: NEXT, minutes: 45, at: { date: '2026-11-06', start: 17 * 60, end: 17 * 60 + 45 } });
-    // Nothing is placed until Place here on Week.
+    // Nothing is placed until Place here.
     expect(await blocksOf(t, NEXT_ID)).toEqual([]);
   });
 

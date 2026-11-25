@@ -10,7 +10,7 @@
 // macOS draw it.
 
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
+import type { HTMLAttributes, KeyboardEvent, ReactNode, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
 import { currentBlock, isPaused, nextBlock } from '../../../core/blocks';
 import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, today, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
@@ -77,6 +77,10 @@ export interface PhoneDay {
   choose?(id: string): void;
   /** A hold's draft is waiting on the day for Capture, so swiping to another day would take it away. */
   onDrafting?(on: boolean): void;
+  /** A block's Length slider and what its time means, for its popup's section, as Week's popup had them. */
+  length?(id: string): ReactNode;
+  /** Pinching the day (usePinchZoom), in place of the steps between the zoom buttons' sizes. */
+  pinch?: Pick<HTMLAttributes<HTMLDivElement>, 'onTouchStart' | 'onTouchMove' | 'onTouchEnd' | 'onTouchCancel'>;
 }
 
 /** Where a block's menu opens: on phone, this far below the block held; from the keys, this far in from its left. */
@@ -518,15 +522,17 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
   const calendar = (
     <div
       className="daywrap"
-      onTouchStart={(e) => {
-        if (e.touches.length === 2) pinch.current = { gap: touchGap(e), ph };
-      }}
-      onTouchMove={(e) => {
-        if (pinch.current && e.touches.length === 2) setPh(Math.max(ZOOM[0]!, Math.min(ZOOM[ZOOM.length - 1]!, Math.round((pinch.current.ph * touchGap(e)) / pinch.current.gap))));
-      }}
-      onTouchEnd={() => {
-        pinch.current = null;
-      }}
+      {...(pd?.pinch ?? {
+        onTouchStart: (e: TouchEvent) => {
+          if (e.touches.length === 2) pinch.current = { gap: touchGap(e), ph };
+        },
+        onTouchMove: (e: TouchEvent) => {
+          if (pinch.current && e.touches.length === 2) setPh(Math.max(ZOOM[0]!, Math.min(ZOOM[ZOOM.length - 1]!, Math.round((pinch.current.ph * touchGap(e)) / pinch.current.gap))));
+        },
+        onTouchEnd: () => {
+          pinch.current = null;
+        },
+      })}
     >
       {/* No arrow keys on phone, where VoiceOver's swipes move a block as a slider. */}
       {Object.entries(help).map(([key, text]) => (
@@ -828,7 +834,13 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
         <BlockPopup
           pop={pop}
           close={() => setPop(null)}
-          section={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: () => chooseOnWeek(popBlock) }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+          section={
+            popBlock && (
+              <BlockSection block={popBlock} move={{ ctx, choose: () => chooseOnWeek(popBlock) }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})}>
+                {pd?.length?.(popBlock.id)}
+              </BlockSection>
+            )
+          }
         />
       )}
       {menu && menuItem && (

@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { processTo } from './journeys/journey';
 import { expectTapTarget, oneOffRow, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
+import { waitingSheet } from './today';
 
 // Process's choices one by one, beyond the tour of them in inbox.spec.ts, and Capture's ways out and past the Inbox.
 
@@ -186,8 +187,12 @@ test('Add to this week is off again on each new card, and the item it adds waits
   await expect(toast(page)).toContainText('Added Fix the gate to Paint the fence.');
   await exit(page, phone);
 
-  await nav(page).getByRole('button', { name: 'Week' }).click();
-  const lane = page.getByRole('region', { name: 'To schedule' });
+  // Waiting in the week: in To schedule on Week, and on phone in the sheet behind the count on Today's strip.
+  let lane = page.getByRole('region', { name: 'To schedule' });
+  if (phone) {
+    await nav(page).getByRole('button', { name: 'Today' }).click();
+    lane = (await waitingSheet(page)).getByRole('region', { name: 'Waiting for a day' });
+  } else await nav(page).getByRole('button', { name: 'Week' }).click();
   // With no estimate, an item added to a project counts as an hour.
   await expect(lane.getByRole('button', { name: /^Call the bank, Project, 1h\b/ })).toBeVisible();
   await expect(lane.getByRole('button', { name: /^Fix the gate,/ })).toHaveCount(0);

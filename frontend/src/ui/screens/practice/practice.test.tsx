@@ -117,17 +117,20 @@ describe("a practice's popup", () => {
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
   });
 
-  it("opens the same from Week on phone, where the block's section has its length", async () => {
+  it("opens the same from another day on phone's Today, where the block's section has its length", async () => {
     await open(
-      'week',
+      'today',
       async (w) => {
         await piano(w);
         await session(w, 'bw', '07:00', '07:30', WED);
       },
       'phone',
     );
-    await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button')[2]!);
-    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 7am to 7:30am/ }));
+    await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' }, { timeout: 5000 })).getAllByRole('button')[2]!);
+    // A first tap selects it, and a second opens it.
+    const block = await screen.findByRole('slider', { name: /^Piano practice, 7am to 7:30am/ });
+    await userEvent.click(block);
+    await userEvent.click(block);
     const popup = await popupOf('Piano practice');
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
     expect(within(sectionOf(popup)).getByRole('slider', { name: 'Length' })).toHaveAttribute('aria-valuetext', '30m');

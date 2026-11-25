@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openSeeded, pane } from './seed';
 import type { Seed } from './seed';
-import { answerLater } from './today';
+import { answerLater, phoneView } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -89,13 +89,18 @@ test('reads a week, moves between weeks, and acts on a pattern', async ({ page }
   expect(errors).toEqual([]);
 });
 
-test('the back button above Analytics, opened from Week, is a text link with room above the title', async ({ page }) => {
+test('the back button above Analytics, opened from Week, or on phone from Today, is a text link with room above the title', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
   await page.clock.setFixedTime(NOW);
   await openSeeded(page, records);
   await answerLater(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
-  await page.getByRole('button', { name: "See this week's analytics" }).click();
-  const back = page.getByRole('button', { name: 'Back to Week' });
+  // The phone has no Week: Today draws the week, and its menu has the week's analytics.
+  if (phone) await phoneView(page, "See this week's analytics");
+  else {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+    await page.getByRole('button', { name: "See this week's analytics" }).click();
+  }
+  const back = page.getByRole('button', { name: phone ? 'Back to Today' : 'Back to Week' });
   const title = pane(page, 'Analytics').getByRole('heading', { name: 'Analytics', level: 1 });
   await expect(title).toBeVisible();
 

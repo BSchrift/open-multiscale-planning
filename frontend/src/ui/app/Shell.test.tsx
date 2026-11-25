@@ -193,8 +193,8 @@ describe('block prompts', () => {
   it("on phone, a block that ends asks on itself on Today's day, with no sheet over another tab", async () => {
     const t = await renderApp({ layout: 'phone', seed: running });
     await screen.findByRole('button', { name: /^Write the report, 1pm to 2:05pm/ });
-    await userEvent.click(tab('Week'));
-    await showsPane('Week');
+    await userEvent.click(tab('Goals'));
+    await showsPane('Goals');
     await blockEnds(t);
     await userEvent.click(tab('Today'));
     await showsPane('Today');
@@ -243,7 +243,7 @@ describe('shell on phone', () => {
   it('has exactly five tabs and a Capture button, and no side navigation', async () => {
     await renderApp({ layout: 'phone' });
     await showsPane('Today');
-    expect(within(main()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Today', 'Week', 'Inbox', 'Goals', 'More']);
+    expect(within(main()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Today', 'Plan', 'Inbox', 'Goals', 'More']);
     expect(screen.getByRole('button', { name: 'Capture a task' })).toBeInTheDocument();
   });
 
@@ -497,8 +497,8 @@ describe('first run', () => {
 });
 
 describe('registry', () => {
-  it.each(Object.keys(AREAS) as AreaId[])('renders %s on both layouts', async (area) => {
-    for (const layout of ['desktop', 'phone'] as const) {
+  it.each(Object.keys(AREAS) as AreaId[])('renders %s on both layouts, or on desktop only for Week, which is Today on phone', async (area) => {
+    for (const layout of area === 'week' ? (['desktop'] as const) : (['desktop', 'phone'] as const)) {
       // A task's popup needs its task, and a practice's its practice.
       const task = area === 'task' ? { params: { task: 't1' }, seed: (w: Writer) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 't1') } : {};
       const practice =

@@ -222,7 +222,7 @@ test('Skip, choose a new time later takes the block off the calendar into To sch
   const check = page.getByRole('dialog', { name: 'Have you started?' });
   await check.getByRole('button', { name: 'Skip, choose a new time later' }).click();
   await expect(check).toHaveCount(0);
-  await expect(page.getByText("Took Write the report off the calendar. It's in To schedule on Week.")).toBeVisible();
+  await expect(page.getByText(`Took Write the report off the calendar. It's in ${phone ? 'To schedule' : 'To schedule on Week'}.`)).toBeVisible();
 
   const now = nowCard(page, phone);
   await expect((phone ? page : now).getByText('Free until 4pm', { exact: true })).toBeVisible();

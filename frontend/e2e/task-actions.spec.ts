@@ -113,11 +113,11 @@ test('from a list: Start now, Mark done and Schedule… save at once with Undo, 
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(toast(page)).toHaveCount(0);
 
-  // Choose a time… opens Week to place it by hand.
+  // Choose a time… opens Week to place it by hand: on phone, Today, which draws the week, its strip named so.
   await actions.getByRole('button', { name: 'Schedule…' }).click();
   await menu.getByRole('menuitem', { name: 'Choose a time…' }).click();
   await expect(popup).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
+  await expect(phone ? page.getByRole('region', { name: /^Editing this week, / }) : page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

@@ -570,10 +570,21 @@ test("to schedule sits just above the day, or on phone in the waiting row's shee
     await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
     await settled(page);
     const day = page.locator('[data-drop-date="2026-11-02"]');
-    const d = (await day.boundingBox())!;
     const card = (await waitingSheet(page)).getByRole('button', { name: /^Paint the fence, One off, 30m/ });
     await expectTapTarget(card);
     await page.screenshot({ path: info.outputPath(`today-to-schedule-${info.project.name}.png`) });
+    // 3pm brought up to the middle of the screen, above the sheet and away from the bottom edge, where a held card
+    // scrolls the day on. The day is measured once the page, and the strip folding as it scrolls, have come to rest.
+    await day.evaluate((el) => document.querySelector('.pane')!.scrollBy(0, Math.max(0, el.getBoundingClientRect().y + 144 - innerHeight / 2)));
+    let rest = -1;
+    const still = async () => {
+      const top = await page.evaluate(() => document.querySelector('.pane')!.scrollTop);
+      const same = top === rest;
+      rest = top;
+      return same;
+    };
+    await expect.poll(still).toBe(true);
+    const d = (await day.boundingBox())!;
     // The phone's day opens at 1pm, an hour before now, at 72pt an hour, so 3pm is 144pt down. Held, the card lifts
     // and the sheet steps aside.
     await touchDrag(page, card, { x: d.x + d.width / 2, y: d.y + 144 + 2 });

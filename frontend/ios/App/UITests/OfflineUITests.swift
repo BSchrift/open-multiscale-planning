@@ -135,14 +135,15 @@ final class OfflineUITests: XCTestCase {
     func testEveryMainScreenOpensOffline() {
         let app = launchApp(seed: "Seed plan", offline: true)
         onToday(app.webText("Today"), in: app)
-        app.openWeek()
+        // The week's strip is Today's, over its day, and the week's jobs are Plan's.
         exists(app.webButton("Previous week"))
+        app.tapWeb("Plan", until: app.webButton("See this week's analytics"))
         app.tapWeb("Inbox", until: app.webText("Inbox is empty. Anything you capture lands here."))
         app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
         app.tapWeb("More", until: app.webText("More"))
         // More's rows, each with something only it shows, and the way back.
         let rows = [
-            ("Plan", app.webText("Plan")), ("One offs", app.webText("One offs")), ("Analytics", app.webText("Analytics")),
+            ("One offs", app.webText("One offs")), ("Analytics", app.webText("Analytics")),
             ("Done", app.webButton("Previous day")), ("Settings", app.webText("Settings")),
         ]
         for (row, shown) in rows {

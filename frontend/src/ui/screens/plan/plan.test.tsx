@@ -105,7 +105,7 @@ describe('Plan page', () => {
       const t = await page(layout, { seed: async (w) => (await seed(w), updateSettings(w, { plan_cadence: null })) });
       expect(await screen.findByRole('heading', { name: 'Set your planning cadence' })).toBeVisible();
       expect(screen.getByRole('button', { name: 'Plan without a cadence' })).toBeVisible();
-      await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
+      await userEvent.click(within(screen.getByRole('region', { name: 'Planning cadence' })).getByRole('button', { name: 'Start planning' }));
       await waitFor(async () => expect((await getSettings(t.db)).plan_cadence).toEqual({ every: 1, unit: 'quarters', anchor: '2026-11-03' }));
       expect(t.nav().flow?.area).toBe('plan');
     });
@@ -394,8 +394,8 @@ describe('Planning ahead', () => {
       expect(await screen.findByText('Planning is saved, so you can continue it later.')).toBeVisible();
       await waitFor(async () => expect((await getSettings(t.db)).stretch_planning).toMatchObject({ start: '2027-01-01', min: 4 }));
 
-      // Phone keeps Plan under More, as it was left.
-      await userEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: layout === 'phone' ? 'More' : 'Plan' }));
+      // Plan is a tab on both, and it's kept as it was left.
+      await userEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: 'Plan' }));
       await userEvent.click(await screen.findByRole('button', { name: 'Continue planning' }));
       expect(await screen.findByText('Welcome back. You were on Goals.', { selector: ':not(.sr)' })).toBeVisible();
       expect(screen.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' })).toBeVisible();

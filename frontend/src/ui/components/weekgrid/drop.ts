@@ -234,8 +234,10 @@ export function dragCard(
   let when: HTMLElement | null = null;
   let last: Slot | null = null;
   let at = { x: x0, y: y0 };
-  // Keeps scrolling while the card is held near an edge, and the time under it follows.
-  const edges = edgeScroll(card, () => ghost && follow(at.x, at.y));
+  // Keeps scrolling while the card is held near an edge, and the time under it follows. A card in a sheet, outside what
+  // scrolls, as on the phone's Today, scrolls the day it's dragged onto instead.
+  const outside = scrollerOf(card) === document.scrollingElement;
+  const edges = edgeScroll((outside && document.querySelector('[data-drop-date]')) || card, () => ghost && follow(at.x, at.y));
   const follow = (x: number, y: number) => {
     at = { x, y };
     edges.follow(y);

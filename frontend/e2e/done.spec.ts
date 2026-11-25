@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
-import { answerLater } from './today';
+import { answerLater, openStrip } from './today';
 
 // Done: a day's list of what was finished and the time worked, reached from Today's line, Week's day headings, the
 // sidebar on desktop and More on phone.
@@ -121,24 +121,30 @@ test('from Today’s line to Done, where a block not marked yet is marked finish
   expect(errors).toEqual([]);
 });
 
-test('Week’s day headings open Done on that day, and Done has its place in the navigation', async ({ page }, info) => {
+test('Week’s day headings, or on phone the days gone by on Today, open Done on that day, and Done has its place in the navigation', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page);
   const nav = page.getByRole('navigation', { name: 'Main' });
 
-  await nav.getByRole('button', { name: 'Week' }).click();
   if (phone) {
-    // The chosen day's heading, today, opens it; a later day's doesn't.
-    const heading = page.getByRole('button', { name: 'Done on Thu Nov 12: 4 finished' });
-    await expect(heading).toHaveText(/^4 finished\s*$/);
-    await expectTapTarget(heading);
-    await heading.click();
+    // Today draws the week on phone: a day gone by, chosen on the strip, opens Done on that day from the row above it,
+    // and a later day has none. Today's own is the evening's Done line.
+    await (await openStrip(page)).getByRole('button', { name: /^Fri Nov 13/ }).tap();
+    await expect(page.getByRole('heading', { name: 'Tomorrow', level: 1 })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Done on / })).toHaveCount(0);
+    // The strip, opened again if the day scrolled it away.
+    await (await openStrip(page)).getByRole('button', { name: /^Wed Nov 11/ }).tap();
+    const row = page.getByRole('button', { name: 'Done on Wed Nov 11: 1 finished' });
+    await expect(row).toContainText('1 finished');
+    await expectTapTarget(row);
+    await row.click();
   } else {
+    await nav.getByRole('button', { name: 'Week' }).click();
     await expect(page.getByRole('button', { name: /^Done on Fri Nov 13/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Done on Wed Nov 11: 1 finished' }).click();
   }
-  await expect(done(page).getByRole('heading', { name: phone ? 'Thursday, Nov 12' : 'Wednesday, Nov 11' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Back to Week' })).toBeVisible();
+  await expect(done(page).getByRole('heading', { name: 'Wednesday, Nov 11' })).toBeVisible();
+  await expect(page.getByRole('button', { name: phone ? 'Back to Today' : 'Back to Week' })).toBeVisible();
 
   if (phone) {
     // Done lives under More, so More, chosen again, goes back to its list.

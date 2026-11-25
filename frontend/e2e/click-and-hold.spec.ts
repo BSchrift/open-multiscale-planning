@@ -1,10 +1,11 @@
-// A click or tap on a block opens it, and only a hold lifts it to drag, on Today and Week, with a mouse and a finger. A
-// hand that shifts a few pixels while clicking still clicks, whether or not the block can move.
+// A click or tap on a block opens it, and only a hold lifts it to drag, on Today and Week, with a mouse and a finger,
+// Week on phone being the week Today draws. A hand that shifts a few pixels while clicking still clicks, whether or not
+// the block can move.
 
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled, touchDrag } from './seed';
-import { openBlock, todayRead } from './today';
+import { openBlock, phoneView, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -135,22 +136,23 @@ test('Week, desktop: while editing, a click that wobbles opens a block or a card
   expect(errors).toEqual([]);
 });
 
-test("Week, phone: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it", async ({ page }, info) => {
+test("Week on phone's Today: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The draggable day is the phone layout');
   const errors = await open(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
-  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  // The phone edits the week from Today's menu.
+  await todayRead(page, true);
+  await phoneView(page, "Edit this week's plan");
   const report = page.getByRole('slider', { name: /^Write the report\./ });
   await expect(report).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 4pm to 5pm');
   await opens(page, 'Write the report', () => report.tap());
 
-  // The day draws 48px an hour. A finger that moves before the hold is scrolling, so the block stays.
-  await report.scrollIntoViewIfNeeded();
+  // The day draws 72pt an hour, as Today's does. A finger that moves before the hold is scrolling, so the block stays.
+  await report.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const box = (await report.boundingBox())!;
   const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await touchDrag(page, report, { x: from.x, y: from.y + 48 }, 50);
+  await touchDrag(page, report, { x: from.x, y: from.y + 72 }, 50);
   await expect(report).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 4pm to 5pm');
-  await touchDrag(page, report, { x: from.x, y: from.y + 48 });
+  await touchDrag(page, report, { x: from.x, y: from.y + 72 });
   await expect(page.getByRole('slider', { name: /^Write the report\./ })).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 5pm to 6pm');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(errors).toEqual([]);

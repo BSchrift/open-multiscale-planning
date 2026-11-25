@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import { openSeeded } from './seed';
 import type { Seed } from './seed';
+import { phoneView } from './today';
 
 // A lived-in week, then every screen in turn: each renders without errors and without sideways scrolling.
 
@@ -153,7 +154,7 @@ async function look(page: Page, info: TestInfo, name: string) {
 
 async function tab(page: Page, phone: boolean, name: string) {
   const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone && !['Today', 'Week', 'Inbox', 'Goals'].includes(name)) {
+  if (phone && !['Today', 'Plan', 'Inbox', 'Goals'].includes(name)) {
     await nav.getByRole('button', { name: 'More' }).click();
     await page.locator('.pane[aria-hidden="false"]').getByRole('button', { name: new RegExp(`^${name}`) }).click();
   } else {
@@ -183,7 +184,8 @@ test('every screen of a lived-in week renders cleanly', async ({ page }, info) =
   await toast.getByRole('button', { name: 'Undo' }).click();
   await expect((phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' })).getByRole('button', { name: 'Mark done now' })).toBeVisible();
 
-  for (const name of ['Week', 'Inbox', 'Goals', 'Plan', 'One offs', 'Notes', 'Analytics', 'Settings']) {
+  // The phone has no Week: its Today, above, draws the week.
+  for (const name of [...(phone ? [] : ['Week']), 'Inbox', 'Goals', 'Plan', 'One offs', 'Notes', 'Analytics', 'Settings']) {
     await tab(page, phone, name);
     await look(page, info, name.toLowerCase().replace(' ', ''));
   }
@@ -224,9 +226,15 @@ test('the planning flows of a lived-in week render cleanly', async ({ page }, in
   await page.clock.install({ time: NOW });
   await openSeeded(page, week);
 
-  await tab(page, phone, 'Week');
-  await page.getByRole('button', { name: 'Next week' }).first().click();
-  await page.getByRole('button', { name: /^Plan next week|^Start planning/ }).first().click();
+  // Next week's planning: from Week's next week, and on phone from the Plan tab's Next week card.
+  if (phone) {
+    await tab(page, phone, 'Plan');
+    await page.getByRole('region', { name: 'Next week' }).getByRole('button', { name: /^Plan next week|^Start planning/ }).click();
+  } else {
+    await tab(page, phone, 'Week');
+    await page.getByRole('button', { name: 'Next week' }).first().click();
+    await page.getByRole('button', { name: /^Plan next week|^Start planning/ }).first().click();
+  }
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
   await expect(steps).toBeVisible();
   for (const step of ['Inbox', 'Pick', 'Schedule', 'Review']) {
@@ -255,23 +263,26 @@ test('the links between areas reach their page and come back', async ({ page }, 
   const shown = (label: string) => page.locator(`.pane[aria-hidden="false"][aria-label="${label}"]`);
 
   if (phone) {
-    // Today: work that needs a new time goes to the Week, ready to place, and Cancel comes back.
+    // Today: work that needs a new time is placed on Today, which draws the week, and Cancel comes back.
     await page.getByRole('button', { name: /\d+ to schedule/ }).click();
     await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Place on calendar' }).first().click();
-    await expect(shown('Week')).toBeVisible();
+    await expect(shown('Today').getByText(/^Placing /)).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(shown('Today')).toBeVisible();
     // Back where it was left, sheet and all.
     await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Close' }).click();
   }
 
-  // Week to that week's analytics, and back.
-  await tab(page, phone, 'Week');
-  await page.getByRole('button', { name: "See this week's analytics" }).click();
+  // Week to that week's analytics, and back: on phone from Today's menu.
+  if (phone) await phoneView(page, "See this week's analytics");
+  else {
+    await tab(page, phone, 'Week');
+    await page.getByRole('button', { name: "See this week's analytics" }).click();
+  }
   await expect(shown('Analytics')).toBeVisible();
   await expect(shown('Analytics').getByText('Nov 2 to Nov 8', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to Week' }).click();
-  await expect(shown('Week')).toBeVisible();
+  await page.getByRole('button', { name: phone ? 'Back to Today' : 'Back to Week' }).click();
+  await expect(shown(phone ? 'Today' : 'Week')).toBeVisible();
 
   // Inbox: one item straight into Process.
   await tab(page, phone, 'Inbox');

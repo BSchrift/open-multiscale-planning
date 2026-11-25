@@ -139,3 +139,18 @@ test('with reduced motion the strip switches to the slim bar at once, and never 
   await page.clock.runFor(1000);
   expect(await scrollTop(page)).toBeCloseTo(d + 30, 0);
 });
+
+test("Plan's This week card edits the week on Today, and the tab bar has no Week", async ({ page }) => {
+  await open(page);
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await expect(nav.getByRole('button', { name: 'Week' })).toHaveCount(0);
+  await nav.getByRole('button', { name: 'Plan' }).tap();
+  const thisWeek = page.getByRole('region', { name: 'This week' });
+  await expect(thisWeek.getByText('2h planned,', { exact: false })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Next week' })).toBeVisible();
+  await thisWeek.getByRole('button', { name: "Edit this week's plan" }).tap();
+  await expect(page.getByRole('button', { name: 'Done editing' })).toBeVisible();
+  await expect(nav.getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: 'Done editing' }).tap();
+  await expect(heading(page)).toHaveText('Today');
+});

@@ -59,7 +59,8 @@ test('every main screen opens offline for the first time, once the app has loade
   await page.waitForLoadState('networkidle');
 
   const offline = await goOffline(page, context);
-  for (const name of ['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']) {
+  // The phone has no Week: its Today draws the week.
+  for (const name of ['Today', 'Inbox', ...(phone ? [] : ['Week']), 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']) {
     await tab(page, phone, name);
     await expect(broken(page), name).toHaveCount(0);
   }
@@ -208,11 +209,16 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
   await reloadOnline(page, offline);
   await expect(planPrompt(page)).toHaveCount(0);
   expect(await readRecord(page, 'week_plan', `week:${WEEK}`)).toMatchObject({ finished_at: expect.any(String) });
-  await tab(page, phone, 'Week');
-  await expect(pane(page, 'Week').getByText('Everything this week is on the calendar.')).toBeVisible();
+  // Everything is on the calendar: Week says so, and on phone, Today, which draws the week, has nothing waiting.
+  await tab(page, phone, phone ? 'Today' : 'Week');
+  const week = pane(page, phone ? 'Today' : 'Week');
+  if (phone) {
+    await expect(week.getByRole('region', { name: /^This week, / })).toBeVisible();
+    await expect(week.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
+  } else await expect(week.getByText('Everything this week is on the calendar.')).toBeVisible();
   // Its suggested time was Tuesday's first free one.
-  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).click();
-  await expect(pane(page, 'Week').getByText('Write chapter one').first()).toBeVisible();
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).tap();
+  await expect(week.getByText('Write chapter one').first()).toBeVisible();
   expectOffline(offline);
 });
 
@@ -280,9 +286,10 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
   await expectSaved(page, 'time_block', { task_id: 'o1' }, { deleted_at: expect.any(String) });
 
   await reloadOnline(page, offline);
-  await tab(page, phone, 'Week');
-  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).click();
-  await expect(pane(page, 'Week').getByText('Collect the sources').first()).toBeVisible();
+  // On phone, on Today, which draws the week.
+  await tab(page, phone, phone ? 'Today' : 'Week');
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).tap();
+  await expect(pane(page, phone ? 'Today' : 'Week').getByText('Collect the sources').first()).toBeVisible();
   expectOffline(offline);
 });
 

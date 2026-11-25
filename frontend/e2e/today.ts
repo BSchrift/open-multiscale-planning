@@ -31,10 +31,49 @@ export async function openBlock(page: Page, block: Locator, phone: boolean): Pro
   await nowCard(page, true).locator('.rctitle').tap();
 }
 
-/** Picks from the phone's Today menu, which holds the day's zoom and its list. */
-export async function phoneView(page: Page, choice: 'Zoom in' | 'Zoom out' | 'Show as a list' | 'Show as a calendar'): Promise<void> {
+/**
+ * Picks from the phone's Today menu, which holds the day's zoom and its list, and the week's own actions that Week's
+ * page had on phone before Today drew the week.
+ */
+export async function phoneView(
+  page: Page,
+  choice: 'Zoom in' | 'Zoom out' | 'Show as a list' | 'Show as a calendar' | "Edit this week's plan" | "Reset this week's plan" | "See this week's analytics" | "See that week's analytics",
+): Promise<void> {
   await page.getByRole('button', { name: 'View and week' }).click();
   await page.getByRole('menuitem', { name: choice }).click();
+}
+
+/**
+ * The strip's seven days, opened from its slim bar when the day has scrolled them away. The bar is tapped where it's
+ * drawn, as a finger lands, since Playwright's own tap first scrolls the bar, stuck over the day, clear of the page's
+ * padding. Opened, focus goes to the day shown once the days are in, which is waited for, so it doesn't take focus from
+ * what's pressed next.
+ */
+export async function openStrip(page: Page): Promise<Locator> {
+  const days = page.getByRole('group', { name: 'Choose a day' });
+  // A day just chosen keeps its time of day, which can scroll the page and fold the strip, and a half fold then springs
+  // to an end: so the page is let rest first, for longer than the spring waits before it starts (140ms).
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => {
+        const pane = document.querySelector('.pane')!;
+        let [last, still] = [-1, 0];
+        const tick = () => {
+          still = pane.scrollTop === last ? still + 1 : 0;
+          last = pane.scrollTop;
+          if (still >= 15) done();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  if (!(await days.isVisible())) {
+    const bar = (await page.getByRole('button', { name: /\. Show the week$/ }).boundingBox())!;
+    await page.touchscreen.tap(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await expect(days.locator('[aria-pressed="true"]')).toBeFocused();
+  }
+  await expect(days).toBeVisible();
+  return days;
 }
 
 /** The sheet behind the strip footer's count of what's waiting for a time: Needs a new time, the week's cards and missed blocks. */

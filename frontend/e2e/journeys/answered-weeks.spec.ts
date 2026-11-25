@@ -71,13 +71,15 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
     if (i > 0) await jumpTo(page, chicago(monday, '08:00'));
     await planWeek(page, phone, [draft, notes]);
 
-    // The Week tab follows the new week, and shows where the picks went.
-    await tab(page, phone, 'Week');
-    await expect(pane(page, 'Week').getByRole('heading', { name: 'This week' })).toBeVisible();
+    // The week follows the new week, and shows where the picks went: Week on desktop, and on phone Today, which draws
+    // the week's strip over the day.
+    await tab(page, phone, phone ? 'Today' : 'Week');
     if (phone) {
-      // The strip opens on today, Monday.
-      await expect(page.getByRole('button', { name: `${draft}, 5pm to 6pm, Project.` })).toBeVisible();
+      await expect(pane(page, 'Today').getByRole('region', { name: /^This week, / })).toBeVisible();
+      // The strip opens on today, Monday, whose block still to come is a slider on the day.
+      await expect(page.getByRole('slider', { name: new RegExp(`^${draft}, 5pm to 6pm, Project\\.`) })).toBeVisible();
     } else {
+      await expect(pane(page, 'Week').getByRole('heading', { name: 'This week' })).toBeVisible();
       await expect(page.getByRole('button', { name: new RegExp(`^${draft}, Mon .*, 5pm to 6pm, Project\\.`) })).toBeVisible();
       await expect(page.getByRole('button', { name: new RegExp(`^${notes}, Tue .*, 5pm to 6pm, Project\\.`) })).toBeVisible();
     }
@@ -109,15 +111,14 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
   // The next Monday, Schedule no longer suggests the evening that never held. Before 7am, all of Monday is still ahead.
   await jumpTo(page, chicago('2026-12-07', '06:30'));
   await planWeek(page, phone, ['Draft chapter six']);
-  await tab(page, phone, 'Week');
-  await expect(pane(page, 'Week').getByRole('heading', { name: 'This week' })).toBeVisible();
+  await tab(page, phone, phone ? 'Today' : 'Week');
   if (phone) {
-    // Placed on some day, and not on Monday evening.
+    await expect(pane(page, 'Today').getByRole('region', { name: /^This week, / })).toBeVisible();
+    // Placed on some day, which the strip says has an hour planned, and not on Monday evening: today, which Today shows.
     const strip = page.getByRole('group', { name: 'Choose a day' });
-    await expect(strip.getByRole('button', { name: /, 14h free$/ })).toHaveCount(1);
-    await strip.getByRole('button', { name: /^Mon Dec 7,/ }).click();
-    await expect(page.getByRole('heading', { name: 'Mon Dec 7' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Draft chapter six, ([5-9]|1[01])(:\d\d)?pm to/ })).toHaveCount(0);
+    await expect(strip.getByRole('button', { name: /, 1h planned$/ })).toHaveCount(1);
+    await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
+    await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('slider', { name: /^Draft chapter six, ([5-9]|1[01])(:\d\d)?pm to/ })).toHaveCount(0);
   } else {
     const placed = page.getByRole('button', { name: /^Draft chapter six, / });
     await expect(placed).toBeVisible();

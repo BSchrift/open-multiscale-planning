@@ -15,6 +15,8 @@ import { nextStretch } from '../core/plan';
 import { historyChanges } from '../core/history-testing';
 import { KEEP, KEPT } from '../core/perf';
 import { applyRemote, getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
+import { newestId, writeSeen } from '../core/whatsNew';
+import { WHATS_NEW } from '../whatsNew';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
@@ -84,6 +86,8 @@ async function erase(platform: Platform): Promise<string> {
   await LocalNotifications.removeAllDeliveredNotifications();
   await platform.widgets?.clear();
   localStorage.clear();
+  // A new install has seen every What's new line, which setup records; the seeds skip setup, so it's recorded here.
+  writeSeen(newestId(WHATS_NEW));
   const left = (await platform.db.all('SELECT id FROM records')).length;
   const session = await platform.tokens.get('auth.session');
   return left === 0 && session === null ? 'erased' : `erase left ${left} records and ${session === null ? 'no' : 'a'} session`;

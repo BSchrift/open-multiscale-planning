@@ -48,9 +48,9 @@ describe("a note's home shows it", () => {
     expect(within(section).getAllByRole('button').map((b) => b.querySelector('.ntitle')?.textContent)).toEqual(['Tiles: 10x10 white']);
   });
 
-  it("in the practice's sheet", async () => {
+  it("in the practice's popup", async () => {
     await renderScreen('goals', { seed, layout: 'phone', params: { show: 'pr1' } });
-    const sheet = await screen.findByRole('dialog', { name: 'Edit practice' }, { timeout: 5000 });
+    const sheet = await screen.findByRole('dialog', { name: 'Morning run' }, { timeout: 5000 });
     expect(within(within(sheet).getByRole('region', { name: 'Notes' })).getByRole('button', { name: /^Shoe size 44/ })).toBeInTheDocument();
   });
 });

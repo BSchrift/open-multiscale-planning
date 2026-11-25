@@ -435,9 +435,10 @@ final class ShellUITests: XCTestCase {
     /// body wider than the sheet, so it slid sideways and cut off its left. Every field stays inside the sheet's gutter.
     func testATaskPopupWithADateFitsThePhoneAndNeverSlidesSideways() {
         let app = launchApp(seed: "Seed dated one off")
-        app.tapWeb("More")
+        // The first tap after a launch is now and then lost on CI's Simulator, so More is tapped until One offs shows.
+        app.tapWeb("More", until: app.webButton(startingWith: "One offs"))
         app.tapWeb(startingWith: "One offs")
-        app.tapWeb("Return the drill")
+        app.tapWeb("Return the drill", until: app.webButton("Start now"))
         // The field, not the label above it, which has the same name.
         let notText = NSPredicate(format: "label == 'Date (optional)' AND elementType != %d", XCUIElement.ElementType.staticText.rawValue)
         let date = app.page.descendants(matching: .any).matching(notText).firstMatch

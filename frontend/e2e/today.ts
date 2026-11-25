@@ -5,6 +5,11 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 
+/** Whether the app drew the phone's layout, read once its shell is drawn, which can be a moment after the seed. */
+export async function isPhone(page: Page): Promise<boolean> {
+  return (await page.locator('[data-layout]').first().getAttribute('data-layout')) === 'phone';
+}
+
 /**
  * Today has read the week, so nothing above the day moves after: To schedule's line on desktop, and on phone, Today no
  * longer busy. Without `phone`, the layout drawn says which.

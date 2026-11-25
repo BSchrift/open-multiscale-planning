@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, pane, pressOn, release } from './seed';
 import type { Seed } from './seed';
-import { openBlock, phoneView, todayRead } from './today';
+import { isPhone, openBlock, phoneView, todayRead } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -37,7 +37,7 @@ async function openWeek(page: Page, list = records) {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, list);
-  if (await page.locator('[data-layout="phone"]').count()) {
+  if (await isPhone(page)) {
     await todayRead(page, true);
     // Today makes the first stretch's planning task by itself, and its row then comes in above the day, moving the day
     // down the page.

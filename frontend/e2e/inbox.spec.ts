@@ -540,5 +540,11 @@ test('phone: the Capture sheet rises above the keyboard, which covers the page r
   // A browser can't open a keyboard in a test, so this sets what app/keyboard.ts would for a 336pt keyboard.
   await page.evaluate(() => document.documentElement.style.setProperty('--keyboard', '336px'));
   await expect.poll(async () => Math.round((await sheet.boundingBox())!.y + (await sheet.boundingBox())!.height)).toBe(height - 336);
-  await expect(sheet.getByRole('textbox', { name: 'Capture to Inbox' })).toBeInViewport();
+  // The name, Time under it and Save all clear the keyboard.
+  for (const control of [sheet.getByRole('textbox', { name: 'Capture to Inbox' }), sheet.getByRole('slider', { name: 'Time' }), sheet.getByRole('button', { name: 'Save' })]) {
+    await expect(control).toBeInViewport();
+    const box = (await control.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(height - 336);
+  }
+  await page.screenshot({ path: info.outputPath('capture-keyboard.png') });
 });

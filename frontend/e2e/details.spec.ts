@@ -229,7 +229,7 @@ test('the Now card, a To schedule card and a block on Today open the popup', asy
   await expect(popup).toBeVisible();
 });
 
-test("Capture's Add details opens with Time first, takes a description, and keeps Save in reach", async ({ page }, info) => {
+test("Capture shows Time under the name, and Add details opens under it with Send to, takes a description, and keeps Save in reach", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
@@ -238,12 +238,24 @@ test("Capture's Add details opens with Time first, takes a description, and keep
   const capture = page.getByRole('dialog', { name: 'Capture' });
   const field = capture.getByRole('textbox', { name: /^Capture to/ });
   await field.fill('Draft the summary');
-  await capture.getByRole('button', { name: 'Add details' }).click();
+  // Time is there before Add details, under the name and above the toggle.
+  const time = capture.getByRole('slider', { name: 'Time' });
+  await expect(time).toBeVisible();
+  expect((await field.boundingBox())!.y).toBeLessThan((await time.boundingBox())!.y);
+  if (phone) expect((await time.boundingBox())!.y).toBeLessThan((await capture.getByRole('button', { name: 'Add details' }).boundingBox())!.y);
+  await page.screenshot({ path: info.outputPath(`capture-folded-${info.project.name}.png`) });
   if (!phone) {
     // One Tab from the name reaches Time.
     await field.focus();
     await page.keyboard.press('Tab');
-    await expect(capture.getByRole('slider', { name: 'Time' })).toBeFocused();
+    await expect(time).toBeFocused();
+  }
+  await capture.getByRole('button', { name: 'Add details' }).click();
+  await expect(capture.getByRole('slider', { name: 'Time' })).toHaveCount(1);
+  if (!phone) {
+    await field.focus();
+    await page.keyboard.press('Tab');
+    await expect(time).toBeFocused();
   }
   const top = async (l: Locator) => (await l.boundingBox())!.y;
   const order = [capture.getByRole('slider', { name: 'Time' }), capture.getByLabel('Send to')];

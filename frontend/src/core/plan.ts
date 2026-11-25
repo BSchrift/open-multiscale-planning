@@ -681,7 +681,7 @@ export function pickToPlace(c: Candidate, drawn: readonly { task_id?: string | n
 
 /** One record's new field values. */
 export interface RecordWrite {
-  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice' | 'attachment' | 'memo';
+  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice' | 'attachment' | 'memo' | 'away_period';
   id: string;
   fields: Record<string, unknown>;
 }

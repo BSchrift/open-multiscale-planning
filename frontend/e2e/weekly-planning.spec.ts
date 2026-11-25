@@ -117,7 +117,8 @@ test('Skip a practice this week takes its sessions out of the week, and Include 
     await expect(more).toHaveAttribute('aria-expanded', 'false');
     await more.click();
   }
-  await expect(list.getByText('0 of 2 placed')).toBeAttached();
+  // Both its sessions landed at their set time on opening; skipped and included again, it waits to be placed.
+  await expect(list.getByText('1 to place · 2 at their set times')).toBeAttached();
   const skip = list.getByRole('button', { name: 'Skip this week, Morning stretch' });
   if (phone) await expectTapTarget(skip);
   await skip.click();

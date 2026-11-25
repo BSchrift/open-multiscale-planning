@@ -622,7 +622,7 @@ describe('Planning ahead', () => {
       expect(screen.getByText('30m every day, around 7am')).toBeVisible();
       expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
       await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Read about baking' })).toHaveFocus());
-      expect(undoButton('Added practice Read about baking.')).toBeVisible();
+      expect(undoButton('Added practice Read about baking. Placed 6 sessions at their set times.')).toBeVisible();
     });
 
     it('shows every project on one timeline, with what is overdue first', async () => {

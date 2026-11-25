@@ -35,7 +35,10 @@ five-year account, about 33,000 records: on CI in e2e-stack (`frontend/e2e/stack
 user of its own, with the page's CPU six times slower once synced, so Week's read-back passes the toast's 5 seconds as
 prod's did; and on every staging run as `integration.historyUser`, in the web app suite's `history` project, seeded
 first, with the long first sync, a reload during one, OPFS, planning and the console, reported only for now. That page
-never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them.
+never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them. Each
+change has every open screen read again, and once Save and exit's writes waited behind those reads for over 15 seconds
+on prod's desktop; writes now go ahead of reads still waiting, which core.test.ts checks, and the browser suite's stretch
+spec times Save and exit on the five-year account with Inbox and Week open.
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
@@ -122,7 +125,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Inbox step | covered (plan: "Goals asks for some… with Process over an inert flow", "an empty Inbox says so…") | covered (same) | covered (journeys/next-stretch) | missing |
 | Finish: fit, aims, steps not looked at, Undo | covered (plan: "plans the next stretch…"; stretch: "the step arrows move between steps, and Finish names the steps not looked at…", "planned without a cadence… its toast's Undo takes the plan back", "Finish and plan the week…") | covered (same) | covered (journeys/next-stretch) | missing |
 | Cadence changed in place, now or when this plan ends, or turned off | covered (plan: "…changes cadence in place…"; stretch: "a new cadence can end this plan now…", "turning the schedule off…") | covered (same) | missing | missing |
-| Save and exit, then resume | covered (plan: "…resumes planning where it was, with Undo still there"; stretch: "a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later"; stack/stretch: across devices) | covered (plan, stretch) | covered (journeys/planning-task) | missing |
+| Save and exit, then resume | covered (plan: "…resumes planning where it was, with Undo still there"; stretch: "a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later", "on a five-year history, with Inbox and Week open behind it, Save and exit leaves planning at once"; stack/stretch: across devices) | covered (plan, stretch) | covered (journeys/planning-task) | missing |
 | Edit goals (the UI has Open project in Goals, which saves planning) | covered (plan: "a goal's projects are blocks… the project itself after saving planning") | covered (same) | missing | missing |
 | Never planned: this stretch from today | covered (plan: "never planned, plans this stretch from today…") | covered (same) | covered (journeys/next-stretch) | missing |
 
@@ -137,6 +140,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Schedule: drag, place, place the rest, Undo | covered (schedule: "desktop: drag the task to a time…", "…Place here asks, then Replace takes it off to place again", "…Place the rest puts each session at its own day's time…"; planning-place) | covered (schedule: "phone: compare days, move the task to another day…", "phone: the draft floats beside a placed block…"; planning-place) | covered (journeys/first-week, journeys/answered-weeks) | missing |
 | Schedule: a moved practice session asks about future weeks | covered (schedule: "desktop: moving a practice session asks…"; weekly-planning: "desktop: Yes on Schedule's practice question…") | missing (the phone's question sheet; touch dragging) | missing | missing |
 | Schedule: skip a practice this week, and include it again | covered (weekly-planning: "Skip a practice this week takes its sessions out…") | covered (same) | missing | missing |
+| Schedule: sessions at their set times ticked as a group, Take off from Show, and a taken set time first with why and Skip for its day | covered (set-times: "planning's Schedule step ticks the sessions…"; unit: schedule.test.tsx) | covered (same) | missing | missing |
 | Schedule: with nothing left to place, a press held on empty time drafts an hour there and Capture saves it; none while a task is being placed | covered (schedule: "with nothing left to place in the Schedule step, a press held on empty time drafts an hour there…", "a press held on empty time in the Schedule step drafts nothing while a task is being placed") | covered (same) | missing | missing |
 | Schedule: Mark done on a placed task's card finishes the task, with Undo; Done editing only stops changing the block | covered (schedule: "Mark done on a placed task's card finishes the task…"; schedule.test.tsx: "a placed one off's card says Done editing, not Done…") | covered (same, Undo in the step's own toast) | missing | missing |
 | Schedule: a new task while one waits: New task here from a right-click on empty time or Shift-F10 on a day (desktop), + in the step's bar as New task at the first free hour (phone) | covered (schedule: "desktop: a right-click on empty time offers New task here while a task waits…") | covered (schedule: "phone: + in the step's bar is New task…"; planning.test.tsx: + is New task on Schedule only) | missing | missing |
@@ -208,6 +212,10 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Practices: add and edit, link to a goal | covered (goals: "edits a practice with no goal and links it to one"; journeys/capture-and-process) | covered (same) | covered (journeys/capture-and-process, journeys/next-stretch) | missing |
 | Practice schedules: set days with their own times, times a week | covered (goals: "builds Mon, Tue and Fri with Friday at 9:30…"; practices: "Times a week with a longer session…"; stack/sync: two devices) | covered (same) | missing | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
 | Practices: Pause practice, Resume practice, End practice, in the practice's popup | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
+| Practices at their set times: placed on opening, this week and next once its planning appears, said once with Undo; a taken time waits, saying why | covered (set-times: "on opening, next week lands at its set times…", "Week shows them as planned…"; unit: core/setTimes.test.ts, ui/app/setTimes.test.tsx) | covered (same) | missing | missing |
+| Set times: two devices placing the same sessions offline make one each day, and a take-off on one wins | covered (stack/set-times: "two devices placing the same practice offline…"; unit: core/setTimes.test.ts) | n/a | missing | missing |
+| Set times: the bundle before shows, skips and moves what the update placed, and the update leaves them | covered (compat: "the update places a practice at its set times…") | n/a | n/a | n/a |
+| Set times: an edit moves the sessions at the old time, Pause and Resume take them off and put them back, away dates take them off | covered (unit: editors/PracticeEditor.test.tsx, screens/settings/settings.test.tsx, core/setTimes.test.ts) | covered (same) | missing | missing |
 
 ### One offs
 

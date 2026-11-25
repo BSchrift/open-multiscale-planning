@@ -439,10 +439,12 @@ final class ShellUITests: XCTestCase {
         app.tapWeb("More", until: app.webButton(startingWith: "One offs"))
         app.tapWeb(startingWith: "One offs")
         app.tapWeb("Return the drill", until: app.webButton("Start now"))
-        // The field, not the label above it, which has the same name.
-        let notText = NSPredicate(format: "label == 'Date (optional)' AND elementType != %d", XCUIElement.ElementType.staticText.rawValue)
-        let date = app.page.descendants(matching: .any).matching(notText).firstMatch
-        let belongs = app.webButton(startingWith: "Belongs to")
+        // The field, which holds the date, not its label, which has the same name. iOS calls both the field and Belongs
+        // to's button "other" rather than a text field or a button.
+        let other = XCUIElement.ElementType.other.rawValue
+        let field = NSPredicate(format: "label == 'Date (optional)' AND elementType == %d AND value != nil AND value != ''", other)
+        let date = app.page.descendants(matching: .any).matching(field).firstMatch
+        let belongs = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Belongs to: '")).firstMatch
         let start = app.webButton("Start now")
         for element in [date, belongs, start] { exists(element) }
         let screen = app.windows.firstMatch.frame

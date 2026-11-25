@@ -20,16 +20,11 @@ const records: Seed[] = [
 // This stretch has been planned, so planning is for the next one.
 const planned: Seed = { type: 'settings', id: 'settings', fields: { plan_stretch: { last_planned: '2026-10-01' } } };
 
-async function openPlan(page: Page, phone: boolean, seeds: readonly Seed[] = [...records, planned]) {
+async function openPlan(page: Page, seeds: readonly Seed[] = [...records, planned]) {
   await page.clock.install({ time: NOW });
   await openSeeded(page, seeds);
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone) {
-    await nav.getByRole('button', { name: 'More' }).click();
-    await page.getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await nav.getByRole('button', { name: 'Plan' }).click();
-  }
+  // A tab on both layouts: on phone, Plan took Week's place in the tab bar.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Plan' })).toBeVisible();
 }
 
@@ -41,7 +36,7 @@ test('plans the next stretch: a milestone in by name and by dragging, then Finis
   const phone = info.project.name === 'phone';
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await openPlan(page, phone);
+  await openPlan(page);
   await expect(page.getByText('This stretch: Oct 1 to Dec 31. Next planning: Dec 24.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Current plan, Oct 1 to Dec 31' })).toContainText('No milestones in this plan.');
 
@@ -97,7 +92,7 @@ test('never planned, plans this stretch from today, its end changed, then the ne
   const phone = info.project.name === 'phone';
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await openPlan(page, phone, records);
+  await openPlan(page, records);
 
   await expect(page.getByText('This stretch: Nov 2 to Dec 31. Time to plan your first stretch.')).toBeVisible();
   await page.getByRole('button', { name: 'Plan your first stretch' }).click();
@@ -126,7 +121,7 @@ test('types a date for a milestone, changes cadence in place, and resumes planni
   const phone = info.project.name === 'phone';
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await openPlan(page, phone);
+  await openPlan(page);
 
   await page.getByRole('button', { name: 'Change planning cadence' }).click();
   const editor = page.getByRole('group', { name: 'Change planning cadence' });
@@ -156,12 +151,7 @@ test('types a date for a milestone, changes cadence in place, and resumes planni
   // Kept on the device: after a reload too, planning comes back to the same step, with the same Undo.
   await page.waitForTimeout(600);
   await page.reload();
-  if (phone) {
-    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'More' }).click();
-    await page.getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
-  }
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   await page.getByRole('button', { name: 'Continue planning' }).click();
   await expect(page.getByRole('heading', { name: /What will you reach by Feb 11\?$/ })).toBeVisible();
   await expect(page.locator('.welcome').getByText('Welcome back. Goals are done. You were on Projects.')).toBeVisible();
@@ -179,7 +169,7 @@ test('a goal’s projects are blocks that open a preview over Goals, and the pro
   const phone = info.project.name === 'phone';
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await openPlan(page, phone);
+  await openPlan(page);
   await page.getByRole('button', { name: 'Plan now' }).click();
   const heading = page.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' });
   await expect(heading).toBeFocused();
@@ -221,8 +211,8 @@ test('a goal’s projects are blocks that open a preview over Goals, and the pro
   await open.click();
   await expect(page.getByRole('heading', { level: 1, name: 'Bake a sourdough loaf' })).toBeVisible();
   await expect(page.getByText('Planning is saved, so you can continue it later.')).toBeVisible();
-  // Phone keeps the Plan page under More, as it was left.
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: phone ? 'More' : 'Plan' }).click();
+  // The Plan tab keeps its page as it was left.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   await page.getByRole('button', { name: 'Continue planning' }).click();
   await expect(page.locator('.welcome').getByText('Welcome back. You were on Goals.')).toBeVisible();
   await expect(heading).toBeFocused();
@@ -234,7 +224,7 @@ test('Goals asks for some when there are none, and the Inbox lists a big one who
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const inbox: Seed[] = Array.from({ length: 214 }, (_, i) => ({ type: 'task', id: `i${i}`, fields: { kind: 'inbox', title: `Inbox item ${i + 1}` } }));
-  await openPlan(page, phone, [planned, ...inbox]);
+  await openPlan(page, [planned, ...inbox]);
   await page.getByRole('button', { name: 'Plan now' }).click();
   await expect(page.getByRole('heading', { name: 'Step 1 of 5, Goals. What are your goals?' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'New goal' })).toBeVisible();
@@ -263,7 +253,7 @@ test('Goals asks for some when there are none, and the Inbox lists a big one who
 
 test('an empty Inbox says so, and goes on to Finish', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  await openPlan(page, phone);
+  await openPlan(page);
   await page.getByRole('button', { name: 'Plan now' }).click();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
   await steps.getByRole('button', { name: /Inbox/ }).click();
@@ -275,7 +265,7 @@ test('an empty Inbox says so, and goes on to Finish', async ({ page }, info) => 
 
 test('Add makes a goal from any step, Esc gives focus back to it, and Undo takes it back', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  await openPlan(page, phone);
+  await openPlan(page);
   await page.getByRole('button', { name: 'Plan now' }).click();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
   await steps.getByRole('button', { name: /Practices/ }).click();
@@ -300,7 +290,7 @@ test('Add makes a goal from any step, Esc gives focus back to it, and Undo takes
 
 test('Add opens over the pinned Does it fit line, so every kind can be picked where it is drawn', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  await openPlan(page, phone);
+  await openPlan(page);
   await page.getByRole('button', { name: 'Plan now' }).click();
   await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
   await page.getByRole('button', phone ? { name: 'Add a goal, practice, project or Inbox task' } : { name: '+ Add', exact: true }).click();
@@ -320,7 +310,7 @@ test('Add opens over the pinned Does it fit line, so every kind can be picked wh
 test("phone: a one off's date and name in Projects are whole tap targets, and the name opens the task's popup", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'Tap targets are a phone matter');
   const card: Seed = { type: 'task', id: 'o1', fields: { kind: 'one_off', title: 'Renew the library card', estimate_min: 30, schedule: { type: 'once', from: '2027-01-05' } } };
-  await openPlan(page, true, [...records, planned, card]);
+  await openPlan(page, [...records, planned, card]);
   await page.getByRole('button', { name: 'Plan now' }).click();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Projects/ }).click();
   await expectTapTarget(page.getByRole('button', { name: 'Change date for Renew the library card, Jan 5' }));

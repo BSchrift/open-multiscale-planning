@@ -53,6 +53,9 @@ export function LaneCard(props: {
   onToggle(): void;
   onPreview(slot: Slot | null): void;
   onDrop(slot: Slot): void;
+  /** As it lifts to drag, and as it's put down: To schedule's sheet on Today steps aside meanwhile. */
+  onLift?(): void;
+  onPut?(): void;
 }) {
   const { item } = props;
   const { platform } = useApp();
@@ -62,7 +65,7 @@ export function LaneCard(props: {
       className={`lanecard ${KIND_CLASS[item.kind]}${props.open ? ' on' : ''}`}
       aria-expanded={props.open}
       aria-label={`${item.title}, ${KIND_WORD[item.kind]}, ${laneWords(item)}, to schedule`}
-      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic }) : undefined}
+      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic, lift: props.onLift, put: props.onPut }) : undefined}
       onClick={props.onToggle}
     >
       <span className="strong lanet">{item.title}</span>

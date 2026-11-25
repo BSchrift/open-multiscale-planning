@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectBelongs, expectTapTarget, go, openSeeded, pane } from './seed';
+import { closeWaiting, nowCard, openBlock, phoneView, waitingSheet } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -199,18 +200,24 @@ test('an Inbox item opens in its popup to be renamed and described, and still go
   await expect(page.getByRole('button', { name: 'One offs' })).toBeVisible();
 });
 
-test('the Now card, a To schedule card and a block on Today open the popup', async ({ page }, info) => {
+test("the Now card, or on phone a selected block's Details, a To schedule card and a block on Today open the popup", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
   const popup = popupOf(page, 'Draft the summary');
+  const block = page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
 
-  const now = page.getByRole('region', { name: 'Current block' });
-  await now.getByRole('button', { name: 'Draft the summary' }).click();
+  if (phone) {
+    // Selected, it's raised as a card with Details.
+    await block.tap();
+    await nowCard(page, true).getByRole('button', { name: 'Details' }).click();
+  } else await page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Draft the summary' }).click();
   await expect(popup).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);
 
+  // On phone, To schedule is behind the waiting row.
+  if (phone) await waitingSheet(page);
   await page.getByRole('button', { name: /^Check the totals, Project, .*to schedule$/ }).click();
   const actions = phone ? page.getByRole('dialog', { name: 'Check the totals' }) : page.getByRole('group', { name: 'Check the totals' });
   await actions.getByRole('button', { name: 'Check the totals', exact: true }).click();
@@ -220,16 +227,18 @@ test('the Now card, a To schedule card and a block on Today open the popup', asy
   await actions.getByRole('button', { name: 'Close' }).click();
 
   // A block on the timeline opens it itself, on the calendar and in the list. On phone a block still to come is a slider.
-  await page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ }).click();
+  if (phone) await closeWaiting(page);
+  await openBlock(page, block, phone);
   await expect(popup).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);
-  await page.getByRole('button', { name: 'List' }).click();
+  if (phone) await phoneView(page, 'Show as a list');
+  else await page.getByRole('button', { name: 'List' }).click();
   await page.getByRole('button', { name: phone ? /^Draft the summary, 4pm to 5pm/ : /^4pm to 5pm/ }).click();
   await expect(popup).toBeVisible();
 });
 
-test("Capture's Add details opens with Time first, takes a description, and keeps Save in reach", async ({ page }, info) => {
+test("Capture shows Time under the name, and Add details opens under it with Send to, takes a description, and keeps Save in reach", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
@@ -238,12 +247,24 @@ test("Capture's Add details opens with Time first, takes a description, and keep
   const capture = page.getByRole('dialog', { name: 'Capture' });
   const field = capture.getByRole('textbox', { name: /^Capture to/ });
   await field.fill('Draft the summary');
-  await capture.getByRole('button', { name: 'Add details' }).click();
+  // Time is there before Add details, under the name and above the toggle.
+  const time = capture.getByRole('slider', { name: 'Time' });
+  await expect(time).toBeVisible();
+  expect((await field.boundingBox())!.y).toBeLessThan((await time.boundingBox())!.y);
+  if (phone) expect((await time.boundingBox())!.y).toBeLessThan((await capture.getByRole('button', { name: 'Add details' }).boundingBox())!.y);
+  await page.screenshot({ path: info.outputPath(`capture-folded-${info.project.name}.png`) });
   if (!phone) {
     // One Tab from the name reaches Time.
     await field.focus();
     await page.keyboard.press('Tab');
-    await expect(capture.getByRole('slider', { name: 'Time' })).toBeFocused();
+    await expect(time).toBeFocused();
+  }
+  await capture.getByRole('button', { name: 'Add details' }).click();
+  await expect(capture.getByRole('slider', { name: 'Time' })).toHaveCount(1);
+  if (!phone) {
+    await field.focus();
+    await page.keyboard.press('Tab');
+    await expect(time).toBeFocused();
   }
   const top = async (l: Locator) => (await l.boundingBox())!.y;
   const order = [capture.getByRole('slider', { name: 'Time' }), capture.getByLabel('Send to')];

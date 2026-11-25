@@ -8,6 +8,10 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 17, text: "On your phone, Plan has its own tab, with this week's and next week's plans on top." },
+  { id: 16, text: "On your phone, Today shows the week above your day: tap or swipe to see any day." },
+  { id: 15, text: "Today opens on your day's calendar, and a tap on a block shows what you can do with it now." },
+  { id: 14, text: 'Swipe left or right on a day to move to the next or previous one.' },
   { id: 13, text: 'Capture shows the time estimate right under the name, so you can set it without Add details.' },
   { id: 12, text: "See what's now and next on your Lock Screen, and the rest of your day in a Today widget." },
   { id: 11, text: "Add the This week widget to your Home Screen to see your week's plan at a glance." },

@@ -11,7 +11,7 @@ let launchPatience: TimeInterval = 120
 /// Posted by the debug build each time its web view finishes loading a page (BridgeViewController.swift).
 private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 /// Posted by the debug build, with the KPI's name after it, each time the page measures one (src/core/perf.ts), such as
-/// nav.week once Week is drawn with its data.
+/// nav.today once Today is drawn with its data, and with screen.<area> each time the app shows another screen.
 private let measured = "io.github.bschrift.multiscale.measured."
 
 /// Set by scripts/test-ios.sh for its run that builds with the extensions on, which CI runs on a Mac of its own.
@@ -51,6 +51,11 @@ extension XCUIApplication {
         MultiscaleUITests.exists(row, file: file, line: line)
         row.tap()
     }
+    /// Today's heading for the block in progress once it's started, which says its time left. The block keeps to its own
+    /// times, with no buttons, until a tap selects it.
+    func startedNow(_ title: String) -> XCUIElement {
+        page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH 'left'", "Now: \(title), ")).firstMatch
+    }
     /// Any kind of element by the start of its label, such as a row that opens a popup, which iOS calls a pop-up button.
     func webElement(startingWith prefix: String) -> XCUIElement {
         page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
@@ -72,17 +77,16 @@ extension XCUIApplication {
         MultiscaleUITests.exists(effect, file: file, line: line)
     }
 
-    /// Taps Week's tab, then waits for the app's word that Week is drawn with its data before anything reads the page. On
-    /// iOS 26.2 a page read before its content arrives stays empty in the tree while the screen shows it drawn (see
-    /// onTab), and on CI's Simulator Week has taken 9 s to draw after the tap. A tap that drew nothing in all the time a
-    /// draw can take was lost, as the first after a launch now and then is, so it's tapped again.
-    func openWeek(file: StaticString = #filePath, line: UInt = #line) {
+    /// Taps a tab, then waits for the app's word that it shows that tab's screen (BridgeViewController.swift), without
+    /// reading the page. A tap that showed nothing in the time a screen takes was lost, as the first after a launch now
+    /// and then is, so it's tapped again.
+    func show(tab: String, file: StaticString = #filePath, line: UInt = #line) {
         for _ in 0..<2 {
-            let drawn = XCTDarwinNotificationExpectation(notificationName: measured + "nav.week")
-            tapWeb("Week", file: file, line: line)
-            if XCTWaiter.wait(for: [drawn], timeout: patience) == .completed { return }
+            let shown = XCTDarwinNotificationExpectation(notificationName: measured + "screen." + tab.lowercased())
+            tapWeb(tab, file: file, line: line)
+            if XCTWaiter.wait(for: [shown], timeout: patience) == .completed { return }
         }
-        XCTFail("Week never said it was drawn. On screen:\n\(debugDescription)", file: file, line: line)
+        XCTFail("\(tab) never showed. On screen:\n\(debugDescription)", file: file, line: line)
     }
 
     /// Taps a field, then types with the keyboard. WebKit now and then drops the page from the tree for a moment as the
@@ -194,13 +198,13 @@ final class SeedTimeTests: XCTestCase {
  * screen recordings show Today drawn, its countdown ticking, as the tree reports Today's region empty for a minute, and
  * Goals did the same. Waiting longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or
  * screen changes didn't bring the content in reliably. Hiding the page and showing it again did, every time: so the
- * test goes to Week and back. A page first read only once the app says it's drawn never stayed empty, which is how
- * openWeek opens Week, so this is for the other tabs.
+ * test goes to another tab and back, each time waiting for the app to say it shows it, so a lost tap can't leave the
+ * page as it was.
  */
 private func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
-    app.openWeek(file: file, line: line)
-    app.tapWeb(tab, file: file, line: line)
+    app.show(tab: tab == "Today" ? "Goals" : "Today", file: file, line: line)
+    app.show(tab: tab, file: file, line: line)
     exists(element, file: file, line: line)
 }
 
@@ -263,7 +267,9 @@ final class ShellUITests: XCTestCase {
         app.tapWeb("Next")
         app.type("Learn to bake bread", into: app.page.textFields["A goal or a thought"])
         app.tapWeb("Add goal")
-        for tab in ["Today", "Week", "Goals", "More"] { exists(app.webButton(tab)) }
+        for tab in ["Today", "Plan", "Goals", "More"] { exists(app.webButton(tab)) }
+        // Week's day is Today's, with the week's strip over it, so there's no Week tab.
+        XCTAssertFalse(app.webButton("Week").exists, "the tab bar still has Week")
         exists(app.webButton("Capture a task"))
 
         // Setup finished in the plugin's database, so a new process goes straight to the shell, goal and all.
@@ -432,6 +438,35 @@ final class ShellUITests: XCTestCase {
         XCTAssertFalse(app.page.textViews["Description"].exists)
     }
 
+    /// iOS draws a date field its own way, wider than the browsers the web tests run in, and once pushed a task popup's
+    /// body wider than the sheet, so it slid sideways and cut off its left. Every field stays inside the sheet's gutter.
+    func testATaskPopupWithADateFitsThePhoneAndNeverSlidesSideways() {
+        let app = launchApp(seed: "Seed dated one off")
+        // The first tap after a launch is now and then lost on CI's Simulator, so More is tapped until One offs shows.
+        app.tapWeb("More", until: app.webButton(startingWith: "One offs"))
+        app.tapWeb(startingWith: "One offs")
+        app.tapWeb("Return the drill", until: app.webButton("Start now"))
+        // The field, which holds the date, not its label, which has the same name. iOS calls both the field and Belongs
+        // to's button "other" rather than a text field or a button.
+        let other = XCUIElement.ElementType.other.rawValue
+        let field = NSPredicate(format: "label == 'Date (optional)' AND elementType == %d AND value != nil AND value != ''", other)
+        let date = app.page.descendants(matching: .any).matching(field).firstMatch
+        let belongs = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Belongs to: '")).firstMatch
+        let start = app.webButton("Start now")
+        for element in [date, belongs, start] { exists(element) }
+        let screen = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(date.frame.maxX, belongs.frame.maxX + 1, "the date field reaches past the other fields: \(date.frame) against \(belongs.frame)")
+        XCTAssertLessThanOrEqual(date.frame.maxX, screen.maxX, "the date field runs off the screen: \(date.frame) in \(screen)")
+        // A drag leftwards across the popup, along Repeats' label where nothing takes a tap, leaves it where it was.
+        let label = app.webText("Repeats")
+        exists(label)
+        let before = start.frame.minX
+        label.coordinate(withNormalizedOffset: CGVector(dx: 3, dy: 0.5)).press(forDuration: 0.1, thenDragTo: label.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)))
+        XCTAssertEqual(start.frame.minX, before, accuracy: 1, "the popup slid sideways")
+        XCTAssertGreaterThanOrEqual(start.frame.minX, screen.minX, "Start now is cut off on the left")
+        app.tapWeb("Cancel")
+    }
+
     func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
         // On the real clock, since the link launches the app with none of the test's settings, its clock included.
         let app = launchApp(seed: "Seed plan", realClock: true)
@@ -476,15 +511,23 @@ final class ShellUITests: XCTestCase {
         // Work dropped on today lands no earlier than now and ends by 11pm, which the seeded app's morning clock leaves
         // room for at any hour.
         let app = launchApp(seed: "Seed to schedule")
-        // Its own label, since the block it becomes is a button too once it's under way.
-        let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
-        onToday(card, in: app)
+        // To schedule waits in the sheet behind the strip footer's count of what's waiting for a time.
+        // A button that opens a sheet, which iOS types as a pop-up button: matched by its label alone.
+        let waiting = app.webElement(startingWith: "1 to schedule")
+        onToday(waiting, in: app)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)
+        // Where the drop goes, read while the day can still be found: under the sheet's scrim, iOS leaves the day out of
+        // what the test can query.
+        let dayFrame = day.frame
+        // Its own label, since the block it becomes is a button too once it's under way.
+        let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
+        app.tapWeb(anyStartingWith: "1 to schedule", until: card)
 
-        // Held past the lift, and let go once the drag has caught up. Wherever it's let go, it lands no earlier than now.
+        // Held past the lift, the sheet steps aside, and it's let go on the day once the drag has caught up. Wherever
+        // it's let go, it lands no earlier than now.
         let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = day.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0)).withOffset(CGVector(dx: 0, dy: 140))
+        let to = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: dayFrame.minX + dayFrame.width * 0.4, dy: dayFrame.minY + 140))
         from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
         // Any kind of element: a block is a slider until it's under way, which one placed at now soon is.
         exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)
@@ -515,74 +558,76 @@ final class ShellUITests: XCTestCase {
         exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
     }
 
-    func testABlockHeldOnWeeksDayThenDraggedDownMovesLater() throws {
-        let app = launchApp(seed: "Seed later")
-        // Asked before the drag, so the question can't land in the middle of it.
-        allowNotificationsIfAsked()
-        app.openWeek()
-        // Any kind of element: a task's block opens its popup, so iOS gives it the pop-up button type.
-        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
-        exists(block)
-        let before = block.label
+    /**
+     * Scrolls Today's page, by the margin left of the day where nothing is held, until `clear` holds, measuring each
+     * time from where things are, so a scroll that a busy Simulator flung anyway is brought back by the next. Stopped
+     * before letting go, so the page doesn't fly on. A fixed flick scrolled as far as iOS flung it.
+     */
+    private func scrollTodaysDay(_ app: XCUIApplication, by distance: () -> CGFloat, until clear: () -> Bool) {
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        for _ in 0..<3 where !clear() {
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: distance())), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+    }
 
-        // The day runs on below the screen's bottom, under the Capture button and the tab bar, so the page scrolls up
-        // first. The week's top, down to its day strip, stays over the day as it scrolls, and the tree still places a
-        // block that's gone under it, so a press on the block there lands on the strip instead. A fixed flick scrolled
-        // as far as iOS flung it, which on CI was sometimes that far. So the block is scrolled to where its middle,
-        // which is pressed, and the time `drop` below it, where it's let go, are both clear of the strip and the
-        // Capture button.
-        let drop: CGFloat = 120
+    /**
+     * Where Today's day is clear to press: below the week's strip, which stays over the day as it scrolls, folded into
+     * its slim bar, and above the Capture button. The tree still places a block that's gone under either, so a press
+     * there lands on them instead.
+     */
+    private func todaysClearBand(_ app: XCUIApplication) -> (top: () -> CGFloat, bottom: CGFloat) {
         let strip = app.webElement("Choose a day")
+        let slim = app.page.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH '. Show the week'")).firstMatch
         let capture = app.webButton("Capture a task")
         exists(strip)
         exists(capture)
-        let top = strip.frame.maxY + 44
-        let bottom = capture.frame.minY - 22
-        let clear = { block.frame.midY >= top && block.frame.midY + drop <= bottom }
-        // By the margin left of the day, where nothing is held, and stopped before letting go, so the page doesn't fly
-        // on. The distance is measured from where the block is each time, so a scroll that a busy Simulator flung anyway
-        // is brought back by the next.
-        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
-        for _ in 0..<3 where !clear() {
-            let by = (top + bottom - drop) / 2 - block.frame.midY
-            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: by)), withVelocity: .slow, thenHoldForDuration: 0.3)
-        }
-        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
-        // Held past the lift, then let go two rows down, over the free time after it.
-        let from = block.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        return ({ (slim.exists ? slim.frame.maxY : strip.frame.maxY) + 44 }, capture.frame.minY - 22)
+    }
+
+    func testABlockHeldOnTodaysDayThenDraggedDownMovesLater() throws {
+        let app = launchApp(seed: "Seed later")
+        // Asked before the drag, so the question can't land in the middle of it.
+        allowNotificationsIfAsked()
+        // Any kind of element: a block still to come is a slider, which iOS may type by its popup instead.
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onToday(block, in: app)
+        let before = block.label
+
+        // The block is scrolled to where its press, near its top, and the time `drop` below it, where it's let go, are
+        // both clear of the strip and the Capture button.
+        let drop: CGFloat = 120
+        let (top, bottom) = todaysClearBand(app)
+        let pressY = { block.frame.minY + block.frame.height * 0.25 }
+        let clear = { pressY() >= top() && pressY() + drop <= bottom }
+        scrollTodaysDay(app, by: { (top() + bottom - drop) / 2 - pressY() }, until: clear)
+        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the week's strip and the Capture button")
+        // It starts within the hour, so it's selected, raised over its lane as a card with its buttons under its name. A
+        // hold on the card's name lifts the block, as one on the block does. Held past the lift, then let go lower, over
+        // the free time after it.
+        let from = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: block.frame.midX, dy: pressY()))
         from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: drop)), withVelocity: .slow, thenHoldForDuration: 0.5)
         // The toast first, since it goes after five seconds and the block moves for good. The toast comes as the move is
-        // saved, and the block is drawn at its new time once Week has read it back, which on CI's Simulator has taken
-        // longer than the toast stays: there the toast was gone by the time the block had moved.
-        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
+        // saved, and the block is drawn at its new time once Today has read it back, which on CI's Simulator has taken
+        // longer than the toast stays.
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf is now '")).firstMatch)
         let moved = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, ' AND label != %@", before)).firstMatch
         exists(moved)
     }
 
-    func testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+    func testAHoldOnTheFreeTimeAfterABlockOnTodaysDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
         let app = launchApp(seed: "Seed later")
         allowNotificationsIfAsked()
-        app.openWeek()
-        // Today's first stretch of free time still to come, a row that says so. WebKit gives each of the row's text nodes
-        // its own static text, with the label trimmed, so the row reads "Free," and then its times.
-        let free = app.page.staticTexts.matching(NSPredicate(format: "label == 'Free,'")).firstMatch
-        exists(free)
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onToday(block, in: app)
 
-        // As for a block held on the day: the row is scrolled to where its middle is clear of the week's top, which
-        // stays over the day, and of the Capture button, by the margin left of the day, where nothing is held.
-        let strip = app.webElement("Choose a day")
-        let capture = app.webButton("Capture a task")
-        exists(strip)
-        exists(capture)
-        let top = strip.frame.maxY + 44
-        let bottom = capture.frame.minY - 22
-        let clear = { free.frame.midY >= top && free.frame.midY <= bottom }
-        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
-        for _ in 0..<3 where !clear() {
-            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: (top + bottom) / 2 - free.frame.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
-        }
-        XCTAssertTrue(clear(), "The free row at \(free.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
-        free.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8)
+        // The free time an hour and a half after the block's end, below the card it's raised as, scrolled clear of the
+        // week's strip and the Capture button.
+        let (top, bottom) = todaysClearBand(app)
+        let holdY = { block.frame.maxY + 108 }
+        let clear = { holdY() >= top() && holdY() <= bottom }
+        scrollTodaysDay(app, by: { (top() + bottom) / 2 - holdY() }, until: clear)
+        XCTAssertTrue(clear(), "The time after Shape the loaf at \(block.frame) didn't scroll clear of the week's strip and the Capture button")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: block.frame.midX, dy: holdY())).press(forDuration: 0.8)
 
         // Capture opens on the draft, saying its day and time, and Save puts it there as an Inbox item.
         exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch)
@@ -591,12 +636,11 @@ final class ShellUITests: XCTestCase {
         exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
     }
 
-    func testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem() throws {
+    func testPinchingTodaysDayDrawsItsHoursTallerAndANewLaunchKeepsThem() throws {
         let app = launchApp(seed: "Seed later")
         allowNotificationsIfAsked()
-        app.openWeek()
         let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
-        exists(block)
+        onToday(block, in: app)
         let before = block.frame.height
         // Two fingers on the block spread apart: a pinch, which a hold on the block gives way to.
         block.pinch(withScale: 2.5, velocity: 1)
@@ -604,24 +648,61 @@ final class ShellUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: taller(block), object: nil)], timeout: patience), .completed,
                        "Shape the loaf is \(block.frame.height)pt tall after the pinch, from \(before)pt")
 
-        // The zoom is the phone's: the app opened again draws the day as tall.
+        // The zoom is the phone's, kept as Today's: the app opened again draws the day as tall.
         app.terminate()
         app.launchLoaded()
-        app.openWeek()
         let again = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
-        exists(again)
+        onToday(again, in: app)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: taller(again), object: nil)], timeout: patience), .completed,
                        "Shape the loaf is \(again.frame.height)pt tall after a new launch, from \(before)pt")
     }
 
-    func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
+    func testSwipingTodaysDayLeftShowsTomorrowAndSwipingRightComesBackToToday() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        // Today's block, which is drawn only while today is the day shown, and the title that names the day.
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onToday(block, in: app)
+        exists(app.webText("Today"))
+
+        // The block is scrolled to where its middle is clear of the week's strip and the Capture button.
+        let (top, bottom) = todaysClearBand(app)
+        let clear = { block.frame.midY >= top() && block.frame.midY <= bottom }
+        scrollTodaysDay(app, by: { (top() + bottom) / 2 - block.frame.midY }, until: clear)
+        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the week's strip and the Capture button")
+
+        // A quick swipe left across the day, from right of the block's middle, well short of a hold: tomorrow, which has
+        // no block, and the title says so. Points on the screen, since the block goes.
+        let screen = app.coordinate(withNormalizedOffset: .zero)
+        let (right, left, y) = (block.frame.minX + block.frame.width * 0.85, block.frame.minX + block.frame.width * 0.15, block.frame.midY)
+        let away = right - left
+        screen.withOffset(CGVector(dx: right, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: left, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: block)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: patience), .completed, "Shape the loaf is still drawn after a swipe left of \(away)pt. On screen:\n\(app.debugDescription)")
+        exists(app.webText("Tomorrow"))
+
+        // And a swipe right comes back to today, block, title and all.
+        screen.withOffset(CGVector(dx: left, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: right, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
+        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch)
+        XCTAssertTrue(app.webText("Tomorrow").waitForNonExistence(timeout: patience), "the title still says Tomorrow after a swipe back")
+        exists(app.webText("Today"))
+    }
+
+    func testTodayAsksWhetherTheCurrentBlockHasStartedAndAFinishedOneAsksOnItself() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()
 
-        // The block that ended half an hour ago asks first, its name a button that opens its popup. Partly opens the
-        // slider at the time left.
-        exists(app.webButton("Feed the starter"))
+        // The one that began six minutes ago without a Start asks Have you started, with its name a button that opens its
+        // popup. Its sheet hides the toast from the tree. The one that ended half an hour ago opens no sheet of its own.
+        exists(app.webButton("Yes, started"))
+        exists(app.webButton("Shape the dough"))
+        XCTAssertFalse(app.webText("Block ended").exists, "a finished block's sheet opened by itself")
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
+
+        // A tap on the block that ended selects it: raised out of its lane as a card, it asks how it went. Any kind of
+        // element, as iOS types a block by whether it opens a popup. Partly opens the slider at the time left.
         let left = app.page.sliders["Time left"]
+        app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Partly"))
         app.tapWeb("Partly", until: left)
         XCTAssertEqual(left.value as? String, "1h")
         // XCUITest can't set a web slider's value, so the thumb is dragged. The slider's steps are EstimateSlider.tsx's
@@ -633,21 +714,52 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(["30m", "35m", "40m", "45m", "50m", "55m"].contains(set), "the slider reads \(set)")
         app.tapWeb("Save")
 
-        // Then the one that began six minutes ago without a Start, which asks Have you started with its name a button
-        // that opens its popup. Its sheet hides the toast from the tree.
-        exists(app.webButton("Yes, started"))
-        exists(app.webButton("Shape the dough"))
-        app.tapWeb("Yes, started")
-        exists(app.webText("In progress, time left"))
-
-        app.tapWeb(startingWith: "1 task needs a new time")
+        // The rest of it waits for a new time, in the sheet behind the strip footer's count.
+        app.tapWeb(anyStartingWith: "1 to schedule")
         exists(app.webText("Partly done today, \(set) left"))
+    }
+
+    func testATapOnTodaysDaySelectsABlockAndASecondOpensIt() throws {
+        let app = launchApp(seed: "Seed today")
+        allowNotificationsIfAsked()
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
+        // The block in progress keeps to its own times until a tap selects it, raised with its buttons. A tap on another
+        // selects that, raised with how it went, and the one in progress settles back, its buttons gone.
+        app.tapWeb(anyStartingWith: "Shape the dough, ", until: app.webButton("Mark done now"))
+        let ended = app.webElement(startingWith: "Feed the starter, ")
+        app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Not done"))
+        XCTAssertTrue(app.webButton("Mark done now").waitForNonExistence(timeout: patience), "the block in progress is still raised")
+        XCTAssertTrue(ended.label.hasSuffix("Selected."), "the selected block's name doesn't say so: \(ended.label)")
+        // A second tap opens its popup, the task's own.
+        ended.tap()
+        exists(app.webButton("Delete task"))
+    }
+
+    func testTodaysWeekStripFoldsIntoASlimBarAsTheDayScrollsAndTheBarOpensItAgain() throws {
+        let app = launchApp(seed: "Seed today")
+        allowNotificationsIfAsked()
+        // Started, the block in progress keeps to its own times, its buttons waiting for a tap, so it's known by what
+        // Today says is under way.
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
+        let strip = app.webElement("Choose a day")
+        exists(strip)
+        // A scroll up the day, by the margin left of it where nothing is held: the strip folds into the slim bar, which
+        // is then the one control left of it, and the scroll settles with it folded.
+        let slim = app.page.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH '. Show the week'")).firstMatch
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.75))
+        margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -320)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        exists(slim)
+        XCTAssertTrue(strip.waitForNonExistence(timeout: patience), "the seven days are still reachable with the strip folded")
+        // A tap on the bar opens the days again over the day.
+        slim.tap()
+        exists(strip)
     }
 
     func testABlocksNotificationActionAnswersItInToday() {
         let app = launchApp(seed: "Seed soon", remindingOnLeave: true)
         allowNotificationsIfAsked()
-        onToday(app.webText("In progress, time left"), in: app)
+        // The block in progress, on the day within its own times.
+        onToday(app.startedNow("Proof the loaf"), in: app)
 
         // The block's end notification, brought forward. A task is never finished from a notification, so there's no Done.
         answerNotification(with: "Not done", alsoOffering: ["Still going", "Partly"], notOffering: ["Done"])
@@ -1172,7 +1284,7 @@ final class PerfUITests: XCTestCase {
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
         }
         for _ in 0..<rounds {
-            app.tapWeb("Week")
+            app.tapWeb("Plan")
             app.tapWeb("Today")
             for screen in ["Done", "Analytics"] {
                 app.tapWeb("More")

@@ -291,13 +291,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");
   // Looking writes nothing to the plan: no Continue, no Finish, and Add is opened and closed.
   const phone = info.project.name === 'phone';
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone) {
-    await nav.getByRole('button', { name: 'More' }).click();
-    await page.getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await nav.getByRole('button', { name: 'Plan' }).click();
-  }
+  // Plan is a tab on both layouts: on phone it took Week's place, since Today draws the week. This test meets only this
+  // release's web app, so no step allows for the one before, which kept Plan under More on phone.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   // Plan opens on its page, and the steps only from a way in. Which way in depends on the shared test user: prod's first
   // stretch was begun and is never planned there, so it offers Continue planning, while staging's compat suite finishes a
   // plan on every run, so staging offers the next stretch's.

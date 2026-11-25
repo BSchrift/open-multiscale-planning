@@ -375,6 +375,7 @@ export function PracticeAdd(props: {
 }) {
   const { clock } = useApp();
   const toast = useToast();
+  const { layout } = useApp();
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState(props.objectiveId ?? '');
   const [schedule, setSchedule] = useState(newSchedule);
@@ -403,7 +404,9 @@ export function PracticeAdd(props: {
     if (!made?.id) return;
     props.onAdded?.(made.id);
     if ('added' in made) {
-      toast.show(made.said ? `Practice added. ${made.said}` : 'Practice added. It waits in To schedule on Week until you give it a time.', {
+      // On phone, To schedule is Today's: the strip's count opens it. Desktop's is on Week.
+      const waits = `Practice added. It waits in ${layout === 'phone' ? 'To schedule' : 'To schedule on Week'} until you give it a time.`;
+      toast.show(made.said ? `Practice added. ${made.said}` : waits, {
         undo: () => undo.run(made.added),
       });
     }

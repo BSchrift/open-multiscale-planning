@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectNoSideways, expectTapTarget, openSeeded } from './seed';
+import { askOnBlock, closeWaiting, openBlock, phoneView, todayRead, waitingSheet } from './today';
 import type { Seed } from './seed';
 
 // A practice's session and a planning block open one popup everywhere, in the task popup's frame: from Today's
@@ -67,14 +68,15 @@ async function expectFrame(popup: Locator, first: 'Time block' | 'Actions', phon
   }
 }
 
-test("Today: a session opens its popup from the calendar, the list and the Now card, and Save changes its goal with Undo", async ({ page }, info) => {
+test("Today: a session opens its popup from the calendar, the list and the Now card, or on phone the block under way, and Save changes its goal with Undo", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
   const errors = await open(page);
   const timeline = page.getByRole('region', { name: "Today's timeline" });
   const popup = page.getByRole('dialog', { name: 'Piano practice' });
 
-  await timeline.getByRole(phone ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ }).click();
+  const later = timeline.getByRole(phone ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ });
+  await openBlock(page, later, phone);
   await expectFrame(popup, 'Time block', phone);
   await expect(popup.getByRole('region', { name: 'Time block' }).getByRole('button')).toHaveText(['Start now', 'Mark done', 'Move…', 'Take off calendar', 'Change its set times']);
   await expect(popup.getByRole('heading', { name: 'Piano practice' })).toBeFocused();
@@ -84,27 +86,28 @@ test("Today: a session opens its popup from the calendar, the list and the Now c
   await expect(popup).toHaveCount(0);
   await expect(page.locator('.toast')).toContainText('Saved Piano practice.');
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
-  await timeline.getByRole(phone ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ }).click();
+  await openBlock(page, later, phone);
   await expect(popup.getByLabel('Goal')).toHaveValue('g');
   await popup.getByRole('button', { name: 'Cancel' }).click();
 
-  // The Now card's name opens it with the session under way.
-  await page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Piano practice' }).click();
+  // The Now card's name opens it with the session under way; on phone, the block under way does.
+  if (phone) await openBlock(page, timeline.getByRole('button', { name: /^Piano practice, 1:45pm to 2:30pm/ }), true);
+  else await page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Piano practice' }).click();
   await expectFrame(popup, 'Time block', phone);
   await expect(popup.getByRole('region', { name: 'Time block' }).getByRole('button')).toHaveText(['Mark done', 'Pause']);
   await shoot(page, popup, shot('now-card'));
   await popup.getByRole('button', { name: 'Cancel' }).click();
 
   // The list opens the same popup, not details in place.
-  await timeline.getByRole('button', { name: 'List' }).click();
+  await (phone ? phoneView(page, 'Show as a list') : timeline.getByRole('button', { name: 'List' }).click());
   await timeline.getByRole('button', phone ? { name: 'Piano practice, 4pm to 4:30pm, Practice.' } : { name: /^4pm to 4:30pm\s*Piano practice/ }).click();
   await expectFrame(popup, 'Time block', phone);
   await shoot(page, popup, shot('today-list'));
   await popup.getByRole('button', { name: 'Cancel' }).click();
-  await timeline.getByRole('button', { name: 'Calendar' }).click();
+  await (phone ? phoneView(page, 'Show as a calendar') : timeline.getByRole('button', { name: 'Calendar' }).click());
 
   // A planning block has the same frame, with its own Start planning and no fields.
-  await timeline.getByRole(phone ? 'slider' : 'button', { name: /^Plan the week of Nov 9, 7pm to 7:30pm/ }).click();
+  await openBlock(page, timeline.getByRole(phone ? 'slider' : 'button', { name: /^Plan the week of Nov 9, 7pm to 7:30pm/ }), phone);
   const planning = page.getByRole('dialog', { name: 'Plan the week of Nov 9' });
   await expect(planning.getByRole('region', { name: 'Time block' }).getByRole('button')).toHaveText(['Start planning', 'Move…', 'Remove from calendar']);
   await expect(planning.locator('.taskpopbar').getByRole('button')).toHaveText(['Close']);
@@ -119,7 +122,8 @@ test("To schedule and Done: a practice's name opens the same popup, with Pause p
   const phone = info.project.name === 'phone';
   const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
   const errors = await open(page);
-  await page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: /^Stretch, Practice/ }).click();
+  // On phone, To schedule is behind Today's waiting row.
+  await (phone ? await waitingSheet(page) : page.getByRole('region', { name: 'To schedule' })).getByRole('button', { name: /^Stretch, Practice/ }).click();
   const card = phone ? page.getByRole('dialog', { name: 'Stretch' }) : page.getByRole('group', { name: 'Stretch' });
   await card.getByRole('button', { name: 'Stretch', exact: true }).click();
   const stretch = page.getByRole('dialog', { name: 'Stretch' }).and(page.locator('.taskpop'));
@@ -133,6 +137,7 @@ test("To schedule and Done: a practice's name opens the same popup, with Pause p
   await stretch.getByRole('button', { name: 'Cancel' }).click();
   await expect(stretch).toHaveCount(0);
   await card.getByRole('button', { name: 'Close', exact: true }).click();
+  if (phone) await closeWaiting(page);
 
   const nav = page.getByRole('navigation', { name: 'Main' });
   if (phone) {
@@ -168,19 +173,28 @@ test("Goals: a practice's row opens the same popup, with Pause practice and no b
   expect(errors).toEqual([]);
 });
 
-test("Week: a session opens the same popup from the grid, while editing too, and from the phone's day with its length", async ({ page }, info) => {
+test("Week: a session opens the same popup from the grid, while editing too, and on phone from the week Today draws, with its length while editing", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
   const errors = await open(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   const popup = page.getByRole('dialog', { name: 'Piano practice' });
   if (phone) {
-    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).click();
-    await page.getByRole('button', { name: /^Piano practice, 7am to 7:30am/ }).click();
+    // Wednesday's session, on the strip of the week Today draws: a tap selects it, raised as a card, and a second opens it.
+    await todayRead(page, true);
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).tap();
+    await openBlock(page, page.getByRole('slider', { name: /^Piano practice, 7am to 7:30am/ }), true);
+    await expectFrame(popup, 'Time block', phone);
+    await shoot(page, popup, shot('week'));
+    await popup.getByRole('button', { name: 'Cancel' }).click();
+    // Editing the week, its section has the session's length too.
+    await phoneView(page, "Edit this week's plan");
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).tap();
+    await page.getByRole('slider', { name: /^Piano practice\./ }).tap();
     await expectFrame(popup, 'Time block', phone);
     await expectTapTarget(popup.getByRole('region', { name: 'Time block' }).getByRole('slider', { name: 'Length' }));
-    await shoot(page, popup, shot('week'));
+    await shoot(page, popup, shot('week-editing'));
   } else {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
     await page.getByRole('button', { name: /^Piano practice, Wed Nov 4, 7am to 7:30am/ }).click();
     await expectFrame(popup, 'Time block', phone);
     await shoot(page, popup, shot('week'));
@@ -194,12 +208,15 @@ test("Week: a session opens the same popup from the grid, while editing too, and
   expect(errors).toEqual([]);
 });
 
-test("the prompt that logs a session: its name opens the popup, whose section answers in a practice's words", async ({ page }, info) => {
+test("the prompt that logs a session, or on phone the session asking on itself, opens the popup, whose section answers in a practice's words", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
   const errors = await open(page, [...records.filter((r) => r.id !== 'bn' && r.id !== 'bd' && r.id !== 'outcome:bd'), session('bg', 2, '13:00', '13:30')]);
-  const prompt = page.getByRole('dialog', { name: 'Block finished' });
-  await prompt.getByRole('button', { name: 'Piano practice' }).click();
+  // On phone the session asks on itself, raised on the day, and a second tap opens it.
+  if (phone) {
+    await askOnBlock(page, /^Piano practice, 1pm to 1:30pm/);
+    await openBlock(page, page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: /^Piano practice, 1pm to 1:30pm/ }), true);
+  } else await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Piano practice' }).click();
   const popup = page.getByRole('dialog', { name: 'Piano practice' });
   await expectFrame(popup, 'Time block', phone);
   const asks = popup.getByRole('group', { name: 'How did it go?' });
@@ -208,5 +225,21 @@ test("the prompt that logs a session: its name opens the popup, whose section an
   await asks.getByRole('button', { name: 'Did it' }).click();
   await expect(page.locator('.toast')).toContainText('Piano practice: did it.');
   await expect(popup.getByRole('group', { name: 'How did it go?' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("phone: a session's popup and a planning block's never scroll sideways", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The sheet is a phone matter');
+  const errors = await open(page);
+  const timeline = page.getByRole('region', { name: "Today's timeline" });
+  // On phone a tap selects a block, and a second opens it.
+  await openBlock(page, timeline.getByRole('slider', { name: /^Piano practice, 4pm to 4:30pm/ }), true);
+  let popup = page.getByRole('dialog', { name: 'Piano practice' });
+  await expectNoSideways(popup);
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
+  await openBlock(page, timeline.getByRole('slider', { name: /^Plan the week of Nov 9, 7pm to 7:30pm/ }), true);
+  popup = page.getByRole('dialog', { name: 'Plan the week of Nov 9' });
+  await expectNoSideways(popup);
   expect(errors).toEqual([]);
 });

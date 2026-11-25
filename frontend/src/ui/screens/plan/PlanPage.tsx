@@ -19,6 +19,7 @@ import type { PlanGroup } from './model';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
 import { Button } from '../../components/ds/Button';
+import { WeekCards } from './WeekCards';
 
 export function Diamond(props: { cls: string; phone: boolean }) {
   return props.phone ? (
@@ -103,6 +104,8 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
         <h1>Plan</h1>
         <p className={phone ? 'small quiet' : 'quiet'}>{`Plan ${where.firstPlan ? 'your first' : 'the next'} stretch. Projects keep their own dates.`}</p>
       </div>
+      {/* On phone, Plan is a tab, and opens on the weeks; desktop keeps them on Week. */}
+      {phone && <WeekCards />}
       {!data.settings.plan_cadence && !editing ? (
         <section className="card stack8" aria-label="Planning cadence">
           <h2>Set your planning cadence</h2>

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { belongsTo, expectTapTarget, openSeeded, pane } from './seed';
+import { belongsTo, expectNoSideways, expectTapTarget, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 // The task popup is the same wherever a task opens: from a list it can Start now, Mark done and Schedule…, and set its
@@ -165,19 +165,6 @@ test("from a block on Today: the block's section takes the actions' place, and M
   await expect(block).toBeVisible();
   expect(errors).toEqual([]);
 });
-
-/** Nothing in the popup's body reaches past its right edge, so it never scrolls sideways or cuts its content off. */
-async function expectNoSideways(popup: Locator) {
-  const body = popup.locator('.taskpopbody');
-  await body.evaluate((e) => Promise.all(e.closest('.sheet')!.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))));
-  const fit = await body.evaluate((el) => {
-    const right = el.getBoundingClientRect().right;
-    const past = [...el.querySelectorAll('*')].filter((c) => c.getBoundingClientRect().right > right + 0.5).map((c) => c.outerHTML.slice(0, 90));
-    return { past, scroll: el.scrollWidth, client: el.clientWidth };
-  });
-  expect(fit.past).toEqual([]);
-  expect(fit.scroll).toBeLessThanOrEqual(fit.client);
-}
 
 test("phone: no popup scrolls sideways, whatever its fields, from a list or a block", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The sheet is a phone matter');

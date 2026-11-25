@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectNoSideways, expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
 // A practice's session and a planning block open one popup everywhere, in the task popup's frame: from Today's
@@ -208,5 +208,20 @@ test("the prompt that logs a session: its name opens the popup, whose section an
   await asks.getByRole('button', { name: 'Did it' }).click();
   await expect(page.locator('.toast')).toContainText('Piano practice: did it.');
   await expect(popup.getByRole('group', { name: 'How did it go?' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("phone: a session's popup and a planning block's never scroll sideways", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The sheet is a phone matter');
+  const errors = await open(page);
+  const timeline = page.getByRole('region', { name: "Today's timeline" });
+  await timeline.getByRole('slider', { name: /^Piano practice, 4pm to 4:30pm/ }).click();
+  let popup = page.getByRole('dialog', { name: 'Piano practice' });
+  await expectNoSideways(popup);
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
+  await timeline.getByRole('slider', { name: /^Plan the week of Nov 9, 7pm to 7:30pm/ }).click();
+  popup = page.getByRole('dialog', { name: 'Plan the week of Nov 9' });
+  await expectNoSideways(popup);
   expect(errors).toEqual([]);
 });

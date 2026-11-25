@@ -661,6 +661,8 @@ function DayRows(props: {
       </div>,
     );
 
+  // A block lifted by this touch's hold: letting it go after a sideways drag isn't a swipe to the next day.
+  const lifted = useRef(false);
   // Held, a block still to come lifts and drags as a card does, onto whichever row it's let go over, at the time under
   // the finger there. Its own time is free while it moves. The press stays with the block, so the row under it never
   // takes it for a hold on empty time.
@@ -668,6 +670,7 @@ function DayRows(props: {
     e.stopPropagation();
     dragCard(e, { length: block.end - block.start, offers: [] }, { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== block.id) }, {
       preview: () => undefined,
+      lift: () => (lifted.current = true),
       drop: (slot) => {
         const put = { id: block.id, slot };
         setLanded(put);
@@ -789,8 +792,8 @@ function DayRows(props: {
     m = n;
   }
   return (
-    // A finger moving the draft sideways isn't a swipe to the next day.
-    <div className="tlrows" onTouchEnd={(e) => holdNew.draft && e.stopPropagation()}>
+    // A finger moving the draft, or a held block, sideways isn't a swipe to the next day.
+    <div className="tlrows" onTouchStart={() => (lifted.current = false)} onTouchEnd={(e) => (holdNew.draft || lifted.current) && e.stopPropagation()}>
       {rows}
       <HoldRing ring={holdNew.ring} />
       {holdNew.draft?.open && (

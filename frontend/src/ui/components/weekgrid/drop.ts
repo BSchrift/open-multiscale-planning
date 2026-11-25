@@ -173,7 +173,7 @@ export function dragCard(
   event: ReactPointerEvent<HTMLElement>,
   item: { length: number; offers: readonly Slot[] },
   ctx: SlotContext,
-  on: { preview(slot: Slot | null): void; drop(slot: Slot): void; /** The platform's light tap, as a held card lifts. */ haptic?(): unknown },
+  on: { preview(slot: Slot | null): void; drop(slot: Slot): void; /** As the hold lifts it. */ lift?(): void; /** The platform's light tap, as a held card lifts. */ haptic?(): unknown },
 ) {
   const card = event.currentTarget;
   const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
@@ -225,6 +225,7 @@ export function dragCard(
       (card.closest('[data-layout]') ?? document.body).appendChild(ghost);
       card.classList.add('lifted');
       follow(x0, y0);
+      on.lift?.();
     },
     drag: (_dx, _dy, e) => follow(e.clientX, e.clientY),
     drop: () => {

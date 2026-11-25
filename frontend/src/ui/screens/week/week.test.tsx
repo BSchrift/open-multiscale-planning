@@ -1245,6 +1245,34 @@ describe('Week on phone', () => {
     await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('17:00')));
   });
 
+  it('a block held on the day and dragged sideways before it is let go moves, and keeps the day rather than swiping to the next', async () => {
+    const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
+    const el = await screen.findByRole('button', { name: /^Paint the fence, 5pm to 6pm/ });
+    expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();
+    // jsdom has no layout: the free row after it, from 6pm to 10pm, is drawn 240px tall, so y 60 is 7pm.
+    const free = document.querySelector('.tlrow[data-drop-from="1080"]')!;
+    vi.spyOn(free, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 240, top: 0, left: 0, right: 300, bottom: 240, x: 0, y: 0, toJSON: () => ({}) });
+    Object.defineProperty(document, 'elementFromPoint', { value: () => free, configurable: true });
+    try {
+      // 150px left and 50px down: far more sideways than down, as a swipe to the next day would be.
+      fireEvent.touchStart(el, { touches: [{ clientX: 200, clientY: 10 }] });
+      holdDown(el, { clientX: 200, clientY: 10, pointerType: 'touch' });
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
+      fireEvent.pointerUp(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
+      fireEvent.touchEnd(el, { changedTouches: [{ clientX: 50, clientY: 60 }] });
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint');
+    }
+    await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('19:00')));
+    expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();
+
+    // The same sideways move without a hold is still a swipe to the next day.
+    const moved = await screen.findByRole('button', { name: /^Paint the fence, 7pm to 8pm/ });
+    fireEvent.touchStart(moved, { touches: [{ clientX: 200, clientY: 10 }] });
+    fireEvent.touchEnd(moved, { changedTouches: [{ clientX: 50, clientY: 60 }] });
+    expect(await screen.findByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
+  });
+
   it('a block held and let go over a later row is drawn there at once, while the day has yet to redraw; Undo, or a failed save, puts it back', async () => {
     const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
     const fence = (time: string) => screen.findByRole('button', { name: new RegExp(`^Paint the fence, ${time}`) });

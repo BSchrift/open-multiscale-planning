@@ -65,6 +65,19 @@ const dash = (share: number, length: number) => `${(share * length).toFixed(1)} 
  * The ring, which fills toward the block's end, and the control that pauses and resumes it. It never disables while
  * saving, which would drop its focus to the page; a tap that lands meanwhile finds Pause or Resume already done.
  */
+/**
+ * The ring alone, small and silent, beside the same said in words: the block in progress on the phone's Today, drawn
+ * within its own times until a tap shows its actions.
+ */
+export function MiniRing(props: { block: BlockRow; now: number }) {
+  return (
+    <svg className={`miniring${isPaused(props.block) ? ' paused' : ''}`} viewBox="0 0 64 64" aria-hidden="true">
+      <circle className="rtrack" cx="32" cy="32" r={R} />
+      <circle className="rfill" cx="32" cy="32" r={R} strokeDasharray={dash(ringFill(props.block, props.now), C)} />
+    </svg>
+  );
+}
+
 export function SpentRing(props: { block: BlockRow; now: number; phone: boolean; onToggle(): void }) {
   const { block, now } = props;
   const paused = isPaused(block);

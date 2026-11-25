@@ -66,6 +66,11 @@ export interface PhoneDay {
   setPh(ph: number): void;
   /** The block raised as a card; select(null) hands the selection back to the one Today picks. */
   selected: string | null;
+  /**
+   * Whether the selected block was tapped. Until it is, the block in progress is drawn within its own times and lane,
+   * raised and a little wider, so the hours beside it show; a tap grows it into the card with its actions.
+   */
+  tapped: boolean;
   select(id: string | null): void;
   /** The minute today opens at, or null for the whole day. */
   open: number | null;
@@ -265,7 +270,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
     if (i.block) setPop(popFor(i.block));
   };
   // On phone the first tap selects a block, raising it as a card, and a second opens its popup.
-  const tap = (i: Item) => (pd && pd.selected !== i.id ? pd.select(i.id) : openItem(i));
+  const tap = (i: Item) => (pd && (pd.selected !== i.id || inLane(i)) ? pd.select(i.id) : openItem(i));
   const [moveMenu, setMoveMenu] = useState<{ id: string; at: { x: number; y: number }; from: HTMLElement } | null>(null);
   const popBlock = pop && data.blocks.find((b) => b.id === pop.block);
   // One not yet started can come off the calendar, as Have you started's Skip takes it.
@@ -511,13 +516,22 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
       if (e) at = Math.max(at, e.to);
     }
   }
-  // The card that was raised settles back into its lane as the next one grows.
+  // The block in progress, selected by Today rather than a tap, keeps to its own times and lane.
+  const inLane = (i: Item) => !!pd && !pd.tapped && pd.selected === i.id && !!i.block && raiseOf(i.block, data.blocks, clock) === 'now';
+  // The card that was raised settles back into its lane as the next one grows, from where it was drawn.
   const shownRaised = pd && view === 'calendar' ? pd.selected : null;
+  const raisedInLane = !!shownRaised && items.some((i) => i.id === shownRaised && inLane(i));
+  const wasInLane = useRef(false);
+  const settledInLane = useRef(false);
   useLayoutEffect(() => {
     const was = raisedId.current;
     raisedId.current = shownRaised;
-    if (was && was !== shownRaised) setSettling(was);
-  }, [shownRaised]);
+    if (was && was !== shownRaised) {
+      settledInLane.current = wasInLane.current;
+      setSettling(was);
+    }
+    wasInLane.current = raisedInLane;
+  }, [shownRaised, raisedInLane]);
 
   const calendar = (
     <div
@@ -656,7 +670,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
               data-block={i.block.id}
               title={i.time}
               style={style}
-              aria-label={pd?.selected === i.id ? `${alt(i)} Selected.` : alt(i)}
+              aria-label={pd?.selected === i.id && !inLane(i) ? `${alt(i)} Selected.` : alt(i)}
               aria-describedby={helpOf(move, resize, !!compact)}
               // The release after a drag also clicks the block; press() stops that click before it gets here.
               onClick={() => tap(i)}
@@ -686,8 +700,11 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
           // The selected block, raised as a card just after it, so its buttons follow it for screen readers.
           const b = i.block;
           // Kept while its block is held and dragged, out of sight, so the press stays with it.
+          const lanes = inLane(i);
           const raised = pd && view === 'calendar' && pd.selected === i.id && (
             <Raised
+              inLane={lanes}
+              onSelect={() => pd.select(i.id)}
               key={`raised${i.id}`}
               away={drag?.id === i.id}
               block={b}
@@ -696,7 +713,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
               look={look}
               state={state}
               cls={blockClass(look, state)}
-              style={{ top: y(top) - RAISE_PX, minHeight: height + 2 * RAISE_PX }}
+              style={lanes ? { top: y(top), height } : { top: y(top) - RAISE_PX, minHeight: height + 2 * RAISE_PX }}
               actions={actions}
               next={nextUp}
               onMove={move && actions.moveChoices(b, ctx).length > 0 ? (from) => setMoveMenu({ id: i.id, at: below(from), from }) : undefined}
@@ -706,7 +723,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
             />
           );
           const settle = settling === i.id && pd?.selected !== i.id && (
-            <Settling key={`settle${i.id}`} id={i.id} cls={blockClass(look, state)} style={{ top: y(top) - RAISE_PX }} height={heights.current.get(i.id) ?? height + 2 * RAISE_PX} onDone={() => setSettling(null)} />
+            <Settling key={`settle${i.id}`} id={i.id} cls={blockClass(look, state)} style={{ top: y(top) - (settledInLane.current ? 0 : RAISE_PX) }} height={heights.current.get(i.id) ?? height + 2 * RAISE_PX} onDone={() => setSettling(null)} />
           );
           // Always in a fragment keyed as the block is, so a block that moves past another, or is selected, keeps its
           // element, and with it its focus.

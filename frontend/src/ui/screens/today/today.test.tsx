@@ -350,7 +350,9 @@ describe('the Now card', () => {
 
       it('does nothing on phone', async () => {
         const t = await open(running, { layout: 'phone' });
-        // The block in progress, raised on the day.
+        // The block in progress, tapped to show its card.
+        await userEvent.click(await raisedCard());
+        await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).not.toHaveClass('inlane'));
         const now = await raisedCard();
         const ring = await within(now).findByRole('button', { name: /^Pause, / });
         expect(ring).not.toHaveAttribute('aria-keyshortcuts');
@@ -434,12 +436,24 @@ describe('the Now card', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeNull();
   });
 
-  it('on phone, the block in progress is raised on the day, and Mark done now and Stop for now appear once it is started', async () => {
+  it('on phone, the block in progress keeps to its own times until a tap selects it; Mark done now and Stop for now appear once it is started', async () => {
     await open(day, { layout: 'phone' });
-    const now = await raisedCard();
-    expect(now).toHaveTextContent('Write the report');
-    expect(await screen.findByRole('button', { name: /^Write the report, 1pm to 3pm, Project\. Now\. Selected\./ })).toBeVisible();
+    let now = await raisedCard();
+    // Not tapped: drawn exactly at its block's times, one line, with no actions, and not yet "Selected" to a screen reader.
+    expect(now).toHaveClass('inlane');
+    const block = await screen.findByRole('button', { name: /^Write the report, 1pm to 3pm, Project\. Now\./ });
+    expect(block).not.toHaveAccessibleName(/Selected\./);
+    expect(now.style.top).toBe(block.style.top);
+    expect(now.style.height).toBe(block.style.height);
+    expect(now).toHaveTextContent('Write the reportNot started');
     expect(screen.getByRole('heading', { name: 'Now: Write the report, not started' })).toBeInTheDocument();
+    expect(within(now).queryByRole('button')).toBeNull();
+    // Tapped, it's selected, and grows past its times with its actions.
+    await userEvent.click(now);
+    await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).not.toHaveClass('inlane'));
+    now = await raisedCard();
+    expect(block).toHaveAccessibleName(/Selected\./);
+    expect(parseFloat(now.style.top)).toBeLessThan(parseFloat(block.style.top));
     expect(within(now).queryByRole('button', { name: 'Mark done now' })).toBeNull();
     expect(within(now).queryByRole('button', { name: 'Stop for now' })).toBeNull();
     await userEvent.click(within(now).getByRole('button', { name: 'Start' }));
@@ -685,12 +699,15 @@ describe('the end-of-block prompt', () => {
       },
       { layout: 'phone' },
     );
-    expect(await within(await raisedCard()).findByRole('button', { name: 'Mark done now' })).toBeVisible();
+    // The block in progress, in its lane until tapped.
+    expect(await raisedCard()).toHaveClass('inlane');
     await userEvent.click(screen.getByRole('button', { name: /^Write the report, 12pm to 1pm/ }));
     await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).toHaveTextContent('How did it go?'));
     await userEvent.click(within(await raisedCard()).getByRole('button', { name: 'Not done' }));
     await waitFor(async () => expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toMatchObject({ result: 'not' }));
-    expect(await within(await raisedCard()).findByRole('button', { name: 'Mark done now' })).toBeVisible();
+    // Back to the block in progress, in its lane again.
+    await waitFor(() => expect(document.querySelector('.cev.raised:not(.settling)')).toHaveTextContent('Paint the fence'));
+    expect(await raisedCard()).toHaveClass('inlane');
   });
 
   it("on phone, Partly on the block asks how much is left in the sheet, and a notification's tap still opens it", async () => {

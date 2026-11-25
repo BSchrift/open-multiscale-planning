@@ -5,7 +5,7 @@ import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } 
 import type { Offline } from './offline';
 import { holdMouse, openSeeded, pane, planPrompt, readRecord, startPlanningOnToday, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
-import { askOnBlock, nowCard } from './today';
+import { askOnBlock, showNow } from './today';
 
 // Each main flow done with no connection, start to finish, by a signed-out app: everything it does is on this device,
 // so offline it should work as it does online, ask for nothing over the network, and keep the work through a reload.
@@ -325,11 +325,10 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
   expect(await readRecord(page, 'block_outcome', 'outcome:b1')).toMatchObject({ result: 'partly', remaining_min: 90 });
 
-  // The one under way: Start, then Mark done now, and Undo puts it back. On phone, the block raised on the day.
-  const now = nowCard(page, phone);
+  // The one under way: Start, then Mark done now, and Undo puts it back. On phone, the answer handed the selection back
+  // to the block under way, which a tap raises with its actions.
+  const now = await showNow(page, phone);
   const times = now.getByText(phone ? '1:58pm to 3pm' : 'Now, 1:58pm to 3pm');
-  // Today tapped again hands the selection back to the block under way.
-  if (phone) await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Today' }).click();
   await expect(times).toBeVisible();
   await now.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(phone ? now.getByRole('button', { name: 'Mark done now' }) : now.getByText('In progress, time left')).toBeVisible();
@@ -343,7 +342,7 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   await expectSaved(page, 'block_outcome', 'outcome:b1', { result: 'partly', remaining_min: 90 });
 
   await reloadOnline(page, offline);
-  await expect(phone ? nowCard(page, true).getByRole('button', { name: 'Mark done now' }) : page.getByRole('region', { name: 'Current block' }).getByText('In progress, time left')).toBeVisible();
+  await expect(phone ? (await showNow(page, true)).getByRole('button', { name: 'Mark done now' }) : page.getByRole('region', { name: 'Current block' }).getByText('In progress, time left')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
   expectOffline(offline);
 });

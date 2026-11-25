@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import { openSeeded } from './seed';
 import type { Seed } from './seed';
-import { phoneView } from './today';
+import { phoneView, showNow } from './today';
 
 // A lived-in week, then every screen in turn: each renders without errors and without sideways scrolling.
 
@@ -174,15 +174,15 @@ test('every screen of a lived-in week renders cleanly', async ({ page }, info) =
   await look(page, info, 'today');
 
   // A toast floats over the page in the app's own type, with Undo in reach.
-  // The Now card's, or on phone the block raised on the day.
-  await (phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' })).getByRole('button', { name: 'Mark done now' }).click();
+  // The Now card's, or on phone the card a tap on the block in progress shows.
+  await (await showNow(page, phone)).getByRole('button', { name: 'Mark done now' }).click();
   const toast = page.locator('.toast');
   await expect(toast).toContainText('Marked done after 19m.');
   expect(await toast.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
   expect(await toast.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Instrument Sans');
   await page.screenshot({ path: info.outputPath('toast.png'), scale: 'css' });
   await toast.getByRole('button', { name: 'Undo' }).click();
-  await expect((phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' })).getByRole('button', { name: 'Mark done now' })).toBeVisible();
+  await expect((await showNow(page, phone)).getByRole('button', { name: 'Mark done now' })).toBeVisible();
 
   // The phone has no Week: its Today, above, draws the week.
   for (const name of [...(phone ? [] : ['Week']), 'Inbox', 'Goals', 'Plan', 'One offs', 'Notes', 'Analytics', 'Settings']) {

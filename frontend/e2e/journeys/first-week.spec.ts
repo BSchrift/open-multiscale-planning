@@ -1,6 +1,6 @@
 import { expect, test } from '../platform';
 import { skipPlanningOnToday, startPlanningOnToday } from '../seed';
-import { askOnBlock } from '../today';
+import { askOnBlock, showNow } from '../today';
 import { addMilestones, addProject, addTasks, chicago, firstRun, jumpTo, openProject, pane, processTo, slide, start, tab, TZ } from './journey';
 
 // From an empty first run to a planned week, then the day itself: check-in, end-of-block answers, and rescheduling.
@@ -102,8 +102,9 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(timeline.getByRole(phone ? 'slider' : 'button', { name: 'Write the opening scene, 6pm to 7:30pm, Project.' })).toBeVisible();
   // The Now card, or on phone the block raised on the day.
   const now = phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' });
-  const counting = () =>
-    phone ? expect(now.getByRole('button', { name: 'Mark done now' })).toBeVisible() : expect(now.getByText('In progress, time left')).toBeVisible();
+  // On phone, the block in progress keeps to its own times until a tap shows its actions.
+  const counting = async () =>
+    phone ? expect((await showNow(page, phone)).getByRole('button', { name: 'Mark done now' })).toBeVisible() : expect(now.getByText('In progress, time left')).toBeVisible();
   /** A block that ended asks how it went: in its prompt, and on phone on the block itself, once a tap selects it. */
   const endOf = async (title: string) => (phone ? askOnBlock(page, new RegExp(`^${title}, `)) : page.getByRole('dialog', { name: 'Block finished' }));
 

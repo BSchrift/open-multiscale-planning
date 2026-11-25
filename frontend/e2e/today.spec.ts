@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, skipPlanningOnToday, touchDrag } from './seed';
 import type { Seed } from './seed';
-import { askOnBlock, nowCard, openBlock, phoneView, todayRead, waitingSheet } from './today';
+import { askOnBlock, nowCard, openBlock, phoneView, showNow, todayRead, waitingSheet } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -34,7 +34,7 @@ test('the Now card: Start counts down, Mark done now frees the time, and Undo pu
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:58', '15:00'), block('b2', 't2', '16:00', '17:00')]);
   // On phone, the block raised on the day: its times after the word Now, and its name.
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   const times = (range: string) => now.getByText(phone ? range : `Now, ${range}`);
   await expect(times('1:58pm to 3pm')).toBeVisible();
   await (phone ? expect(now).toContainText('Write the report') : expect(now.getByRole('heading', { name: 'Write the report' })).toBeVisible());
@@ -68,7 +68,7 @@ test('the time-spent ring pauses and resumes the block under way, each with a to
   await page.clock.setFixedTime(NOW);
   // On phone, the block raised on the day carries the ring and its time left; the countdown and the ring's key are
   // desktop's Now card's.
-  const now = nowCard(page, phone);
+  const now = await showNow(page, phone);
   const times = (range: string) => now.getByText(phone ? range : `Now, ${range}`);
 
   const ring = now.getByRole('button', { name: 'Pause, 22 minutes spent, 37% of the block' });
@@ -159,6 +159,8 @@ test('the ring changes without animating under reduced motion, and reads in dark
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
   const errors = await open(page, [planned, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
   await page.clock.setFixedTime(NOW);
+  // On phone, the ring is in the card a tap on the block in progress shows.
+  await showNow(page, info.project.name === 'phone');
   // The app's reduced-motion rule cuts every transition to a hundredth of a millisecond.
   expect(await page.locator('.spentring .rfill').evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))).toBeLessThan(0.001);
   await page.screenshot({ path: info.outputPath(`ring-dark-${info.project.name}.png`) });
@@ -179,10 +181,11 @@ test('a pause running to the end asks the end question, whose Resume runs into t
   await expect(prompt.getByRole('button', { name: /Still going/ })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`end-paused-${info.project.name}.png`) });
   await prompt.getByRole('button', { name: 'Resume, 28m left' }).click();
-  const now = nowCard(page, phone);
+  // The toast first: on phone, the tap that shows the block's card puts it away.
+  await expect(page.locator('.toast')).toContainText('Resumed. It now ends at 2:28pm.');
+  const now = await showNow(page, phone);
   await expect(now.getByText(phone ? '1pm to 2:28pm' : 'Now, 1pm to 2:28pm')).toBeVisible();
   await expect(now.getByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
-  await expect(page.locator('.toast')).toContainText('Resumed. It now ends at 2:28pm.');
 
   await expect(page.getByText('Paint the fence conflicts with Write the report.')).toBeVisible();
   await page.getByRole('button', { name: 'Shift rest of today' }).click();
@@ -250,7 +253,7 @@ test('an unplanned week opens on the prompt to plan; skipping leaves a banner an
   const next = page.getByRole('region', { name: 'Next up' });
   if (phone) await expectTapTarget(next.getByRole('button', { name: 'Paint the fence', exact: true }));
   await next.getByRole('button', { name: 'Start Paint the fence' }).click();
-  await expect(nowCard(page, phone).getByText(phone ? '2pm to 2:30pm' : 'Now, 2pm to 2:30pm')).toBeVisible();
+  await expect((await showNow(page, phone)).getByText(phone ? '2pm to 2:30pm' : 'Now, 2pm to 2:30pm')).toBeVisible();
   // The skip is saved on the week's plan now, and phone WebKit's database saves 200ms after a change (platform/web.ts).
   await page.waitForTimeout(600);
   await page.reload();

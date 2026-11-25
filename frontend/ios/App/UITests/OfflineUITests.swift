@@ -119,13 +119,14 @@ final class OfflineUITests: XCTestCase {
         // The one that began six minutes ago without a Start asks whether it has, its name a button that opens its popup.
         // The one that ended half an hour ago asks on itself once a tap selects it.
         exists(app.webButton("Shape the dough"))
-        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
         app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Not done"))
-        app.tapWeb("Not done", until: app.webButton("Mark done now"))
+        // Answered, the selection goes back to the block in progress.
+        app.tapWeb("Not done", until: app.startedNow("Shape the dough"))
 
         app.terminate()
         app.launchLoaded()
-        onToday(app.webButton("Mark done now"), in: app)
+        onToday(app.startedNow("Shape the dough"), in: app)
         // A block gone by says how it went, so the answer was kept. Any kind of element, as iOS types a block by whether
         // it opens a popup.
         let answered = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Feed the starter, ' AND label ENDSWITH '. Not done.'")).firstMatch

@@ -285,6 +285,7 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
               phoneDay={{
                 ...phoneDay(w, current),
                 selected,
+                tapped: !!picked && picked === selected,
                 select: setPicked,
                 open,
                 earlierOpen,
@@ -303,6 +304,8 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
                 phoneDay={{
                   ...phoneDay(w, current),
                   selected: otherPicked && otherPicked.date === date ? otherPicked.id : null,
+                  // Another day's selection is always a tap's.
+                  tapped: true,
                   select: (id: string | null) => setOtherPicked(id ? { date, id } : null),
                   open: null,
                   earlierOpen: false,

@@ -22,7 +22,7 @@ import type { BlockLook, BlockState } from '../../components/ds/Block';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 import type { useBlockCommands } from '../../components/blocks/useBlockCommands';
-import { SpentRing } from './NowCard';
+import { MiniRing, SpentRing } from './NowCard';
 import { usePlanningNow } from './PlanningNow';
 import type { Raise } from './selection';
 
@@ -66,6 +66,12 @@ export interface RaisedProps {
   onHold?: ((e: ReactPointerEvent<HTMLElement>) => void) | undefined;
   /** Its last drawn height, for the card that settles back once another is selected. */
   onHeight(px: number): void;
+  /**
+   * The block in progress, selected by Today rather than a tap: drawn within its own times and lane, a little wider,
+   * with one line for its time left, and a tap selects it, growing it into the card with its actions.
+   */
+  inLane?: boolean;
+  onSelect?(): void;
 }
 
 export function Raised(props: RaisedProps) {
@@ -77,7 +83,8 @@ export function Raised(props: RaisedProps) {
     if (!el) return;
     props.onHeight(el.offsetHeight);
     const lane = laneOf(block.id, el);
-    if (!lane || still()) return;
+    // Drawn over its own block already, with nothing to grow from.
+    if (!lane || still() || props.inLane) return;
     const m = motion();
     el.animate([{ transformOrigin: '0 0', transform: between(el.getBoundingClientRect(), lane.getBoundingClientRect()) }, { transformOrigin: '0 0', transform: 'none' }], m);
     el.querySelector('.rcin')?.animate([{ opacity: 0 }, { opacity: 1 }], m);
@@ -88,15 +95,16 @@ export function Raised(props: RaisedProps) {
     if (ref.current) props.onHeight(ref.current.offsetHeight);
   });
 
-  // A tap anywhere on the card but its buttons is the second tap on its block: it opens Details.
+  // A tap anywhere on the card but its buttons is the second tap on its block: it opens Details. Within its lane, it's
+  // the first, which selects it.
   const open = (e: ReactMouseEvent) => {
-    if (!(e.target as Element).closest('button')) props.onDetails();
+    if ((e.target as Element).closest('button')) return;
+    if (props.inLane) props.onSelect?.();
+    else props.onDetails();
   };
   return (
-    <div ref={ref} className={`cev raised r-${raise} ${props.cls}${props.away ? ' away' : ''}`} style={props.style} data-raised={block.id} onClick={open} onPointerDown={props.onHold}>
-      <div className="rcin">
-        <Body {...props} />
-      </div>
+    <div ref={ref} className={`cev raised r-${raise} ${props.cls}${props.inLane ? ' inlane' : ''}${props.away ? ' away' : ''}`} style={props.style} data-raised={block.id} onClick={open} onPointerDown={props.onHold}>
+      <div className="rcin">{props.inLane ? <InLane block={block} /> : <Body {...props} />}</div>
     </div>
   );
 }
@@ -224,6 +232,21 @@ function Carry(props: RaisedProps) {
     <Button variant="quiet" type="button" className="rclink" disabled={actions.pending} onClick={() => void actions.stillGoing(block)}>
       Still going, add {formatMinutes(STILL_GOING_MIN)}
     </Button>
+  );
+}
+
+/** The block in progress in its lane: its ring, its name and its time left, on one line, for any block's height. */
+function InLane(props: { block: BlockRow }) {
+  const { block } = props;
+  const now = useNow(1000);
+  const left = Math.max(0, Math.ceil(timeLeftMs(block, now) / 60_000));
+  const said = !block.started_at ? 'Not started' : isPaused(block) ? `Paused, ${minutesWords(left)} left` : `${minutesWords(left)} left`;
+  return (
+    <div className="rcline" aria-hidden="true">
+      {block.started_at && <MiniRing block={block} now={now} />}
+      <span className="blktitle">{block.title ?? 'Time block'}</span>
+      <span className="rcleft">{said}</span>
+    </div>
   );
 }
 

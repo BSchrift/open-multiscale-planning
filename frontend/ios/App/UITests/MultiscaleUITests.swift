@@ -709,7 +709,9 @@ final class ShellUITests: XCTestCase {
     func testTodaysWeekStripFoldsIntoASlimBarAsTheDayScrollsAndTheBarOpensItAgain() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()
-        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+        // Started, the block in progress keeps to its own times, its buttons waiting for a tap, so it's known by what
+        // Today says is under way.
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
         let strip = app.webElement("Choose a day")
         exists(strip)
         // A scroll up the day, by the margin left of it where nothing is held: the strip folds into the slim bar, which

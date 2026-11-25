@@ -1,9 +1,11 @@
-// A click or tap on a block opens it, and only a hold lifts it to drag, on Today and Week, with a mouse and a finger. A
-// hand that shifts a few pixels while clicking still clicks, whether or not the block can move.
+// A click or tap on a block opens it, and only a hold lifts it to drag, on Today and Week, with a mouse and a finger,
+// Week on phone being the week Today draws. A hand that shifts a few pixels while clicking still clicks, whether or not
+// the block can move.
 
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled, touchDrag } from './seed';
+import { openBlock, phoneView, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -70,8 +72,10 @@ async function opens(page: Page, title: string, press: () => Promise<void>) {
 test('Today: a click that wobbles opens any block, one that moves included, and only a hold drags it', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page);
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   const day = page.getByRole('region', { name: "Today's timeline" });
+  // On phone the morning is folded into the Earlier row until it's opened.
+  if (phone) await day.getByRole('button', { name: /^Earlier, / }).click();
   // On phone a block that moves is a slider, as on Week.
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const blocks: [string, Locator][] = [
@@ -79,15 +83,16 @@ test('Today: a click that wobbles opens any block, one that moves included, and 
     ['Paint the fence', day.getByRole('button', { name: /^Paint the fence, 9am to 10am/ })],
     ['Check the figures', day.getByRole('button', { name: /^Check the figures, 1:30pm to 2:30pm/ })],
   ];
-  for (const [title, block] of blocks) await opens(page, title, () => (phone ? block.tap() : wobblyClick(page, block)));
+  // On phone a tap selects a block, and a second, on the card it's raised as, opens it.
+  for (const [title, block] of blocks) await opens(page, title, () => (phone ? openBlock(page, block, true) : wobblyClick(page, block)));
   // None of those clicks moved anything.
   await expect(page.getByText(/ is now /)).toHaveCount(0);
 
-  // Held, then dragged 15px, which is half an hour at the first zoom.
+  // Held, then dragged half an hour: 15px at desktop's first zoom, 36pt on the phone's day.
   await report.scrollIntoViewIfNeeded();
   const box = (await report.boundingBox())!;
   const from = { x: box.x + box.width / 3, y: box.y + box.height / 2 };
-  if (phone) await touchDrag(page, report, { x: from.x, y: from.y + 15 });
+  if (phone) await touchDrag(page, report, { x: from.x, y: from.y + 36 });
   else {
     await holdMouse(page, from);
     await page.mouse.move(from.x, from.y + 8, { steps: 2 });
@@ -131,22 +136,23 @@ test('Week, desktop: while editing, a click that wobbles opens a block or a card
   expect(errors).toEqual([]);
 });
 
-test("Week, phone: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it", async ({ page }, info) => {
+test("Week on phone's Today: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The draggable day is the phone layout');
   const errors = await open(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
-  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  // The phone edits the week from Today's menu.
+  await todayRead(page, true);
+  await phoneView(page, "Edit this week's plan");
   const report = page.getByRole('slider', { name: /^Write the report\./ });
   await expect(report).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 4pm to 5pm');
   await opens(page, 'Write the report', () => report.tap());
 
-  // The day draws 48px an hour. A finger that moves before the hold is scrolling, so the block stays.
-  await report.scrollIntoViewIfNeeded();
+  // The day draws 72pt an hour, as Today's does. A finger that moves before the hold is scrolling, so the block stays.
+  await report.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const box = (await report.boundingBox())!;
   const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await touchDrag(page, report, { x: from.x, y: from.y + 48 }, 50);
+  await touchDrag(page, report, { x: from.x, y: from.y + 72 }, 50);
   await expect(report).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 4pm to 5pm');
-  await touchDrag(page, report, { x: from.x, y: from.y + 48 });
+  await touchDrag(page, report, { x: from.x, y: from.y + 72 });
   await expect(page.getByRole('slider', { name: /^Write the report\./ })).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 5pm to 6pm');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -156,7 +162,7 @@ test("Today: a block's quick menu opens on a right-click or Shift-F10 on desktop
   const phone = info.project.name === 'phone';
   const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
   const errors = await open(page);
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   const day = page.getByRole('region', { name: "Today's timeline" });
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const figures = day.getByRole('button', { name: /^Check the figures, 1:30pm to 2:30pm/ });
@@ -225,10 +231,10 @@ test("Today: Move… in a block's popup offers its quick menu's new times, and t
   const day = page.getByRole('region', { name: "Today's timeline" });
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await report.scrollIntoViewIfNeeded();
-  await (phone ? report.tap() : report.click());
+  await openBlock(page, report, phone);
   const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
   const buttons = section.getByRole('button');
-  await expect(buttons).toHaveText(['Start now', 'Done', 'Move…', 'Remove from calendar']);
+  await expect(buttons).toHaveText(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
   // Every one fits inside the section, wrapping onto a second line if it must, and on phone each is a full tap target.
   const box = (await section.boundingBox())!;
   for (const b of await buttons.all()) {
@@ -290,7 +296,7 @@ test("Today: Move… in a block's popup, Tomorrow asks first when tomorrow has a
   const report = page.getByRole('region', { name: "Today's timeline" }).getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const press = (target: Locator) => (phone ? target.tap() : target.click());
   await report.scrollIntoViewIfNeeded();
-  await press(report);
+  await openBlock(page, report, phone);
   const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
   await press(section.getByRole('button', { name: 'Move…' }));
   await press(page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));

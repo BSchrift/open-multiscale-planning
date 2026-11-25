@@ -129,6 +129,18 @@ export async function expectTapTarget(target: Locator): Promise<void> {
 }
 
 /** A main area's page. */
+/** Takes a place from a task popup's Belongs to: its field opens the list, under it on desktop and in a sheet on phone. */
+export async function belongsTo(page: Page, popup: Locator, place: string): Promise<void> {
+  await popup.getByLabel('Belongs to').click();
+  await page.getByRole('listbox', { name: 'Belongs to' }).getByRole('option', { name: place, exact: true }).click();
+}
+
+/** Where a task popup's Belongs to says the task goes: the field's text on desktop, its button's name on phone. */
+export async function expectBelongs(popup: Locator, place: string, phone: boolean): Promise<void> {
+  if (phone) await expect(popup.getByRole('button', { name: `Belongs to: ${place}`, exact: true })).toBeVisible();
+  else await expect(popup.getByRole('combobox', { name: 'Belongs to' })).toHaveValue(place);
+}
+
 export const pane = (page: Page, label: string) => page.locator(`.pane[aria-label='${label}']:visible`);
 export const account = (page: Page) => pane(page, 'Settings').getByRole('region', { name: 'Account' });
 
@@ -150,12 +162,35 @@ export async function syncNow(page: Page, timeout = 30_000) {
 }
 
 /**
+ * Starts planning from Today's prompt to plan this week: its button on desktop, and on phone, where the prompt is a row
+ * above the day, its Plan it, then Start planning.
+ */
+export async function startPlanningOnToday(page: Page): Promise<void> {
+  // On phone, the strip footer's Plan this week, or Plan next week once that's due, opens the way to start.
+  const planIt = page.getByRole('button', { name: /^Plan (this|next) week$/ });
+  await expect(planIt.or(page.getByRole('button', { name: 'Start planning' })).first()).toBeVisible();
+  if (await planIt.isVisible()) await planIt.click();
+  await page.getByRole('button', { name: 'Start planning' }).first().click();
+}
+
+/** Skip planning this week from Today: on phone, in the sheet the strip footer's Plan this week opens. */
+export async function skipPlanningOnToday(page: Page): Promise<void> {
+  const planIt = page.getByRole('button', { name: 'Plan this week', exact: true });
+  await expect(planIt.or(page.getByRole('button', { name: /^Skip (for now|planning this week)$/ })).first()).toBeVisible();
+  if (await planIt.isVisible()) await planIt.click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+}
+
+/** Today's prompt to plan this week: on phone, the strip footer's Plan this week. */
+export const planPrompt = (page: Page): Locator => page.getByRole('button', { name: 'Plan this week', exact: true }).or(page.getByRole('button', { name: 'Start planning' })).first();
+
+/**
  * Start planning, then its toast's Undo, which keeps this week's times free: Start puts planning on the clock from now.
  * Undo waits until planning has drawn, since on phone the toast moves down then, and a press on Undo while it moves is
  * let go beside it, which leaves the toast and the planning block in place.
  */
 export async function startPlanningThenUndo(page: Page) {
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await expect(page.getByRole('navigation', { name: 'Planning steps' })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByText(/^Planning until /)).toHaveCount(0);
@@ -261,4 +296,17 @@ export async function release(page: Page, at: { x: number; y: number }, phone: b
     ({ x, y, pointerType }) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType, isPrimary: true, button: 0, clientX: x, clientY: y })),
     { ...at, pointerType: phone ? 'touch' : 'mouse' },
   );
+}
+
+/** Nothing in the popup's body reaches past its right edge, so it never scrolls sideways or cuts its content off. */
+export async function expectNoSideways(popup: Locator) {
+  const body = popup.locator('.taskpopbody');
+  await body.evaluate((e) => Promise.all(e.closest('.sheet')!.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))));
+  const fit = await body.evaluate((el) => {
+    const right = el.getBoundingClientRect().right;
+    const past = [...el.querySelectorAll('*')].filter((c) => c.getBoundingClientRect().right > right + 0.5).map((c) => c.outerHTML.slice(0, 90));
+    return { past, scroll: el.scrollWidth, client: el.clientWidth };
+  });
+  expect(fit.past).toEqual([]);
+  expect(fit.scroll).toBeLessThanOrEqual(fit.client);
 }

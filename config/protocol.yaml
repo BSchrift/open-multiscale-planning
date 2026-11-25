@@ -51,7 +51,8 @@ attachments:
   # A photo's or file's size: 10 MiB. The API signs the size into the upload, so S3 takes no more than that, and the
   # apps check it before adding a file. At most 5 GiB, the most one PUT takes.
   maxFileBytes: 10485760
-  # Attachments on one task. The apps count them as they're added, and each person's storage quota bounds the rest.
+  # Attachments on one task or note, links among them. The apps count them as they're added, and the API grants no
+  # upload of a file past them, as two devices adding at once could make. Released apps stop here, so it never drops.
   maxPerTask: 10
   # Attachments in one POST /files/download. The API reads them and the person's rate counter in one batch read of at
   # most 100 keys.

@@ -18,6 +18,7 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A1B2C3D4E5F6000000000040 /* BridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000003 /* BridgeViewController.swift */; };
 		A1B2C3D4E5F6000000000041 /* ShareQueuePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000004 /* ShareQueuePlugin.swift */; };
+		A1B2C3D4E5F6000000000047 /* EnergyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000E /* EnergyPlugin.swift */; };
 		A1B2C3D4E5F6000000000042 /* ShareQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000005 /* ShareQueue.swift */; };
 		A1B2C3D4E5F6000000000043 /* ShareQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000005 /* ShareQueue.swift */; };
 		A1B2C3D4E5F6000000000044 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000006 /* ShareViewController.swift */; };
@@ -25,6 +26,14 @@
 		A1B2C3D4E5F6000000000046 /* MultiscaleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000A /* MultiscaleUITests.swift */; };
 		A1B2C3D4E5F6000000000202 /* OpenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000201 /* OpenCapture.swift */; };
 		A1B2C3D4E5F6000000000203 /* OpenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000201 /* OpenCapture.swift */; };
+		A1B2C3D4E5F6000000000502 /* WidgetsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000501 /* WidgetsPlugin.swift */; };
+		A1B2C3D4E5F6000000000504 /* WidgetProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000503 /* WidgetProvider.swift */; };
+		A1B2C3D4E5F6000000000507 /* WidgetCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000506 /* WidgetCore */; };
+		A1B2C3D4E5F6000000000509 /* WidgetCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000508 /* WidgetCore */; };
+		A1B2C3D4E5F6000000000511 /* WidgetUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000510 /* WidgetUI */; };
+		A1B2C3D4E5F6000000000513 /* DayWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000512 /* DayWidgets.swift */; };
+		A1B2C3D4E5F6000000000602 /* LockTodayWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000601 /* LockTodayWidgets.swift */; };
+		A1B2C3D4E5F600000000050C /* WidgetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000050B /* WidgetUITests.swift */; };
 		A1B2C3D4E5F60000000003F2 /* OfflineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -68,6 +77,7 @@
 		A1B2C3D4E5F6000000000002 /* AppGroup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppGroup.entitlements; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000003 /* BridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeViewController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000004 /* ShareQueuePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareQueuePlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000000E /* EnergyPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnergyPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000005 /* ShareQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareQueue.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000006 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -78,6 +88,11 @@
 		A1B2C3D4E5F600000000000C /* MultiscaleCapture.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MultiscaleCapture.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000000D /* MultiscaleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MultiscaleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000201 /* OpenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCapture.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000501 /* WidgetsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetsPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000512 /* DayWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayWidgets.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000601 /* LockTodayWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockTodayWidgets.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000503 /* WidgetProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetProvider.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000050B /* WidgetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetUITests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -87,6 +102,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				A1B2C3D4E5F6000000000507 /* WidgetCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F600000000050A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F6000000000509 /* WidgetCore in Frameworks */,
+				A1B2C3D4E5F6000000000511 /* WidgetUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -124,6 +149,8 @@
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				A1B2C3D4E5F6000000000003 /* BridgeViewController.swift */,
 				A1B2C3D4E5F6000000000004 /* ShareQueuePlugin.swift */,
+				A1B2C3D4E5F600000000000E /* EnergyPlugin.swift */,
+				A1B2C3D4E5F6000000000501 /* WidgetsPlugin.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -159,6 +186,9 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F6000000000008 /* CaptureControl.swift */,
+				A1B2C3D4E5F6000000000503 /* WidgetProvider.swift */,
+				A1B2C3D4E5F6000000000512 /* DayWidgets.swift */,
+				A1B2C3D4E5F6000000000601 /* LockTodayWidgets.swift */,
 				A1B2C3D4E5F6000000000009 /* Info.plist */,
 			);
 			path = CaptureWidget;
@@ -169,6 +199,7 @@
 			children = (
 				A1B2C3D4E5F600000000000A /* MultiscaleUITests.swift */,
 				A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */,
+				A1B2C3D4E5F600000000050B /* WidgetUITests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -194,6 +225,7 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				A1B2C3D4E5F6000000000506 /* WidgetCore */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -219,12 +251,17 @@
 			buildConfigurationList = A1B2C3D4E5F60000000000D1 /* Build configuration list for PBXNativeTarget "MultiscaleCapture" */;
 			buildPhases = (
 				A1B2C3D4E5F60000000000A1 /* Sources */,
+				A1B2C3D4E5F600000000050A /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = MultiscaleCapture;
+			packageProductDependencies = (
+				A1B2C3D4E5F6000000000508 /* WidgetCore */,
+				A1B2C3D4E5F6000000000510 /* WidgetUI */,
+			);
 			productName = MultiscaleCapture;
 			productReference = A1B2C3D4E5F600000000000C /* MultiscaleCapture.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -275,6 +312,7 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -331,6 +369,8 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A1B2C3D4E5F6000000000040 /* BridgeViewController.swift in Sources */,
 				A1B2C3D4E5F6000000000041 /* ShareQueuePlugin.swift in Sources */,
+				A1B2C3D4E5F6000000000047 /* EnergyPlugin.swift in Sources */,
+				A1B2C3D4E5F6000000000502 /* WidgetsPlugin.swift in Sources */,
 				A1B2C3D4E5F6000000000042 /* ShareQueue.swift in Sources */,
 				A1B2C3D4E5F6000000000202 /* OpenCapture.swift in Sources */,
 			);
@@ -350,6 +390,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4E5F6000000000045 /* CaptureControl.swift in Sources */,
+				A1B2C3D4E5F6000000000504 /* WidgetProvider.swift in Sources */,
+				A1B2C3D4E5F6000000000513 /* DayWidgets.swift in Sources */,
+				A1B2C3D4E5F6000000000602 /* LockTodayWidgets.swift in Sources */,
 				A1B2C3D4E5F6000000000203 /* OpenCapture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -360,6 +403,7 @@
 			files = (
 				A1B2C3D4E5F6000000000046 /* MultiscaleUITests.swift in Sources */,
 				A1B2C3D4E5F60000000003F2 /* OfflineUITests.swift in Sources */,
+				A1B2C3D4E5F600000000050C /* WidgetUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -626,7 +670,8 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MULTISCALE_BUNDLE_ID).capture";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				CODE_SIGN_ENTITLEMENTS = "$(MULTISCALE_ENTITLEMENTS_$(MULTISCALE_EXTENSIONS))";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(MULTISCALE_WIDGETS_$(MULTISCALE_EXTENSIONS))";
 			};
 			name = Debug;
 		};
@@ -650,6 +695,8 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(MULTISCALE_BUNDLE_ID).capture";
+				CODE_SIGN_ENTITLEMENTS = "$(MULTISCALE_ENTITLEMENTS_$(MULTISCALE_EXTENSIONS))";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(MULTISCALE_WIDGETS_$(MULTISCALE_EXTENSIONS))";
 			};
 			name = Release;
 		};
@@ -738,6 +785,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "CapApp-SPM";
 		};
+		A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MultiscaleWidgets;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -745,6 +796,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		A1B2C3D4E5F6000000000506 /* WidgetCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */;
+			productName = WidgetCore;
+		};
+		A1B2C3D4E5F6000000000508 /* WidgetCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */;
+			productName = WidgetCore;
+		};
+		A1B2C3D4E5F6000000000510 /* WidgetUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */;
+			productName = WidgetUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

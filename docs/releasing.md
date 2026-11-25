@@ -25,7 +25,7 @@ no long-lived key.
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's, of this commit or an earlier one with the same Mac native code, and checks it. Signs staging's feed in the signing step. Runs this commit's web app suite against the web app staging still serves, as prod's Test step does. Then uploads the [version](#versions-and-feeds), switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites, and the same web app checks and journey as the history user, on its five-year account, switching what it switched back if a suite fails | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 5 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them, switching them back if a suite fails | A release alarm rolls the canary back, or a suite fails |
-| **Nightly** | Staging | CI's performance results published to staging's performance dashboard ([docs/performance.md](performance.md)). Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
+| **Nightly** | Staging | CI's performance results published to staging's performance dashboard ([docs/performance.md](performance.md)). Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with the history-scale test, so slow suites never hold up a release. An hour later, the retention suite in a build of its own, since it takes about 50 minutes and the control account allows a build only 45 until its limit is raised: until then that build is cut off and fails every night, without taking the rest's result with it. Each runs only when main has moved since it last passed | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
@@ -338,10 +338,14 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    applies to bundles. The step then checks out that commit, installs its packages, and builds its web app and main
    process again as the Build step built this one's. Its build must have this build's Mac shell hash, or the step
    leaves that commit's app and waits on. The upload is then checked against that commit's build rather than this
-   one's. The app carries the older commit's web bundle, and takes this release's from the desktop feed, as an app
-   with unchanged native code does. Prod takes the build of the commit staging's app came from first, if it can,
-   since the staging update check passes that app's version. If nothing
-   arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
+   one's, and an upload that fails is left the same way. A build's version names its commit's first seven characters
+   (`vite.config.ts`), so building it again later, in another clone, stamps it the same. A commit from before that took
+   git's abbreviation, which grows with the clone's objects, so the step builds it with as many characters as its
+   upload's version names (`mac-inbox.ts stamp-length`), and the check still compares every file. The app carries the
+   older commit's web bundle, and takes this release's from the desktop feed, as an app with unchanged native code
+   does. Prod takes the build of the commit staging's app came from first, if it can, since the staging update check
+   passes that app's version. If nothing arrives in time, or this commit's own app fails the check, the run stops
+   before anything is published, and before prod. A new AWS account
    caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
    waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
 3. **The releases publish it.** Staging's and prod's releases upload the app's folder first,
@@ -650,6 +654,30 @@ skips one it can't run, saying it needs a new version of the app (`frontend/src/
 **Staging** reads the same record, since there's no staging TestFlight build, so its switch rehearses prod's. An iPhone
 app built for staging comes from Xcode: run it from Xcode again.
 
+### What's new
+
+The first time an update with something new runs on an iPhone, the app shows a sheet titled "Multiscale has been
+updated!" Under "What's new" and the date of the update, such as Nov 24, it has a one-sentence line for each change,
+never a version or a commit. Each phone shows each line once.
+
+- **The lines** are in [`frontend/src/whatsNew.ts`](../frontend/src/whatsNew.ts), newest first. A pull request that
+  changes what someone can do on the iPhone adds its line at the top, with the next id. One plain sentence in the app's
+  voice: sentence case, what the person can now do, no jargon, no pull request numbers. Ids are never reused or
+  changed, and `core/whatsNew.test.ts` checks the rules. A line ships with the bundle, so it reaches a phone with the
+  change it describes, whether over the air or in a new TestFlight app.
+- **When it shows.** Each launch, and each switch to a downloaded bundle, which reloads the page, compares the newest
+  line in the running bundle with the newest this phone has seen, kept in the web view's local storage and never synced.
+  It shows the newer lines together, at most six, once the app is idle on a screen: never during setup, a flow such as
+  planning, Capture, Process, a prompt or another sheet. Got it, Esc, the backdrop or a swipe down puts it away and
+  records the newest line as seen.
+- **A new install** records every line as seen during first-run setup, and shows none. A phone that ran the app before
+  What's new existed has recorded none, so it shows the newest lines once. The UI tests' Erase records them as a new
+  install would, since their seeds skip setup.
+- **The date** is the running bundle's build, its commit's time (`build` in `version.json`), as a day in the phone's
+  time zone, such as Nov 24. A commit reaches staging within the hour and prod after its canary, usually the same day.
+- **Only the iPhone, for now.** The Mac app and the web app don't show it. `e2e/whats-new.spec.ts` checks it at phone
+  size in the browser, which stands in for the iPhone in dev builds only.
+
 ### Setting up TestFlight from GitHub Actions
 
 Once, after [Setting up the Mac release](#setting-up-the-mac-release), whose inbox and environment it shares, and
@@ -717,7 +745,7 @@ install the new app on every device.
 | Ten or so more CloudWatch alarms | About $1 |
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
 | The window before prod, a three-state Step Functions run each release, and its link's Lambda | Under $0.01 |
-| The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite | About $0.45 a night |
+| The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite's build | About $0.45 a night |
 | The Mac app's check, a small build that waits for GitHub's build, only for a run that needs a new Mac app | Up to $0.60 a time, for a two-hour wait |
 | The Mac release's inbox, two disk images a time, kept 30 days | Under $0.05 |
 | The TestFlight review's record, written to the inbox every hour, on GitHub's runners, which a public repository doesn't pay for | Under $0.01 |

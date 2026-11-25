@@ -109,6 +109,22 @@ describe('uploads', () => {
     expect((await getRecord(db, 'attachment', id))?.uploaded_at).toBe(NOW);
   });
 
+  it('holds a photo past the attachments a task may have until Retry, and goes on to the next', async () => {
+    let over = true;
+    const { files, kept, calls } = setup({
+      grantUpload: async (id) => (calls.push(`grant ${id}`), over ? json(400, { error: 'too_many_attachments' }) : grant(id)),
+    });
+    const ids = [await photo(kept), await photo(kept)].sort();
+    await files.run();
+    expect(calls).toEqual(ids.map((id) => `grant ${id}`));
+    for (const id of ids) expect(files.state(id)).toEqual({ kind: 'tooMany' });
+    await files.run();
+    expect(calls).toHaveLength(2);
+    over = false;
+    await files.retry(ids[0]!);
+    expect((await getRecord(db, 'attachment', ids[0]!))?.uploaded_at).toBe(NOW);
+  });
+
   it('waits out the hourly limit, then goes by itself', async () => {
     let limited = true;
     const { files, kept, calls } = setup({
@@ -148,6 +164,19 @@ describe('uploads', () => {
     put.mockResolvedValue(200);
     await files.run();
     expect((await getRecord(db, 'attachment', id))?.uploaded_at).toBe(NOW);
+  });
+
+  it('gives up on a photo whose record changed after its upload was granted, and goes on to the next', async () => {
+    const { files, kept, calls } = setup({
+      grantUpload: async (id) => (calls.push(`grant ${id}`), calls.length === 1 ? json(409, { error: 'attachment_changed' }) : grant(id)),
+    });
+    const ids = [await photo(kept), await photo(kept)].sort();
+    await files.run();
+    expect(files.state(ids[0]!)).toEqual({ kind: 'changed' });
+    expect((await getRecord(db, 'attachment', ids[1]!))?.uploaded_at).toBe(NOW);
+    // No upload under its id can match again, so it isn't asked for again.
+    await files.run();
+    expect(calls.filter((c) => c.startsWith('grant'))).toEqual(ids.map((id) => `grant ${id}`));
   });
 
   it('gives up on a file the API refuses for good', async () => {

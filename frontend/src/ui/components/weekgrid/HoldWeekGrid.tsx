@@ -6,10 +6,11 @@ import { formatTimeOfDay } from '../../../core/dates';
 import { closestFit, DRAFT_MIN, dragResult, DRAWN_DAY, holdSlot, isPast } from '../../../core/slots';
 import type { LocalDate } from '../../../core/types';
 import { useApp } from '../../app/store';
-import { Capture } from '../../screens/capture';
+import { DraftCapture } from '../../screens/capture/DraftCapture';
 import { Menu } from '../Menu';
 import { HoldRing, overlapWords, useHoldToCreate } from './holdCreate';
-import { COLUMN_GAP, dayName, hourPx, sharedWith, WeekGrid } from './WeekGrid';
+import { dayName } from '../blocks/describe';
+import { COLUMN_GAP, hourPx, sharedWith, WeekGrid } from './WeekGrid';
 import type { WeekGridProps } from './WeekGrid';
 
 /**
@@ -63,7 +64,7 @@ export function HoldWeekGrid(props: WeekGridProps & { holdOff: boolean; newTaskM
         />
       )}
       {held && hold.draft!.open && (
-        <Capture layout={layout} close={hold.close} slot={hold.slot(overlapWords(held, sharedWith(held, blocks, ctx).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
+        <DraftCapture layout={layout} close={hold.close} slot={hold.slot(overlapWords(held, sharedWith(held, blocks, ctx).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
       )}
     </>
   );

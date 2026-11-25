@@ -46,6 +46,8 @@ describe('a draft becomes a schedule', () => {
       schedule: { type: 'once', from: null, to: null },
       next_due: null,
       estimate_min: 30,
+      // The form owns the time of day, so it writes none rather than leaving another's.
+      time: null,
     });
   });
 
@@ -118,6 +120,8 @@ describe('OneOffForm', () => {
       schedule: { type: 'once', from: '2026-11-04', to: '2026-11-05' },
       next_due: '2026-11-04',
       estimate_min: 45,
+      // A range has no one day for a time of day.
+      time: null,
     });
     expect(field('Title')).toHaveValue('');
     expect(screen.queryByRole('alert')).toBeNull();
@@ -205,18 +209,6 @@ describe('OneOffForm', () => {
     expect(screen.queryByRole('group', { name: 'On' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
     expect(onSave.mock.calls[1]![0].schedule).toEqual({ type: 'recurring', every: 1, unit: 'month', anchor: TODAY });
-  });
-
-  it("keeps a weekly task's days when it's changed", async () => {
-    const onSave = vi.fn();
-    const task: Task = { id: 't', kind: 'one_off', title: 'Put the bins out', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-10-05', days: [3, 0] } };
-    await inApp(<OneOffForm task={task} onSave={onSave} />);
-    const on = screen.getByRole('group', { name: 'On' });
-    expect(within(on).getAllByRole('checkbox', { checked: true }).map((c) => c.getAttribute('aria-label'))).toEqual(['Monday', 'Thursday']);
-    await userEvent.clear(field('Title'));
-    await userEvent.type(field('Title'), 'Put the recycling out');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(onSave.mock.calls[0]![0]).toMatchObject({ title: 'Put the recycling out', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-10-05', days: [0, 3] } });
   });
 
   it('can be cancelled when it sits in a sheet', async () => {

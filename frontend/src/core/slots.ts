@@ -56,6 +56,8 @@ export interface SlotContext {
   earliest: { date: LocalDate; minutes: TimeOfDay };
   /** The zone the week is in, which tells a practice's time from one the clocks skip. */
   zone?: string;
+  /** The week's away dates, where a practice's set days need nothing. */
+  away?: readonly LocalDate[];
 }
 
 export interface Work {
@@ -440,7 +442,7 @@ export function practiceTime(p: Practice, day: Weekday): TimeOfDay | null {
 }
 
 /** A time the clocks skip that night becomes the first that exists, 3am for 2:30am. */
-function existingTime(date: LocalDate, minute: TimeOfDay, zone: string | undefined): TimeOfDay {
+export function existingTime(date: LocalDate, minute: TimeOfDay, zone: string | undefined): TimeOfDay {
   if (!zone) return minute;
   for (let m = minute; m < 1440; m++) if (localMinutes(localToMs(date, m, zone), zone) === m) return m;
   return minute;
@@ -463,9 +465,20 @@ function sessionStart(p: Practice, date: LocalDate, length: Minutes, ctx: SlotCo
   for (let step = GRID; start === undefined && step < 1440; step += GRID) start = [want + step, want - step].find(works);
   if (start === undefined) return null;
   if (start === want) return { start };
-  const closed = Array.from({ length }, (_, i) => want + i).some((m) => !isOpen(ctx.availability, date, m, 'project'));
-  const why = isPast(date, want, ctx) ? 'has passed' : closed ? 'is outside your available hours' : 'is taken';
-  return { start, note: `${formatTimeOfDay(want)} ${why}, so ${formatTimeOfDay(start)}` };
+  const by = takenBy(date, want, want + length, ctx);
+  return { start, note: `${formatTimeOfDay(want)} ${whyNot(date, want, length, ctx)}${by ? ` by ${by}` : ''}, so ${formatTimeOfDay(start)}` };
+}
+
+/** Why a session can't start at `want` on a day: it 'has passed', 'is outside your available hours' or 'is taken'. */
+export function whyNot(date: LocalDate, want: TimeOfDay, length: Minutes, ctx: SlotContext): 'has passed' | 'is outside your available hours' | 'is taken' {
+  if (isPast(date, want, ctx)) return 'has passed';
+  if (Array.from({ length }, (_, i) => want + i).some((m) => !isOpen(ctx.availability, date, m, 'project'))) return 'is outside your available hours';
+  return 'is taken';
+}
+
+/** What takes a time on a day, the first event or block there, by its title. */
+export function takenBy(date: LocalDate, start: TimeOfDay, end: TimeOfDay, ctx: SlotContext): string | undefined {
+  return [...ctx.busy, ...ctx.placed].find((x) => x.date === date && x.start < end && start < x.end)?.title ?? undefined;
 }
 
 export interface PracticeLeft {
@@ -481,7 +494,8 @@ export interface PracticeLeft {
   missed?: number;
 }
 
-const isLive = (p: Practice, skipped: readonly string[]) => p.state === 'active' && !p.deleted_at && p.target_min > 0 && !skipped.includes(p.id);
+/** A practice that wants sessions this week: active, with a target, and not skipped for the week. */
+export const isLive = (p: Practice, skipped: readonly string[]) => p.state === 'active' && !p.deleted_at && p.target_min > 0 && !skipped.includes(p.id);
 
 /** The days a practice's sessions are on or for. The part of a late session after midnight belongs to the day it started. */
 function sessionDays(own: readonly Span[]): Set<LocalDate> {
@@ -499,7 +513,8 @@ function practiceNeed(p: Practice, ctx: SlotContext, skippedSessions: readonly s
   const free = weekDates(ctx.week).filter((d) => d >= ctx.earliest.date && !taken.has(d));
   const length = sessionLength(p);
   if (p.per === 'day') {
-    const dates = free.filter((d) => practiceDays(p).includes(weekday(d)) && !skippedSessions.includes(skippedSessionKey(p.id, d)));
+    // Nothing asks on a day away.
+    const dates = free.filter((d) => practiceDays(p).includes(weekday(d)) && !skippedSessions.includes(skippedSessionKey(p.id, d)) && !ctx.away?.includes(d));
     return { length, dates, left: dates.length, missed: 0 };
   }
   const counted = new Set(own.filter((s) => !s.skipped && (s.for ?? s.date) >= ctx.week).map((s) => s.id ?? `${s.date} ${s.start}`));
@@ -611,8 +626,11 @@ export function slotContext(input: {
   calendar: CalendarState | null;
   blocks: PlacedBlock[];
   clock: Clock;
+  /** Away dates, which a practice's set days skip. */
+  away?: readonly { start: LocalDate; end: LocalDate; deleted_at?: Instant | null }[];
 }): SlotContext {
   const { week, availability, avoided, sources, calendar, blocks, clock } = input;
+  const away = weekDates(week).filter((d) => input.away?.some((a) => !a.deleted_at && a.start <= d && d <= a.end));
   const zone = clock.zone();
   const live = blocks.filter((b) => !b.cancelled && !b.deleted_at);
   const session = (b: PlacedBlock) =>
@@ -638,6 +656,7 @@ export function slotContext(input: {
     ),
     earliest: { date: today(clock), minutes: localMinutes(clock.now(), zone) },
     zone,
+    ...(away.length ? { away } : {}),
   };
 }
 

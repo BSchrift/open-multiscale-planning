@@ -142,6 +142,8 @@ export function createSyncRunner(deps: {
 
   return {
     syncNow,
+    /** Resolves once the sync under way, if any, has finished or failed, without starting one. Never rejects. */
+    settled: (): Promise<void> => running ?? Promise.resolve(),
     start(): void {
       void syncNow();
       const period = setInterval(() => void syncNow(), PERIOD_MS);
@@ -208,6 +210,7 @@ export function startAppSync(
     onWake?(listener: () => void): () => void;
     notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
     shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
+    widgets?: { clear(): Promise<void> };
     files: FileBytes & { clear(): Promise<void> };
     kind?: string;
     diagnostics?: Diagnostics;
@@ -284,7 +287,8 @@ export function startAppSync(
     return () => window.removeEventListener('online', listener);
   };
   /**
-   * Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text and reminders.
+   * Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text, reminders, and
+   * what the widgets show and queued.
    * reason is the sync error to show afterwards, written with the erase so an app closed part way still shows it.
    */
   const eraseLocal = async (account: string | null, reason?: SyncErrorCode) => {
@@ -304,6 +308,7 @@ export function startAppSync(
     await platform.files.clear();
     const share = platform.shareImport;
     if (share) await share.remove((await share.peek()).map((item) => item.id));
+    await platform.widgets?.clear();
     // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when
     // tapped; remove delivered ones too if that matters.
     await platform.notifications.replaceAll([]);
@@ -450,6 +455,11 @@ export function startAppSync(
       }
     },
     syncNow: runner.syncNow,
+    /**
+     * Resolves once the sync under way has finished or failed, such as the first after opening or the one a return to the
+     * foreground starts, so what the app does on its own then works from what other devices did. Never rejects.
+     */
+    settled: runner.settled,
     /** The link to an export of everything the account has, once the server has built it. Throws ExportError or SyncError. */
     exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), isFilesLink }),
     /**
@@ -464,10 +474,11 @@ export function startAppSync(
     },
     /**
      * Deletes the account this device's data belongs to, once the person has typed DELETE, then erases this device's copy
-     * and signs it out. Resolves to 'sign_in_again' when their sign-in is too old for it, and 'wrong_account' when it's
-     * another account's, changing nothing either way. Throws SyncError.
+     * and signs it out. Resolves to 'sign_in_again' when their sign-in is too old for it, 'wrong_account' when it's
+     * another account's, and 'protected' when the server never deletes it, changing nothing in each case. Throws
+     * SyncError.
      */
-    async deleteAccount(): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> {
+    async deleteAccount(): Promise<'deleted' | 'sign_in_again' | 'wrong_account' | 'protected'> {
       const account = await getMeta(platform.db, META.account);
       if (!account || tokenSubject(await auth.accessToken()) !== account) return 'wrong_account';
       const answer = await deleteAccount(accountRequest, account);

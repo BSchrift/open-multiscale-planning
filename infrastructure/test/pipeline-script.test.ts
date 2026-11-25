@@ -42,7 +42,8 @@ case "$*" in
 esac`);
   for (const name of ['go', 'npm', 'sleep', 'apt-get']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
   // A web build of a checkout that holds a version.json, as a commit the MacApp step builds again does, carries it.
-  s.stub('npx', `echo "npx $*" >> "$LOG"
+  // It logs the git config a build is given, which the version's stamp reads.
+  s.stub('npx', `echo "npx $*\${GIT_CONFIG_COUNT:+ (git -c $GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0)}" >> "$LOG"
 case "$*" in "vite build"*) [ -f version.json ] && out="$(echo "$*" | sed -E 's/.*--outDir ([^ ]+).*/\\1/')" && mkdir -p "$out" && cp version.json "$out/";; esac
 exit 0`);
   s.stub('xvfb-run', 'shift; exec "$@"');
@@ -84,7 +85,11 @@ if (command === 'record') {
   const listed = readFileSync(keys, 'utf8');
   const pick = [commit, ...(process.env.SAME_NATIVE ?? '').split(' ')].find((c) => c && listed.includes('inbox/' + c + '/' + env + '/manifest.json') && !skip.includes(c));
   if (pick) console.log(pick);
-} else process.exit(process.env.VERIFY_FAILS ? 1 : 0);
+} else if (command === 'stamp-length') {
+  // As stampLength: the length of the hash the manifest's version ends in.
+  const version = JSON.parse(readFileSync(env, 'utf8')).version;
+  if (version) console.log(version.split('-').pop().length);
+} else process.exit(process.env.VERIFY_FAILS === '1' || process.env.VERIFY_FAILS === from ? 1 : 0);
 \n`);
   // DEPLOYED_FAILS makes the suites fail, as they do when a deployment is wrong. PUBLISHED_FAILS fails only the run
   // against what a release just published, which names the version it must serve.
@@ -93,7 +98,8 @@ if (command === 'record') {
   writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE $*" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
   writeFileSync(join(s.root, 'scripts/integration.sh'), '#!/bin/sh\necho "integration ENV=$ENV MULTISCALE_REQUEST_MIX=$MULTISCALE_REQUEST_MIX INTEGRATION_RUN=$INTEGRATION_RUN" >> "$LOG"\n[ -z "$MIX_FAILS" ]\n');
   writeFileSync(join(s.root, 'scripts/test-perf.sh'), '#!/bin/sh\necho "test-perf PERF_SYNC=$PERF_SYNC PERF_PLATFORMS=$PERF_PLATFORMS" >> "$LOG"\n[ -z "$PERF_FAILS" ]\n');
-  for (const script of ['perf-publish', 'integration', 'test-perf']) chmodSync(join(s.root, `scripts/${script}.sh`), 0o755);
+  writeFileSync(join(s.root, 'scripts/test-retention.sh'), '#!/bin/sh\necho "test-retention ENV=$ENV" >> "$LOG"\n[ -z "$RETENTION_FAILS" ]\n');
+  for (const script of ['perf-publish', 'integration', 'test-perf', 'test-retention']) chmodSync(join(s.root, `scripts/${script}.sh`), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
@@ -654,7 +660,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     }
     if (inbox) {
       for (const env of ['staging', 'prod']) {
-        s.put(`s3://inbox-bucket/inbox/${from}/${env}/manifest.json`, JSON.stringify({ files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
+        s.put(`s3://inbox-bucket/inbox/${from}/${env}/manifest.json`, JSON.stringify({ version: `0.1.0-${from.slice(0, 7)}`, files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
         s.put(`s3://inbox-bucket/inbox/${from}/${env}/Multiscale.dmg`, 'disk image');
         s.put(`s3://inbox-bucket/inbox/${from}/${env}/Multiscale.zip`, 'zip of app');
         s.put(`s3://inbox-bucket/inbox/${from}/${env}/Multiscale.zip.blockmap`, 'blockmap');
@@ -706,8 +712,8 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
   // A commit before this one, which the MacApp step checks out and builds again to check its Mac app against: its
   // checkout, whose web build names the native code given.
   const OLDER = 'beef'.padEnd(40, '0');
-  const olderCheckout = (s: ReturnType<typeof sandbox>, builtShell: object) => {
-    const frontend = join(s.params, 'checkouts', OLDER, 'frontend');
+  const olderCheckout = (s: ReturnType<typeof sandbox>, builtShell: object, older = OLDER) => {
+    const frontend = join(s.params, 'checkouts', older, 'frontend');
     mkdirSync(join(frontend, 'scripts'), { recursive: true });
     writeFileSync(join(frontend, 'version.json'), JSON.stringify({ version: '0.1.0-beef', build: 0, shell: builtShell }));
     writeFileSync(join(frontend, 'scripts/electron-compile.mjs'), readFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs')));
@@ -724,7 +730,8 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     const made = new RegExp(`git -C ${s.root} worktree add --quiet --detach (\\S+)/checkout ${OLDER}`).exec(s.log())![1]!;
     assert.match(s.log(), new RegExp(`npm ci --ignore-scripts`));
     for (const env of ['staging', 'prod']) {
-      assert.match(s.log(), new RegExp(`npx vite build --outDir ${made}/web/${env} --emptyOutDir`));
+      // Stamped with as much of the commit as GitHub Actions' build of it was, which git chose by the clone's size then.
+      assert.match(s.log(), new RegExp(`npx vite build --outDir ${made}/web/${env} --emptyOutDir \\(git -c core\\.abbrev=7\\)`));
       assert.match(s.log(), new RegExp(`electron-compile  ENV=${env}`));
       assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${OLDER} \\S+ ${made}/web/${env} ${made}/mac/${env}/dist-electron ${made}/checkout/frontend `));
       assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
@@ -756,6 +763,32 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(r.stderr, new RegExp(`The pipeline's build of ${OLDER} has other Mac native code than this build's, so staging doesn't take its Mac app`));
     assert.match(r.stderr, /reached the inbox in time/);
     assert.doesNotMatch(s.log(), /mac-inbox (verify|record)/);
+    assert.throws(() => readFileSync(join(s.root, 'mac-checked/staging/Multiscale.dmg')));
+  });
+
+  it('leaves a build before this one that fails its checks, and takes the next one that passes', () => {
+    const s = configured();
+    live(s);
+    const NEXT = 'babe'.padEnd(40, '0');
+    olderCheckout(s, { electron: 'e2', ios: 'i0' });
+    olderCheckout(s, { electron: 'e2', ios: 'i0' }, NEXT);
+    macStep(s, { from: NEXT });
+    const r = s.run(['mac'], { ...macStep(s, { from: OLDER }), SAME_NATIVE: `${OLDER} ${NEXT}`, VERIFY_FAILS: OLDER });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, new RegExp(`${OLDER}'s Mac app failed its checks, so staging doesn't take it and waits on`));
+    assert.match(s.log(), new RegExp(`mac-inbox pick staging ${COMMIT} \\S+  ${OLDER} ENV`));
+    assert.match(r.stdout, new RegExp(`${NEXT}, a commit before this one, has this build's Mac native code, so staging takes its Mac app`));
+    assert.match(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), new RegExp(`^staging: checked f+, of ${NEXT}\nprod: checked f+, of ${NEXT}\n$`));
+  });
+
+  it('hands on nothing when the only build before this one fails its checks, and stops once the wait is over', () => {
+    const s = configured();
+    live(s);
+    olderCheckout(s, { electron: 'e2', ios: 'i0' });
+    const r = s.run(['mac'], { ...macStep(s, { from: OLDER }), SAME_NATIVE: OLDER, VERIFY_FAILS: OLDER, MAC_WAIT_SECONDS: '0' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, new RegExp(`${OLDER}'s Mac app failed its checks, so staging doesn't take it and waits on`));
+    assert.match(r.stderr, /reached the inbox in time/);
     assert.throws(() => readFileSync(join(s.root, 'mac-checked/staging/Multiscale.dmg')));
   });
 
@@ -1165,8 +1198,30 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /curl -fsS --max-time 20 https:\/\/release\.example\.net\/desktop\/release\.json/);
     // The iPhone has had no version before this one.
     assert.match(r.stdout, /iphone has no version before 0\.1\.0-ccc to go back to/);
-    // Then the suites, against what it serves again.
-    assert.match(s.log(), /test-deployed ENV=staging/);
+    // Then the suites, against what it serves again, but for retention, which has a nightly build of its own.
+    assert.match(s.log(), /test-deployed ENV=staging .*SKIP_IOS=1 .*SKIP_RETENTION=1 /);
+    assert.doesNotMatch(s.log(), /test-retention/);
+  });
+
+  it('runs the retention suite against staging in its own nightly build, and records the commit it passed', () => {
+    const s = configured();
+    const r = s.run(['nightly-retention']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /test-retention ENV=staging\n(.*\n)*aws AWS_PROFILE=\S* ssm put-parameter --name \/multiscale\/pipeline\/nightly-retention --type String --overwrite --value abc123\n/);
+    assert.doesNotMatch(s.log(), /test-deployed|pipeline\/nightly /);
+  });
+
+  it('runs no retention suite when main has not moved since it last passed, and records nothing when it fails', () => {
+    const s = configured();
+    s.param('/multiscale/pipeline/nightly-retention', 'abc123');
+    const r = s.run(['nightly-retention']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Nothing new on main since the retention suite last passed at abc123/);
+    assert.doesNotMatch(s.log(), /test-retention|npm /);
+    const failing = configured();
+    assert.notEqual(failing.run(['nightly-retention'], { RETENTION_FAILS: '1' }).status, 0);
+    assert.match(failing.log(), /test-retention ENV=staging/);
+    assert.doesNotMatch(failing.log(), /put-parameter/);
   });
 
   it("publishes CI's performance results to staging's dashboard each night, as staging's release role, and goes on if that fails", () => {

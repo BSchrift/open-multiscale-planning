@@ -5,7 +5,7 @@
 import { RRule } from 'rrule';
 import type { Options } from 'rrule';
 import type { Clock } from './clock';
-import { addDays, addMonths, diffDays, formatDate, formatMinutes, formatWeekday, instantMs, isDay, localDate, nowInstant, today, toInstant, weekStart } from './dates';
+import { addDays, addMonths, diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, instantMs, isDay, localDate, nowInstant, today, toInstant, weekStart } from './dates';
 import { occurrenceId } from './records';
 import type { Fields, Instant, LocalDate, RepeatUnit, Task, TaskCompletion, TaskSchedule, TimeBlock } from './types';
 
@@ -148,6 +148,21 @@ export function setOnceDates(from: LocalDate | null, to: LocalDate | null): Fiel
 export function projectDates(task: Pick<Task, 'schedule'>): Fields<'task'> {
   const s = task.schedule;
   return s?.type === 'once' && s.from ? setOnceDates(s.from, s.to ?? null) : { schedule: null, next_due: null };
+}
+
+/** Whether two schedules say the same, whatever order their fields arrive in. A one-time one with no date is none. */
+export function sameSchedule(a: TaskSchedule | null | undefined, b: TaskSchedule | null | undefined): boolean {
+  const key = (s: TaskSchedule | null | undefined) => (!s || (s.type === 'once' && !s.from) ? 'null' : JSON.stringify(s, Object.keys(s).sort()));
+  return key(a) === key(b);
+}
+
+/**
+ * The next_due for a schedule chosen for a task. An unchanged schedule keeps its date, even one overdue. A new one
+ * counts from today, or from tomorrow when it was done today, and a float or window from the latest finish, lastDone.
+ */
+export function scheduledDue(s: TaskSchedule, task: Pick<Task, 'schedule' | 'next_due'>, lastDone: LocalDate | null, day: LocalDate): LocalDate | null {
+  if (sameSchedule(s, task.schedule)) return task.next_due ?? null;
+  return firstDue(s, lastDone === day ? addDays(day, 1) : day, lastDone);
 }
 
 /** The fields for dragging a one-time task to a new start. A range keeps its length. */
@@ -346,6 +361,13 @@ function nextText(s: TaskSchedule, due: LocalDate | null | undefined): string {
 export function rowLine({ task, checked }: OneOffRow): string {
   const s = task.schedule ?? { type: 'once' as const };
   if (checked) return s.type === 'once' ? 'Done today' : `Done today, ${nextText(s, task.next_due)}`;
-  const line = s.type === 'once' ? onceWhen(s) || 'No date' : `${scheduleLabel(s)}, ${nextText(s, task.next_due)}`;
+  const when = s.type === 'once' ? onceWhen(s) || 'No date' : `${scheduleLabel(s)}, ${nextText(s, task.next_due)}`;
+  // A time of day goes with the one date it's on.
+  const line = task.time != null && hasOneDate(s) ? `${when}, ${formatTimeOfDay(task.time)}` : when;
   return task.estimate_min ? `${line}, ${formatMinutes(task.estimate_min)}` : line;
+}
+
+/** A schedule with one day at a time to put a time of day on: one date, or a repeat whose next is a day. */
+export function hasOneDate(s: TaskSchedule): boolean {
+  return s.type === 'once' ? !!s.from && (!s.to || s.to === s.from) : s.type === 'recurring' || s.type === 'float' || s.type === 'rule';
 }

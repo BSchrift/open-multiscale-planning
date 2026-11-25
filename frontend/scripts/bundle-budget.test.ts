@@ -5,15 +5,20 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { check, linkedBytes } from './bundle-budget';
 
-/** A build whose page links a script, a preload and a style, and holds a file it doesn't link. */
-function build(script: string) {
+/**
+ * A build whose page links a script, a preload and a style, and holds a file it doesn't link. The linked script's source
+ * map names `sources`, and the unlinked one's names the task popup.
+ */
+function build(script: string, sources = ['../../src/main.tsx']) {
   const dist = mkdtempSync(join(tmpdir(), 'multiscale-budget-'));
   mkdirSync(join(dist, 'assets'));
   writeFileSync(join(dist, 'index.html'), '<link rel="icon" href="/favicon.png"><script type="module" src="/assets/index.js"></script><link rel="modulepreload" href="/assets/db.js"><link rel="stylesheet" href="/assets/index.css">');
   writeFileSync(join(dist, 'assets/index.js'), script);
   writeFileSync(join(dist, 'assets/db.js'), 'export const db = 1;');
   writeFileSync(join(dist, 'assets/index.css'), 'body { margin: 0 }');
+  writeFileSync(join(dist, 'assets/index.js.map'), JSON.stringify({ version: 3, sources, mappings: '' }));
   writeFileSync(join(dist, 'assets/later.js'), 'x'.repeat(100_000));
+  writeFileSync(join(dist, 'assets/later.js.map'), JSON.stringify({ version: 3, sources: ['../../src/ui/screens/task/index.tsx'], mappings: '' }));
   writeFileSync(join(dist, 'favicon.png'), 'png');
   return dist;
 }
@@ -34,5 +39,12 @@ describe('the bundle budget', () => {
     const grown = check(build(random(8000)), { budgetKb: 100, base: build('a') });
     expect(grown.ok).toBe(true);
     expect(grown.lines.join('\n')).toMatch(/adds [\d.]+ KB to the page's scripts and styles, more than 5 KB/);
+  });
+
+  it('fails when code that loads after the page draws, such as the task popup, is back in what the page links', () => {
+    expect(check(build('a'), { budgetKb: 100 }).ok).toBe(true);
+    const back = check(build('a', ['../../src/main.tsx', '../../src/ui/screens/task/index.tsx', '../../src/ui/app/MorePage.tsx']), { budgetKb: 100 });
+    expect(back.ok).toBe(false);
+    expect(back.lines.join('\n')).toContain('src/ui/screens/task/index.tsx and src/ui/app/MorePage.tsx load with the page');
   });
 });

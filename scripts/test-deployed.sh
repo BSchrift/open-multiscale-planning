@@ -19,8 +19,8 @@
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve, and
 #   EXPECT_FEEDS the feeds that must serve it too: desktop and iphone, as a release switched them.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
-#   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
-#   SKIP_HISTORY_WEB=1 leaves out the history web app suite, about 2 to 3 minutes.
+#   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly builds.
+#   SKIP_HISTORY_WEB=1 leaves out the history web app suite, about 3 to 6 minutes.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 #   DEPLOYED_BEFORE_PUBLISH=1 says the web app is still the release before this checkout's, so the web app suite skips
 #   the checks of this release's own screens and feeds. WEB_ONLY=1 runs the web app suite alone: the release pipeline's

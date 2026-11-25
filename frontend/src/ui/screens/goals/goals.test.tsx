@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRecord, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { renderScreen } from '../../app/testing';
+import { holdTimers, pass, pickFrom, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { EST_STEPS } from '../../components/EstimateSlider';
 
@@ -637,7 +637,7 @@ describe('Goals', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
       editor = await screen.findByRole('dialog', { name: 'Feed the starter' });
       expect(within(editor).getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
+      await pickFrom(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Feed the starter to Bake a sourdough loaf, First loaf.')).toBeVisible();
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m2');
@@ -708,18 +708,20 @@ describe('Goals', () => {
       await userEvent.click(within(head).getByRole('button', { name: 'Done tasks' }));
       await userEvent.click(within(done).getByRole('button', { name: /^Edit task Buy flour/ }));
       let editor = await screen.findByRole('dialog', { name: 'Buy flour' });
+      await userEvent.click(within(editor).getByLabelText('Belongs to'));
       expect(within(editor).getAllByRole('option').map((o) => o.textContent)).toEqual([
         'Inbox',
         'One offs',
         'Bake a sourdough loaf, Make a starter',
         'Bake a sourdough loaf, Done',
       ]);
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Make a starter');
+      // The list is open, on phone in its sheet.
+      await userEvent.click(screen.getByRole('option', { name: 'Bake a sourdough loaf, Make a starter' }));
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Make a starter.')).toBeVisible();
       await userEvent.click(await within(group('Make a starter')).findByRole('button', { name: /^Edit task Buy flour/ }));
       editor = await screen.findByRole('dialog', { name: 'Buy flour' });
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
+      await pickFrom(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Done.')).toBeVisible();
     });
@@ -848,11 +850,12 @@ describe('Goals', () => {
   });
 
   describe('moving tasks by holding them on phone', () => {
-    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    beforeEach(holdTimers);
     const point = (el: Element | null) => {
       document.elementFromPoint = () => el;
     };
     afterEach(() => {
+      vi.useRealTimers();
       // jsdom has no layout, so each test says what is under the finger.
       document.elementFromPoint = () => null;
     });
@@ -861,7 +864,7 @@ describe('Goals', () => {
       const t = await project('phone');
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       expect(row.closest('.taskline')).toHaveClass('lifted');
       point(within(group('First loaf')).getByText('Milestone: First loaf'));
       fireEvent.pointerMove(window, { clientX: 50, clientY: 400 });
@@ -880,16 +883,16 @@ describe('Goals', () => {
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
       fireEvent.pointerMove(window, { clientX: 50, clientY: 330 });
-      await wait(450);
+      await pass(450);
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       fireEvent.pointerCancel(window);
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       fireEvent.pointerUp(window, { clientX: 0, clientY: 0 });
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m1');
@@ -906,7 +909,7 @@ describe('Goals', () => {
       const row = within(done).getByRole('button', { name: /^Edit task Buy a proofing basket/ });
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       point(group('Make a starter'));
       fireEvent.pointerMove(window, { clientX: 50, clientY: 200 });
       fireEvent.pointerUp(window, { clientX: 50, clientY: 200 });
@@ -1085,13 +1088,12 @@ describe('Goals', () => {
   });
 
   describe('practices', () => {
-    it('a link to a practice opens it, in its section on desktop and in its sheet on phone', async () => {
+    it('a link to a practice opens its popup, on desktop and on phone', async () => {
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' } });
-      expect(await screen.findByRole('button', { name: /^Stretch/, expanded: true })).toBeVisible();
-      expect(screen.getByRole('slider', { name: 'Each session' })).toBeVisible();
+      expect(within(await screen.findByRole('dialog', { name: 'Stretch' })).getByRole('slider', { name: 'Each session' })).toBeVisible();
       cleanup();
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' }, layout: 'phone' });
-      expect(await screen.findByRole('dialog', { name: 'Edit practice' })).toBeVisible();
+      expect(await screen.findByRole('dialog', { name: 'Stretch' })).toHaveClass('taskpop');
     });
 
     it('a link to a goal opens it', async () => {
@@ -1099,22 +1101,29 @@ describe('Goals', () => {
       expect(await screen.findByRole('button', { name: /^Run a 10k/, expanded: true })).toBeVisible();
     });
 
-    it('on desktop: no goal section, link to a goal, session length, pause, end', async () => {
+    it("on desktop: no goal section, its popup in the task popup's frame, link to a goal, session length, pause", async () => {
       const t = await renderScreen('goals', { seed: bread });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
-      await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       expect(screen.getByText(/0m of 1h 45m this week/)).toBeVisible();
-      fireEvent.change(screen.getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
-      await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+      const row = screen.getByRole('button', { name: /^Stretch/ });
+      expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+      await userEvent.click(row);
+      const popup = await screen.findByRole('dialog', { name: 'Stretch' });
+      // As from To schedule: no block, so its actions are the practice's own, then its fields and End practice.
+      expect(within(within(popup).getByRole('region', { name: 'Actions' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Pause practice']);
+      expect(within(popup.querySelector<HTMLElement>('.taskpopbar')!).getAllByRole('button').map((b) => b.textContent)).toEqual(['End practice', 'Cancel', 'Save']);
+      fireEvent.change(within(popup).getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
+      await userEvent.click(within(popup).getByRole('button', { name: 'Pause practice' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('paused'));
-      await userEvent.selectOptions(screen.getByLabelText('Goal'), 'Run a 10k');
+      expect(await screen.findByText('Paused Stretch.')).toBeVisible();
+      await userEvent.selectOptions(within(popup).getByLabelText('Goal'), 'Run a 10k');
       expect((await record(t, 'practice', 'pr1'))?.target_min).toBe(15);
-      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ target_min: 30, objective_id: 'g2' }));
       expect(within(screen.getByRole('button', { name: /^Run a 10k/ })).queryByText(/Still a goal/)).toBeNull();
     });
 
-    it('on phone: tapping opens its editor; add one with no goal; End practice takes its sessions ahead off, with Undo', async () => {
+    it('on phone: tapping opens its popup; add one with no goal; End practice takes its sessions ahead off, with Undo', async () => {
       const seed = async (w: Writer) => {
         await bread(w);
         await w.create('time_block', { practice_id: 'pr1', start: '2026-11-04T13:00:00Z', end: '2026-11-04T13:15:00Z', tz: 'America/Chicago' }, 'later');
@@ -1122,7 +1131,8 @@ describe('Goals', () => {
       const t = await renderScreen('goals', { layout: 'phone', seed });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
-      const sheet = screen.getByRole('dialog', { name: 'Edit practice' });
+      const sheet = await screen.findByRole('dialog', { name: 'Stretch' });
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Rename Stretch' }));
       await userEvent.clear(within(sheet).getByLabelText('Name'));
       await userEvent.type(within(sheet).getByLabelText('Name'), 'Stretch daily');
       fireEvent.change(within(sheet).getByLabelText('Usual time'), { target: { value: '18:30' } });
@@ -1130,7 +1140,7 @@ describe('Goals', () => {
       await userEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', preferred_times: [1110] }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch daily/ }));
-      const reopened = screen.getByRole('dialog', { name: 'Edit practice' });
+      const reopened = await screen.findByRole('dialog', { name: 'Stretch daily' });
       await userEvent.click(within(reopened).getByRole('button', { name: 'End practice' }));
       expect(await screen.findByText('Stretch daily ended. Its history stays.')).toBeVisible();
       expect((await record(t, 'practice', 'pr1'))?.state).toBe('ended');
@@ -1145,7 +1155,7 @@ describe('Goals', () => {
       expect(within(form).getByRole('alert')).toHaveTextContent('Give it a name.');
       await userEvent.type(within(form).getByLabelText('Name'), 'Juggling');
       await userEvent.click(within(form).getByRole('button', { name: 'Add practice' }));
-      expect(await screen.findByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
+      expect(await screen.findByText('Practice added. Placed 6 sessions at their set times.')).toBeVisible();
       const rows = await t.db.all<{ objective_id: string | null; target_min: number }>("SELECT objective_id, target_min FROM practice WHERE title = 'Juggling'");
       expect(rows).toEqual([{ objective_id: null, target_min: 30 }]);
     });

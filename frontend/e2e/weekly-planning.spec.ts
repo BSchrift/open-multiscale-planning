@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { processTo } from './journeys/journey';
-import { expectTapTarget, openSeeded, readRecord, seed, startPlanningThenUndo } from './seed';
+import { expectTapTarget, openSeeded, planPrompt, readRecord, seed, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 // Weekly planning's steps around Pick tasks, which pick.spec.ts and planning.spec.ts cover: moving between the steps,
@@ -117,7 +117,8 @@ test('Skip a practice this week takes its sessions out of the week, and Include 
     await expect(more).toHaveAttribute('aria-expanded', 'false');
     await more.click();
   }
-  await expect(list.getByText('0 of 2 placed')).toBeAttached();
+  // Both its sessions landed at their set time on opening; skipped and included again, it waits to be placed.
+  await expect(list.getByText('1 to place · 2 at their set times')).toBeAttached();
   const skip = list.getByRole('button', { name: 'Skip this week, Morning stretch' });
   if (phone) await expectTapTarget(skip);
   await skip.click();
@@ -177,7 +178,7 @@ test('Review names each aim not reached, the weekly one offs aim among them, the
   expect(await readRecord(page, 'week_plan', `week:${WEEK}`)).toHaveProperty('finished_at', expect.any(String));
   await toast.getByRole('button', { name: 'Undo' }).click();
   // Not planned again, so Today asks for it.
-  await expect(page.getByRole('button', { name: 'Start planning' }).first()).toBeVisible();
+  await expect(planPrompt(page)).toBeVisible();
   expect((await readRecord(page, 'week_plan', `week:${WEEK}`))?.finished_at ?? null).toBeNull();
   expect(errors).toEqual([]);
 });

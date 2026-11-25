@@ -1,3 +1,4 @@
+import { skipPlanningOnToday } from '../seed';
 import { expect, test } from '../platform';
 import type { Page } from '@playwright/test';
 import { addMilestones, addProject, chicago, firstRun, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
@@ -23,7 +24,7 @@ test('capture, process each item to its place, then one offs across the week', a
   const phone = info.project.name === 'phone';
   const errors = await start(page, chicago('2026-11-04', '09:00')); // Wednesday morning.
   await firstRun(page, 'Learn to bake bread');
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
   await tab(page, phone, 'Goals');
   await addProject(page, phone, 'Learn to bake bread', 'Bake a sourdough loaf', '2027-01-29');
   await addMilestones(page, [{ name: 'A starter that rises', due: '2026-11-20' }]);
@@ -122,9 +123,18 @@ test('capture, process each item to its place, then one offs across the week', a
   // Friday: the dated one is on Today with its tick, and ticking it there counts.
   await jumpTo(page, chicago('2026-11-06', '09:00'));
   await tab(page, phone, 'Today');
-  const today = page.getByRole('region', { name: 'One offs today' });
-  await today.getByRole('checkbox', { name: 'Return the library books done' }).click();
-  await expect(today.getByRole('button', { name: 'Show 1 completed in One offs today' })).toBeVisible();
+  if (phone) {
+    // A chip in the row of what's due today, which opens its tick.
+    const due = page.getByRole('group', { name: 'Due today' });
+    await due.getByRole('button', { name: 'Return the library books, one off due today' }).click();
+    await page.getByRole('dialog', { name: 'Return the library books' }).getByRole('checkbox', { name: 'Return the library books done' }).click();
+    await expect(due.getByRole('button', { name: 'Return the library books, one off due today, done' })).toBeVisible();
+    await page.keyboard.press('Escape');
+  } else {
+    const today = page.getByRole('region', { name: 'One offs today' });
+    await today.getByRole('checkbox', { name: 'Return the library books done' }).click();
+    await expect(today.getByRole('button', { name: 'Show 1 completed in One offs today' })).toBeVisible();
+  }
 
   await tab(page, phone, 'One offs');
   // Wednesday's ticks have cleared from the list, and today's waits behind Show completed; the repeating one waits for
@@ -139,7 +149,6 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(finished.getByRole('checkbox', { name: 'Pay the water bill done' })).toBeChecked();
   // The item that became a practice is finished too, and links to it, open on the Goals page.
   await finished.getByRole('button', { name: 'Became the practice Stretch every morning' }).click();
-  if (phone) await expect(page.getByRole('dialog', { name: 'Edit practice' }).getByLabel('Name')).toHaveValue('Stretch every morning');
-  else await expect(pane(page, 'Goals').getByRole('button', { name: /^Stretch every morning/, expanded: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Stretch every morning' }).getByRole('heading', { name: 'Stretch every morning' })).toBeVisible();
   expect(errors).toEqual([]);
 });

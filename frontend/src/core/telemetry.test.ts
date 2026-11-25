@@ -107,6 +107,32 @@ describe('startTelemetry', () => {
     t.telemetry.stop();
   });
 
+  it("reports MetricKit's days and exceptions as the iPhone hands them over, at launch and with each heartbeat", async () => {
+    const reports = [
+      { daily: [{ day: '2026-11-15', cpuSeconds: 100, backgroundSeconds: 40 }], exceptions: [] },
+      { daily: [], exceptions: [{ kind: 'cpu' as const, cpuSeconds: 90, callStackTree: { callStacks: [{ callStackRootFrames: [{ binaryName: 'App', offsetIntoBinaryTextSegment: 16 }] }] } }] },
+    ];
+    const t = await setup({}, undefined, {
+      energy: {
+        sample: async () => ({ power: { charging: true, lowPower: true, thermal: 'nominal' } }),
+        reports: async () => reports.shift() ?? { daily: [], exceptions: [] },
+      },
+    });
+    expect((await t.events()).filter((e) => e.eventName === 'app.energy.daily').map((e) => e.attributes)).toEqual([
+      { 'app.screen.name': 'week', 'energy.day': '2026-11-15', 'energy.cpu_seconds': 100, 'energy.background_seconds': 40 },
+    ]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const events = await t.events();
+    expect(events.filter((e) => e.eventName === 'app.energy.exception').map((e) => e.attributes)).toEqual([
+      { 'app.screen.name': 'week', 'energy.exception.kind': 'cpu', 'energy.exception.cpu_seconds': 90, 'code.function': 'App+0x10' },
+    ]);
+    expect(events.find((e) => e.eventName === 'app.heartbeat')!.attributes).toMatchObject({ 'device.battery.charging': true, 'device.low_power': true, 'device.thermal_state': 'nominal' });
+    // Each report once.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect((await t.events()).filter((e) => e.eventName?.startsWith('app.energy.'))).toHaveLength(2);
+    t.telemetry.stop();
+  });
+
   it('still sends the heartbeat when the battery cannot be read', async () => {
     const t = await setup({}, undefined, { energy: { sample: () => Promise.reject(new Error('not now')) } });
     await vi.advanceTimersByTimeAsync(60_000);

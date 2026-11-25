@@ -404,7 +404,7 @@ Limits of a free team:
 
 - The install stops launching after **7 days**. Reconnect and press **Run** again. Your data stays.
 - Three apps per device at a time.
-- App Groups aren't available, so the share sheet is left out of the build. Everything else works, including notifications and the Control Center capture button, which only opens the app and so needs no App Group. On iOS 18, add it from Control Center's controls.
+- App Groups aren't available, so the share sheet and the Home Screen widgets, which read what the app writes there, are left out of the build. Everything else works, including notifications and the Control Center capture button, which only opens the app and so needs no App Group. On iOS 18, add it from Control Center's controls.
 
 ## 15. What changes with a paid membership
 
@@ -442,6 +442,7 @@ A Simulator can't prove these, so check them once on a real phone:
 - [ ] Key screens stay quick with a year or more of data.
 - [ ] The Control Center capture button opens Capture.
 - [ ] With a paid team: the share sheet saves into Inbox.
+- [ ] With a paid team: the widgets on the Home Screen, the Lock Screen and in StandBy show the day, move on at a block's start and end, and a Start or Pause on the medium Now and next applies when the app opens, with its toast. XCUITest can't place a widget, so this is the one look at them in place.
 
 ## TestFlight
 
@@ -450,7 +451,7 @@ With a paid membership, testers can install the iPhone app from TestFlight inste
 Once:
 
 1. **The App Store Connect key** from step 15, with **Admin** access. Signing for App Store Connect uses Apple's cloud-managed distribution certificates, and keys with Developer or App Manager access are refused them. If your key has less, generate an Admin one the same way and swap it for the old one, since the config folder holds only one. The issuer id stays the same.
-2. **The share sheet's App Group.** A build from the command line can't register it, so register it once in the [developer account](https://developer.apple.com/account/resources/identifiers/list/applicationGroup): add `group.<bundle id>`, where the bundle id is `MULTISCALE_BUNDLE_ID` from `frontend/ios/App/Config.xcconfig` or your `Config.local.xcconfig`. Then open the identifiers `<bundle id>` and `<bundle id>.share`, and on each, choose **Configure** beside **App Groups** and select it.
+2. **The App Group the share sheet and the widgets share.** A build from the command line can't register it, so register it once in the [developer account](https://developer.apple.com/account/resources/identifiers/list/applicationGroup): add `group.<bundle id>`, where the bundle id is `MULTISCALE_BUNDLE_ID` from `frontend/ios/App/Config.xcconfig` or your `Config.local.xcconfig`. Then open the identifiers `<bundle id>`, `<bundle id>.share` and `<bundle id>.capture` (the widget extension, with the Capture control), and on each, choose **Configure** beside **App Groups** and select it. An identifier added to the group later needs the same, before the next build.
 3. **Check the signing.** `make testflight EXPORT_ONLY=1` archives and exports the app without uploading it, and says where it put it.
 4. **The app record.** In App Store Connect, choose **Apps > + > New App**: iOS, a name, your bundle id and any SKU. Then fill in the app's **TestFlight > Test Information**.
 5. **An account for Beta App Review.** External testers get a build once Beta App Review has passed it, and the reviewer has to sign in. Make a prod account for them with an address of your own choosing. It prints the email and where the password is, never the password itself:
@@ -590,7 +591,7 @@ Releases are only as safe as the key: the apps check every bundle's signature an
 
 ### What the apps report
 
-Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat and the number of syncs each minute, memory warnings and uncaught errors, with memory figures on iPhone. They also report each update check's result, with why a failed one failed, and any update the app rolled back; the dashboard's **Update checks** and **Updates rolled back** panels show them. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
+Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat and the number of syncs each minute, memory warnings and uncaught errors, with memory figures on iPhone. For battery, the Mac app adds its processes' CPU and idle wakeups each minute, and the iPhone app MetricKit's daily report ([performance.md](performance.md), "Battery"). They also report each update check's result, with why a failed one failed, and any update the app rolled back; the dashboard's **Update checks** and **Updates rolled back** panels show them. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
 
 ```sh
 aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time $(($(date +%s) - 86400)) --end-time $(date +%s) \
@@ -598,6 +599,8 @@ aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time 
 ```
 
 Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
+
+The dashboard's **Battery** section reads the same lines, report-only and split by version so a release's change shows as a step: syncs per active hour on every platform, the Mac app's idle wakeups and CPU with its window closed on battery, and the iPhone's MetricKit totals per device per day and its CPU and disk exceptions. [performance.md](performance.md) lists the events.
 
 Costs should stay under $1 a month per environment. Attachments add about $0.006 a person a month at typical use, nearly all of it S3 storage. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 

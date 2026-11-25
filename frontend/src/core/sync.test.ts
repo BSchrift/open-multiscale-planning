@@ -702,6 +702,31 @@ describe('createHttpSend', () => {
     // can pass the limit on the server. Refused whole, the batch would fail every sync and never pull what would show it.
     await expect(respond(json(400, { error: 'record_too_large' }))).rejects.toMatchObject({ code: 'too_large' });
   });
+
+  // No app fills a request past what the server reads, but one the server finds too large as a whole has a record in it
+  // that fits alone, so the batch goes again one record at a time, as for a record too long, and everything syncs.
+  it('sends a request the server finds too large again one record at a time, and everything syncs', async () => {
+    const db = await openTestDb();
+    const s = server();
+    const sizes: number[] = [];
+    const send = createHttpSend({
+      apiUrl: 'https://api.example.test',
+      auth: auth(),
+      fetch: async (_url, init) => {
+        const req = JSON.parse(init.body as string) as Parameters<typeof s.send>[0];
+        sizes.push(req.changes.length);
+        return req.changes.length > 1 ? json(413, { error: 'request_too_large' }) : json(200, await s.send(req));
+      },
+    });
+    await transact(db, clock, async (w) => {
+      await w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'a');
+      await w.create('task', { kind: 'inbox', title: 'Fix the gate' }, 'b');
+    });
+    await runSync(db, send);
+    expect(s.record('a')!.title!.v).toBe('Call the bank');
+    expect(s.record('b')!.title!.v).toBe('Fix the gate');
+    expect(sizes).toEqual([2, 1, 1, 0]);
+  });
 });
 
 describe('syncStatus', () => {

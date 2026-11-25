@@ -70,5 +70,6 @@ export function usePinchZoom(key: string, least: () => number) {
       setLive(null);
     },
   };
-  return { zoom, handlers: { ...handlers, onTouchCancel: handlers.onTouchEnd } };
+  // A zoom set by other means, such as a menu's Zoom in, is kept as a pinch's is.
+  return { zoom, set: keep, handlers: { ...handlers, onTouchCancel: handlers.onTouchEnd } };
 }

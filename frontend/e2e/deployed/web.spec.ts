@@ -48,11 +48,32 @@ async function signInAs(p: Page, user: { username: string; password: string }) {
   const opened = p.waitForEvent('popup');
   await p.getByRole('button', { name: 'Sign in' }).first().click();
   const popup = await opened;
-  // The hosted sign-in page has a wide and a narrow form, and shows one.
-  await popup.locator('input[name=username]:visible').fill(user.username);
-  await popup.locator('input[name=password]:visible').fill(user.password);
-  await popup.locator('input[name=signInSubmitButton]:visible').click();
-  await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+  try {
+    // The hosted sign-in page has a wide and a narrow form, and shows one, in well under a second. Its head waits on two
+    // stylesheets and a script from the sign-in service's asset host before the form, so one that never answers leaves
+    // no form at all. On 24 November prod's phone run waited the whole test for a form that never showed, and logged only
+    // the app's page: so the wait is NETWORK's, and a failure logs the sign-in page and what it still waits on.
+    await popup.locator('input[name=username]:visible').fill(user.username, NETWORK);
+    await popup.locator('input[name=password]:visible').fill(user.password);
+    await popup.locator('input[name=signInSubmitButton]:visible').click();
+    await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+  } catch (e) {
+    console.log(`The hosted sign-in page didn't finish. ${await stateOf(popup)}`);
+    throw e;
+  }
+}
+
+// Each request the context has sent that hasn't been answered, and when it went.
+const unanswered = new Map<Request, number>();
+
+/** Where a page is, the requests it still waits on, and what it shows: CodeBuild keeps no trace. */
+async function stateOf(p: Page): Promise<string> {
+  if (p.isClosed()) return 'It had closed.';
+  const waiting = [...unanswered]
+    .filter(([r]) => !r.serviceWorker() && r.frame().page() === p && !r.redirectedTo())
+    .map(([r, at]) => `${new URL(r.url()).host}${new URL(r.url()).pathname} for ${Math.round((Date.now() - at) / 1000)} s`);
+  const shown = await p.locator('body').ariaSnapshot({ timeout: 5000 }).catch(() => '(no body yet)');
+  return `It was at ${p.url().split('?')[0]}, still waiting on ${waiting.join(', ') || 'no request'}, and showed:\n${shown}`;
 }
 
 /** Counts the pages of records a page's syncs pull, as they arrive. */
@@ -77,6 +98,9 @@ test.beforeAll(async ({ browser }, info) => {
   await context.addInitScript(() =>
     document.addEventListener('securitypolicyviolation', (e) => console.error(`CSP blocked ${e.violatedDirective} ${e.blockedURI}`)),
   );
+  context.on('request', (r) => unanswered.set(r, Date.now()));
+  context.on('requestfinished', (r) => unanswered.delete(r));
+  context.on('requestfailed', (r) => unanswered.delete(r));
   context.on('page', (p) => {
     p.on('console', (m) => {
       // A second tab is refused on purpose, below. The SQLite pool also logs each try that finds another page's file
@@ -268,13 +292,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");
   // Looking writes nothing to the plan: no Continue, no Finish, and Add is opened and closed.
   const phone = info.project.name === 'phone';
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone) {
-    await nav.getByRole('button', { name: 'More' }).click();
-    await page.getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await nav.getByRole('button', { name: 'Plan' }).click();
-  }
+  // Plan is a tab on both layouts: on phone it took Week's place, since Today draws the week. This test meets only this
+  // release's web app, so no step allows for the one before, which kept Plan under More on phone.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   // Plan opens on its page, and the steps only from a way in. Which way in depends on the shared test user: prod's first
   // stretch was begun and is never planned there, so it offers Continue planning, while staging's compat suite finishes a
   // plan on every run, so staging offers the next stretch's.
@@ -301,9 +321,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November prod's release step
-  // found the steps still open: on prod's large history, Save and exit's writes outlasted the 5 seconds checks waited
-  // then, as they take 3.6 to 5.2 seconds locally with 60,000 deleted records on desktop.
+  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November, and again on 25
+  // November past 15 seconds, prod's release step found the steps still open: on prod's large history, Save and exit's
+  // writes waited behind every open screen's reads. Writes now go ahead of reads still waiting (core/db.ts).
   await expect(steps).toHaveCount(0);
   await expect(wayIn).toBeVisible();
 });

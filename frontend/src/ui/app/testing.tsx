@@ -8,7 +8,8 @@
 //
 // Tests import this file; the app never does.
 
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { Suspense } from 'react';
@@ -18,14 +19,14 @@ import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
-import type { CaptureShortcut, Platform, PlatformKind } from '../../platform/types';
+import type { CaptureShortcut, Platform, PlatformKind, Widgets } from '../../platform/types';
 import { HOLD_MS } from '../components/weekgrid';
 import { ToastProvider } from '../components/Toast';
 import { NavProvider, useNav, useOverlay } from './nav';
 import type { Nav, Overlay, Route } from './nav';
 import { AREAS } from './registry';
 import type { AreaId, Layout, Presentation, RouteParams } from './registry';
-import { Shell } from './Shell';
+import { MorePage, Shell } from './Shell';
 import { AppProvider } from './store';
 import type { AppSync } from '../../core/syncRunner';
 import type { AppPlace, NativeUpdates, UpdateStatus, Updater } from '../../core/updates';
@@ -53,6 +54,10 @@ export interface HarnessOptions {
   filesBlocked?: true;
   /** As in the Mac app, where macOS draws a block's menu. */
   showMenu?: Platform['showMenu'];
+  /** As on an iPhone with the App Group the widgets read: usually memoryWidgets(). */
+  widgets?: Widgets;
+  /** When the running bundle was built, in seconds, as main.tsx passes it. */
+  build?: number;
 }
 
 export interface Harness extends RenderResult {
@@ -64,7 +69,12 @@ export interface Harness extends RenderResult {
   nav(): Nav & { overlay: Overlay | null };
 }
 
+// The app loads the code of Capture, a task's popup and the More tab as soon as it has drawn, so a tap opens them at
+// once. Tests start from there.
+const loadedAhead = Promise.all([AREAS.capture.Screen, AREAS.task.Screen, MorePage].map((s) => s.preload?.()));
+
 async function prepare(options: HarnessOptions) {
+  await loadedAhead;
   const clock = fixedClock(options.now ?? '2026-11-02T20:00:00Z', options.zone ?? 'America/Chicago');
   const platform: TestPlatform = Object.assign(
     await createTestPlatform(),
@@ -73,6 +83,7 @@ async function prepare(options: HarnessOptions) {
     options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
     options.filesBlocked ? { filesBlocked: true as const } : {},
     options.showMenu ? { showMenu: options.showMenu } : {},
+    options.widgets ? { widgets: options.widgets } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));
@@ -88,7 +99,7 @@ function harness(
 ): Harness {
   const { platform, clock, write } = prepared;
   const result = render(
-    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})}>
+    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})} {...(options.build ? { build: options.build } : {})}>
       {ui}
     </AppProvider>,
   );
@@ -98,6 +109,12 @@ function harness(
 // The page's own clock, read before any test moves it on.
 const realNow = performance.now.bind(performance);
 let heldFor = 0;
+/** Picks from a search of choices, as Belongs to is: its field opens the list, on phone in a sheet, then a click picks. */
+export async function pickFrom(field: HTMLElement, option: string) {
+  await userEvent.click(field);
+  await userEvent.click(await screen.findByRole('option', { name: option }));
+}
+
 /**
  * A press held past the hold that lifts a block or card to drag (HOLD_MS), as a person holds before dragging: the
  * page's clock moves on, so the next move lifts it and drags. Time only goes forward, so nothing else minds.
@@ -107,6 +124,19 @@ export function holdDown(el: Element, init: PointerEventInit = {}) {
   heldFor += HOLD_MS;
   vi.spyOn(performance, 'now').mockImplementation(() => realNow() + heldFor);
 }
+
+/**
+ * Fake timers for tests that hold a press, so a hold's timer runs when `pass` moves time on rather than whenever a busy
+ * machine gets to it. They still move with the real clock, so findBy, waitFor and userEvent work as before.
+ */
+export const holdTimers = () => void vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+
+/**
+ * Moves holdTimers' clock on by ms, as a press held that long, and draws whatever the timers set off before it returns.
+ * A real wait raced the page: on a busy machine the hold's timer and the wait's ran back to back, and the test looked
+ * before the page had drawn the draft.
+ */
+export const pass = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 
 /** Renders one area on its own, with the same data, toast and navigation context it has in the app. */
 export function renderScreen(
@@ -118,7 +148,7 @@ export function renderScreen(
   return renderInApp(
     <Screen params={options.params ?? {}} layout={layout} presentation={options.presentation ?? 'page'} close={options.close ?? (() => undefined)} />,
     options,
-    area !== 'task',
+    area !== 'task' && area !== 'practice',
   );
 }
 
@@ -134,13 +164,13 @@ export async function renderInApp(ui: ReactElement, options: HarnessOptions = {}
     nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
-  // A task's popup opens over whatever showed the task, so it renders here as the shell renders it. Other overlays,
-  // such as Process, are screens of their own, tested on their own.
+  // A task's popup, and a practice's, open over whatever showed them, so they render here as the shell renders them.
+  // Other overlays, such as Process, are screens of their own, tested on their own.
   const TaskPopup = () => {
     const overlay = useOverlay();
     const { closeOverlay } = useNav();
-    if (overlay?.area !== 'task') return null;
-    const { Screen: Popup } = AREAS.task;
+    if (overlay?.area !== 'task' && overlay?.area !== 'practice') return null;
+    const { Screen: Popup } = AREAS[overlay.area];
     return <Popup params={overlay.params} layout={layout} presentation="overlay" close={closeOverlay} />;
   };
   return harness(

@@ -16,8 +16,10 @@ class BridgeViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
+        bridge?.registerPluginInstance(WidgetsPlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
+        bridge?.registerPluginInstance(EnergyPlugin())
         bridge?.registerPluginInstance(UpdatesPlugin())
         #if DEBUG
         bridge?.registerPluginInstance(ChecksPlugin())
@@ -34,6 +36,10 @@ class BridgeViewController: CAPBridgeViewController {
         content?.add(MeasureRelay(), name: "measured")
         let observe = "new PerformanceObserver((list) => { for (const entry of list.getEntries()) webkit.messageHandlers.measured.postMessage(entry.name); }).observe({ type: 'measure' });"
         content?.addUserScript(WKUserScript(source: observe, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // And each screen the app shows, as screen.<area> from the Shell's data-screen, so XCUITest can tell a widget's
+        // link opened its screen: a tab's KPI starts only from a tap on it, so a link never ends one.
+        let screens = "new MutationObserver(() => webkit.messageHandlers.measured.postMessage('screen.' + document.documentElement.dataset.screen)).observe(document.documentElement, { attributes: true, attributeFilter: ['data-screen'] });"
+        content?.addUserScript(WKUserScript(source: screens, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // XCUITest runs a seeded app on a clock of its choosing, which the Simulator's can't be: the page's Date runs
         // this far ahead of the real one, and on from there.
         if let shift = ProcessInfo.processInfo.environment["MULTISCALE_CLOCK_SHIFT_MS"].flatMap(Int.init) {
@@ -420,6 +426,7 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openCapture", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "share", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deliverEnergy", returnType: CAPPluginReturnPromise),
     ]
 
     /// The Control Center button's intent, which iOS runs in the app's process when the button is tapped.
@@ -442,6 +449,18 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve()
         } catch {
             call.reject(String(describing: error))
+        }
+    }
+
+    /// A day and a CPU exception, kept as EnergyPlugin keeps what MetricKit delivers, which the Simulator never does.
+    @objc func deliverEnergy(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let frame: [String: Any] = ["binaryName": "App", "offsetIntoBinaryTextSegment": 166460, "sampleCount": 30]
+            EnergyPlugin.store(
+                daily: [["day": "2026-11-15", "cpuSeconds": 100.5, "backgroundSeconds": 40.0, "cellularBytes": 2_000_000.0]],
+                exceptions: [["kind": "cpu", "cpuSeconds": 90.0, "callStackTree": ["callStacks": [["threadAttributed": true, "callStackRootFrames": [frame]]]]]]
+            )
+            call.resolve()
         }
     }
 }

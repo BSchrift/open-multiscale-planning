@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { expectTapTarget, go, openSeeded, pane } from './seed';
+import { expectBelongs, expectTapTarget, go, openSeeded, pane } from './seed';
+import { closeWaiting, nowCard, openBlock, phoneView, waitingSheet } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -60,7 +61,7 @@ test('a task opens in its popup from its project, to read and change everything 
   await page.waitForTimeout(300);
   await expectShape(page, popup, phone);
   await expect(popup.getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-  await expect(popup.getByLabel('Belongs to')).toHaveValue('m:m1');
+  await expectBelongs(popup, 'Report, Drafts', phone);
   await expect(popup.locator('.notes strong')).toHaveText('Q3 numbers');
   await page.screenshot({ path: info.outputPath(`popup-${info.project.name}.png`) });
   if (phone) {
@@ -85,6 +86,64 @@ test('a task opens in its popup from its project, to read and change everything 
   await expect(page.getByRole('button', { name: /^Edit task Draft the executive summary/ })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('button', { name: 'Edit task Draft the summary, 2h, has details' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// The owner's request: Belongs to is a searchable dropdown.
+test('Belongs to searches the places a task can go: typing narrows them, and the one taken is where Save moves it', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [
+    ...records,
+    { type: 'objective', id: 'g2', fields: { title: 'Make the house a home', state: 'active' } },
+    { type: 'project', id: 'p2', fields: { objective_id: 'g2', title: 'Garden', state: 'active', start: '2026-10-01', end: '2027-04-30' } },
+    { type: 'milestone', id: 'm2', fields: { project_id: 'p2', title: 'Beds built', due: '2026-11-28' } },
+    { type: 'milestone', id: 'm3', fields: { project_id: 'p2', title: 'Spring planting', due: '2027-04-01' } },
+    { type: 'project', id: 'p3', fields: { objective_id: 'g2', title: 'Kitchen', state: 'active', start: '2026-10-01', end: '2027-01-31' } },
+    { type: 'milestone', id: 'm4', fields: { project_id: 'p3', title: 'Cabinets in', due: '2026-12-12' } },
+  ]);
+  await openProject(page, phone);
+  await page.getByRole('button', { name: 'Edit task Draft the summary, 2h, has details' }).click();
+  const popup = popupOf(page, 'Draft the summary');
+  const list = page.getByRole('listbox', { name: 'Belongs to' });
+  // Desktop's field opens the list under it; phone's button opens a sheet, ready to search.
+  if (phone) {
+    const button = popup.getByRole('button', { name: 'Belongs to: Report, Drafts' });
+    await expectTapTarget(button);
+    await button.click();
+    await expect(page.getByRole('dialog', { name: 'Belongs to' }).getByRole('combobox', { name: 'Search places' })).toBeFocused();
+  } else {
+    await popup.getByRole('combobox', { name: 'Belongs to' }).click();
+  }
+  await expect(list.getByRole('option', { name: 'Report, Drafts' })).toHaveAttribute('aria-selected', 'true');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`belongs-search-open-${info.project.name}-${scheme}.png`) });
+  }
+  await page.keyboard.type('gar');
+  await expect(list.getByRole('option')).toHaveText(['Garden, Beds built', 'Garden, Spring planting', 'Garden, Done']);
+  const option = list.getByRole('option', { name: 'Garden, Beds built' });
+  await expect(option).toHaveAttribute('aria-selected', 'true');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`belongs-search-typed-${info.project.name}-${scheme}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (phone) {
+    await expectTapTarget(option);
+    await option.click();
+  } else {
+    await page.keyboard.press('ArrowDown');
+    await expect(list.getByRole('option', { name: 'Garden, Spring planting' })).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+  }
+  await expect(list).toHaveCount(0);
+  await expectBelongs(popup, 'Garden, Beds built', phone);
+  await popup.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Moved Draft the summary to Garden, Beds built.')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -118,7 +177,7 @@ test('an Inbox item opens in its popup to be renamed and described, and still go
   if (phone) await expectTapTarget(name);
   await name.click();
   const popup = popupOf(page, 'Fix the gate');
-  await expect(popup.getByLabel('Belongs to')).toHaveValue('inbox');
+  await expectBelongs(popup, 'Inbox', phone);
   await popup.getByRole('button', { name: 'Rename Fix the gate' }).click();
   await popup.getByRole('textbox', { name: 'Name' }).fill('Fix the side gate');
   await popup.getByRole('textbox', { name: 'Description' }).fill('Hinges are in the **shed**');
@@ -141,18 +200,24 @@ test('an Inbox item opens in its popup to be renamed and described, and still go
   await expect(page.getByRole('button', { name: 'One offs' })).toBeVisible();
 });
 
-test('the Now card, a To schedule card and a block on Today open the popup', async ({ page }, info) => {
+test("the Now card, or on phone a selected block's Details, a To schedule card and a block on Today open the popup", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
   const popup = popupOf(page, 'Draft the summary');
+  const block = page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
 
-  const now = page.getByRole('region', { name: 'Current block' });
-  await now.getByRole('button', { name: 'Draft the summary' }).click();
+  if (phone) {
+    // Selected, it's raised as a card with Details.
+    await block.tap();
+    await nowCard(page, true).getByRole('button', { name: 'Details' }).click();
+  } else await page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Draft the summary' }).click();
   await expect(popup).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);
 
+  // On phone, To schedule is behind the waiting row.
+  if (phone) await waitingSheet(page);
   await page.getByRole('button', { name: /^Check the totals, Project, .*to schedule$/ }).click();
   const actions = phone ? page.getByRole('dialog', { name: 'Check the totals' }) : page.getByRole('group', { name: 'Check the totals' });
   await actions.getByRole('button', { name: 'Check the totals', exact: true }).click();
@@ -162,16 +227,18 @@ test('the Now card, a To schedule card and a block on Today open the popup', asy
   await actions.getByRole('button', { name: 'Close' }).click();
 
   // A block on the timeline opens it itself, on the calendar and in the list. On phone a block still to come is a slider.
-  await page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ }).click();
+  if (phone) await closeWaiting(page);
+  await openBlock(page, block, phone);
   await expect(popup).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);
-  await page.getByRole('button', { name: 'List' }).click();
+  if (phone) await phoneView(page, 'Show as a list');
+  else await page.getByRole('button', { name: 'List' }).click();
   await page.getByRole('button', { name: phone ? /^Draft the summary, 4pm to 5pm/ : /^4pm to 5pm/ }).click();
   await expect(popup).toBeVisible();
 });
 
-test("Capture's Add details opens with Time first, takes a description, and keeps Save in reach", async ({ page }, info) => {
+test("Capture shows Time under the name, and Add details opens under it with Send to, takes a description, and keeps Save in reach", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
@@ -180,12 +247,24 @@ test("Capture's Add details opens with Time first, takes a description, and keep
   const capture = page.getByRole('dialog', { name: 'Capture' });
   const field = capture.getByRole('textbox', { name: /^Capture to/ });
   await field.fill('Draft the summary');
-  await capture.getByRole('button', { name: 'Add details' }).click();
+  // Time is there before Add details, under the name and above the toggle.
+  const time = capture.getByRole('slider', { name: 'Time' });
+  await expect(time).toBeVisible();
+  expect((await field.boundingBox())!.y).toBeLessThan((await time.boundingBox())!.y);
+  if (phone) expect((await time.boundingBox())!.y).toBeLessThan((await capture.getByRole('button', { name: 'Add details' }).boundingBox())!.y);
+  await page.screenshot({ path: info.outputPath(`capture-folded-${info.project.name}.png`) });
   if (!phone) {
     // One Tab from the name reaches Time.
     await field.focus();
     await page.keyboard.press('Tab');
-    await expect(capture.getByRole('slider', { name: 'Time' })).toBeFocused();
+    await expect(time).toBeFocused();
+  }
+  await capture.getByRole('button', { name: 'Add details' }).click();
+  await expect(capture.getByRole('slider', { name: 'Time' })).toHaveCount(1);
+  if (!phone) {
+    await field.focus();
+    await page.keyboard.press('Tab');
+    await expect(time).toBeFocused();
   }
   const top = async (l: Locator) => (await l.boundingBox())!.y;
   const order = [capture.getByRole('slider', { name: 'Time' }), capture.getByLabel('Send to')];

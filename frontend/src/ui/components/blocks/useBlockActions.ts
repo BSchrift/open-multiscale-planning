@@ -11,12 +11,13 @@ import {
   resumeBlock,
   startBlock,
   startEarly,
+  startTaskNow,
   swapBlocks,
   timeSpentMs,
   unscheduleBlock,
 } from '../../../core/blocks';
 import type { BlockAnswer, BlockAnswerFor } from '../../../core/blocks';
-import { formatMinutes, formatTime, localDate, weekStart } from '../../../core/dates';
+import { formatMinutes, formatTime, formatWeekday, instantMs, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
@@ -42,8 +43,10 @@ let lastResume: { db: Db; blockId: string; at: number; reverse: PlanChange } | n
 
 /** say: where its messages go instead of the app's toast, as the phone's Schedule step says its own above its dock. */
 export function useBlockActions(say?: Say) {
-  const { clock, db } = useApp();
+  const { clock, db, layout } = useApp();
   const toast = useToastOr(say);
+  // On phone, To schedule is Today's: the strip's count opens it. Desktop's is on Week.
+  const where = layout === 'phone' ? 'To schedule' : 'To schedule on Week';
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange | void>) => fn(w));
   const { run } = write;
 
@@ -54,6 +57,27 @@ export function useBlockActions(say?: Say) {
     },
     [run, toast],
   );
+  /** What a start says of the blocks it stopped, at now. */
+  const stoppedAt = (stopped: readonly BlockRow[], now: number) => stopped.map((b) => ` Stopped ${b.title ?? 'a block'} at ${formatTime(now, clock.zone())}.`).join('');
+  /**
+   * Start, or Start early, which moves the block to now. A start stops any other block under way, so it says which, with
+   * an Undo that puts both back; `say` says Started, and where an early one now runs, even when it stopped none.
+   */
+  const begin = async (block: BlockRow, early: boolean, say: boolean) => {
+    const now = clock.now();
+    let stopped: readonly BlockRow[] = [];
+    const reverse = await run(async (w) => {
+      const started = await (early ? startEarly(w, block.id, clock) : startBlock(w, block.id, clock));
+      stopped = started.stopped;
+      return started;
+    });
+    if (!reverse || (!say && stopped.length === 0)) return reverse;
+    const zone = clock.zone();
+    const from = Math.floor(now / 60_000) * 60_000;
+    const runs = early ? ` It now runs ${formatTime(from, zone)} to ${formatTime(from + instantMs(block.end) - instantMs(block.start), zone)}.` : '';
+    toast.show(`Started ${block.title ?? 'the block'}.${runs}${stoppedAt(stopped, now)}`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
+    return reverse;
+  };
   /** ' after 22m': the time spent, pauses left out, on a block started a minute or more ago. */
   const after = (block: BlockRow) => {
     const minutes = block.started_at ? Math.round(timeSpentMs(block, clock.now()) / 60_000) : 0;
@@ -148,15 +172,36 @@ export function useBlockActions(say?: Say) {
         },
       });
     },
-    /** Skip, choose a new time later: off the calendar and into To schedule, still in its week. */
+    /**
+     * Take off calendar, choose a new time later: off the calendar and into To schedule, still in its week. A practice's
+     * session says where it was, as it waits for that day only.
+     */
     skip: (block: BlockRow) =>
       withUndo(
         (w) => unscheduleBlock(w, block.id, weekStart(localDate(block.start, clock.zone())), clock),
-        `Took ${block.title ?? 'it'} off the calendar. It's in To schedule on Week.`,
+        block.practice_id
+          ? `Took ${block.title ?? 'it'} off ${formatWeekday(localDate(block.start, clock.zone()))} ${formatTime(block.start, clock.zone())}. It's in To schedule.`
+          : `Took ${block.title ?? 'it'} off the calendar. It's in ${where}.`,
         true,
       ),
-    start: (block: BlockRow) => run((w) => startBlock(w, block.id, clock)),
-    startEarly: (block: BlockRow) => run((w) => startEarly(w, block.id, clock)),
+    start: (block: BlockRow) => begin(block, false, false),
+    startEarly: (block: BlockRow) => begin(block, true, false),
+    /** Start, or for one later today Start now, which moves it to now, keeping its length. Says where it now runs. */
+    startNow: (block: BlockRow) => begin(block, instantMs(block.start) > clock.now(), true),
+    /**
+     * Start now on a task with no block under way: a block for it from now, started, as Today's Next up starts one. Like
+     * any start it stops the block counting, and says which.
+     */
+    startTask: async (task: { id: string; title: string }) => {
+      const now = clock.now();
+      let stopped: readonly BlockRow[] = [];
+      const reverse = await run(async (w) => {
+        const started = await startTaskNow(w, task.id, clock);
+        stopped = started.stopped;
+        return started;
+      });
+      if (reverse) toast.show(`Started ${task.title}.${stoppedAt(stopped, now)}`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
+    },
     swap: (block: BlockRow, next: BlockRow) => withUndo((w) => swapBlocks(w, block.id, next.id), 'Swapped with your next block'),
     stillGoing: async (block: BlockRow) => {
       if (await run((w) => extendBlock(w, block.id, STILL_GOING_MIN))) toast.show(`Added ${STILL_GOING_MIN} minutes`);

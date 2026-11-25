@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../../core/dates';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { openPlanning } from '../testing';
-import { holdDown } from '../../../app/testing';
+import { holdDown, holdTimers, pass } from '../../../app/testing';
 import type { HarnessOptions } from '../../../app/testing';
 
 afterEach(cleanup);
@@ -30,12 +30,23 @@ async function picked(w: Writer) {
 const stretch = (w: Writer) =>
   w.create('practice', { title: 'Morning stretch', target_min: 30, per: 'day', days: [1, 2], preferred_times: [7 * 60], state: 'active' }, 'pr');
 
+/** Morning stretch with both its sessions at their set time, as the app places them. */
+async function atSetTimes(w: Writer) {
+  await picked(w);
+  await stretch(w);
+  for (const d of ['2026-11-03', '2026-11-04']) await w.create('time_block', { practice_id: 'pr', start: at(d, 7), end: at(d, 7, 30), tz: ZONE }, `session:pr:${d}`);
+}
+
+const dentist = (w: Writer) =>
+  w.create('calendar', { connected: true, events: [{ id: 'e1', calendar: 'primary', title: 'Dentist', start: at('2026-11-04', 6, 45), end: at('2026-11-04', 8) }] }, 'calendar');
+
 const open = (options: HarnessOptions & { seed?(w: Writer): Promise<unknown> } = {}) =>
   openPlanning({ step: 2, zone: ZONE, ...options, seed: options.seed ?? picked });
 
 const blocks = async (t: { db: Parameters<typeof listRecords>[0] }, task: string) =>
   (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === task && !b.deleted_at && !b.cancelled).map((b) => [b.start, b.end]);
-const row = (title: string) => screen.getByText(title, { selector: '.subline' }).closest('li')!;
+/** A row in the Practices or Tasks list, which come before the sessions at their set times. */
+const row = (title: string) => screen.getAllByText(title, { selector: '.subline' })[0]!.closest('li')!;
 /** A row's button in the list, rather than the same task's name under Now, which opens its popup. */
 const rowButton = (name: RegExp) => within(screen.getByRole('list', { name: 'Tasks' })).getByRole('button', { name });
 /** On desktop, the task or practice being placed, pinned at the top of the list. */
@@ -231,6 +242,41 @@ describe('Schedule on desktop', () => {
     expect(screen.queryByRole('button', { name: 'Remove Morning stretch from this week' })).toBeNull();
   });
 
+  it('ticks the sessions at their set times as a group, counts them, and Show lists each with Take off', async () => {
+    const t = await open({ seed: atSetTimes });
+    expect(await screen.findByText('3 to place · 2 at their set times')).toBeInTheDocument();
+    // Nothing of the practice is left to place, so it isn't under Practices.
+    expect(screen.queryByRole('list', { name: 'Practices' })).toBeNull();
+    const group = screen.getByRole('list', { name: 'At their set times · 2' });
+    expect(within(group).getByText('Morning stretch')).toBeInTheDocument();
+    expect(within(group).getByText('Tue and Wed at 7am')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show sessions at their set times' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Take off Morning stretch, Tue 7am' }));
+    expect(await screen.findByText("Took Morning stretch off Tue 7am. It's in To schedule.")).toBeInTheDocument();
+    expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-03'))?.cancelled).toBe(true);
+    // Tuesday waits under Practices now, at its set time first.
+    expect(within(await screen.findByRole('list', { name: 'Practices' })).getByRole('button', { name: /^Morning stretch/ })).toBeInTheDocument();
+    expect(await screen.findByText('4 to place · 1 at their set times')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('3 to place · 2 at their set times')).toBeInTheDocument();
+  });
+
+  it('a session whose set time is taken comes first under Practices, says why, and offers Skip Wednesday', async () => {
+    const t = await open({ seed: async (w) => (await atSetTimes(w), await w.delete('time_block', 'session:pr:2026-11-04'), dentist(w)) });
+    expect(await screen.findByText('4 to place · 1 at their set times')).toBeInTheDocument();
+    const practices = screen.getByRole('list', { name: 'Practices' });
+    expect(within(practices).getByText('Wed Nov 4 · 7am is taken')).toBeInTheDocument();
+    expect(within(practices).getByRole('button', { name: /^Morning stretch/ }).querySelector('[data-icon="warning"]')).not.toBeNull();
+    const cur = now();
+    expect(within(cur).getByText('Wed Nov 4, 8am to 8:30am (30m)')).toBeInTheDocument();
+    expect(within(cur).getByText('7am is taken by Dentist, so 8am')).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'At their set times · 1' })).getByText('Tue at 7am')).toBeInTheDocument();
+    await userEvent.click(within(cur).getByRole('button', { name: 'Skip Wednesday' }));
+    expect(await screen.findByText('Skipped Morning stretch on Wednesday this week.')).toBeInTheDocument();
+    expect((await getRecord(t.db, 'week_plan', `week:${WEEK}`))?.skipped_sessions).toEqual(['pr:2026-11-04']);
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Practices' })).toBeNull());
+  });
+
   it('a practice can be skipped this week, which takes its sessions off, and included again with nothing placed', async () => {
     const t = await open({
       seed: async (w) => {
@@ -258,7 +304,8 @@ describe('Schedule on desktop', () => {
     const t = await open({ seed: async (w) => (await picked(w), stretch(w)) });
     const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start).sort();
     await userEvent.click(await screen.findByRole('button', { name: 'Place the rest at suggested times' }));
-    expect(await screen.findByText('4 of 4 placed')).toBeInTheDocument();
+    // Both sessions land at their set time, so they join the group.
+    expect(await screen.findByText('Nothing left to place · 2 at their set times')).toBeInTheDocument();
     expect(await sessions()).toHaveLength(2);
     expect(screen.getByText('Placed 6 blocks')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -270,7 +317,7 @@ describe('Schedule on desktop', () => {
     const t = await open({ seed: async (w) => (await picked(w), await stretch(w), w.set('practice', 'pr', { day_times: [null, null, 9 * 60, null, null, null, null] })) });
     const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start).sort();
     await userEvent.click(await screen.findByRole('button', { name: 'Place the rest at suggested times' }));
-    expect(await screen.findByText('4 of 4 placed')).toBeInTheDocument();
+    expect(await screen.findByText('Nothing left to place · 2 at their set times')).toBeInTheDocument();
     expect(await sessions()).toEqual([at('2026-11-03', 7), at('2026-11-04', 9)]);
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect(await sessions()).toEqual([]));
@@ -586,6 +633,20 @@ describe('Schedule on phone', () => {
     expect(await screen.findByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeInTheDocument();
   });
 
+  it('says why a set time is taken in the dock, offers Skip for its day, and lists the sessions at their set times', async () => {
+    const t = await phone({ seed: async (w) => (await atSetTimes(w), await w.delete('time_block', 'session:pr:2026-11-04'), dentist(w)) });
+    expect(await screen.findByRole('button', { name: 'All picked tasks, 4 to place · 1 at their set times' })).toBeInTheDocument();
+    expect(screen.getByText('7am is taken by Dentist, so 8am')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'All picked tasks, 4 to place · 1 at their set times' }));
+    const sheet = await screen.findByRole('dialog', { name: 'All picked tasks' });
+    expect(within(sheet).getByText('Wed Nov 4 · 7am is taken')).toBeInTheDocument();
+    expect(within(within(sheet).getByRole('list', { name: 'At their set times · 1' })).getByText('Tue at 7am')).toBeInTheDocument();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Skip Wednesday' }));
+    expect(await screen.findByText('Skipped Morning stretch on Wednesday this week.')).toBeInTheDocument();
+    expect((await getRecord(t.db, 'week_plan', `week:${WEEK}`))?.skipped_sessions).toEqual(['pr:2026-11-04']);
+  });
+
   it("the dock's task name opens the task's popup", async () => {
     await phone();
     await userEvent.click(await screen.findByRole('button', { name: 'Collect the sources' }));
@@ -698,7 +759,8 @@ describe('Schedule on phone', () => {
     fireEvent.pointerUp(window, { clientY: 300 });
     expect(await screen.findByText('Practice, 30m on Tue and Wed, around 7am')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Use this in future weeks too?' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    // A practice's session is taken off its day, to wait in To schedule.
+    expect(screen.getByRole('button', { name: 'Take off calendar' })).toBeInTheDocument();
     // A practice isn't a task to finish.
     expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull();
 
@@ -814,7 +876,8 @@ describe('Schedule on phone', () => {
 });
 
 describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s', (layout) => {
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  beforeEach(holdTimers);
+  afterEach(() => void vi.useRealTimers());
   const draft = () => document.querySelector<HTMLElement>('.holddraft');
   const pointerType = layout === 'phone' ? 'touch' : 'mouse';
   // jsdom has no layout. Desktop: Thursday's column on the editing grid, from 6am at 40px an hour. Phone: the day shown,
@@ -823,7 +886,7 @@ describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s'
   const y = (minutes: number) => ((minutes - 360) * (layout === 'phone' ? 48 : 40)) / 60 + 1;
   const hold = async (minutes: number) => {
     fireEvent.pointerDown(target(), { clientX: 20, clientY: y(minutes), button: 0, pointerType, pointerId: 1 });
-    await wait(450);
+    await pass(450);
   };
   const letGo = (minutes: number) => fireEvent.pointerUp(window, { clientX: 20, clientY: y(minutes), pointerType, pointerId: 1 });
   // One task, its hour already on Tuesday morning: nothing waits to be placed.
@@ -855,12 +918,30 @@ describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s'
     letGo(minutes);
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText(layout === 'phone' ? 'Today, 6pm to 7pm' : 'Thu Nov 5, 4pm to 5pm')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
     await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(draft()).toBeNull());
     const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox');
     expect(item).toMatchObject({ title: 'Book dentist', estimate_min: 60 });
     expect(await blocks(t, item!.id as string)).toEqual([layout === 'phone' ? [at(WEEK, 18), at(WEEK, 19)] : [at('2026-11-05', 16), at('2026-11-05', 17)]]);
+  });
+
+  it('Capture’s search finds a task whose time is all placed, and picking it moves its block to the drafted time, with Undo', async () => {
+    const t = await open({ layout, seed: allPlaced });
+    await waitFor(() => expect(target()).not.toBeNull());
+    const minutes = layout === 'phone' ? 18 * 60 : 16 * 60;
+    await hold(minutes);
+    letGo(minutes);
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'collect');
+    await userEvent.click(await within(capture).findByRole('option', { name: 'Collect the sources, Project · 1h, all placed, Moves from Tuesday 9am' }));
+    expect(await screen.findByText(/^Moved Collect the sources to /)).toBeVisible();
+    await waitFor(() => expect(draft()).toBeNull());
+    const moved = layout === 'phone' ? [at(WEEK, 18), at(WEEK, 19)] : [at('2026-11-05', 16), at('2026-11-05', 17)];
+    await waitFor(async () => expect(await blocks(t, 't1')).toEqual([moved]));
+    expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([]);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at('2026-11-03', 9), at('2026-11-03', 10)]]));
   });
 
   it.runIf(layout === 'desktop')('with nothing left to place, a mouse dragged on empty time draws the draft at once, and Capture saves that time', async () => {
@@ -872,7 +953,7 @@ describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s'
     letGo(15 * 60 + 10);
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText('Thu Nov 5, 3pm to 4:45pm')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
     await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(draft()).toBeNull());
     const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox');
@@ -921,7 +1002,7 @@ describe('a new task in Schedule while a task waits, on desktop', () => {
   const save = async (t: Awaited<ReturnType<typeof open>>, when: string) => {
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText(when)).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
     await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await listRecords(t.db, 'task')).some((x) => x.kind === 'inbox')).toBe(true));
     return (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox')!;
@@ -976,7 +1057,7 @@ describe('a new task in Schedule while a task waits, on phone', () => {
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     // The harness clock reads 2pm, and nothing is placed today.
     expect(within(capture).getByText('Today, 2pm to 3pm')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
     await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await listRecords(t.db, 'task')).some((x) => x.kind === 'inbox')).toBe(true));
     const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox')!;

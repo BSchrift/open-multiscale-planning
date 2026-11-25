@@ -186,7 +186,7 @@ export function NotesToday() {
 }
 
 /** Apart from NotesToday, so Today reads the homes' names only on a day with notes to show. */
-function TodaysNotes(props: { notes: readonly NoteRow[] }) {
+export function TodaysNotes(props: { notes: readonly NoteRow[] }) {
   const names = useHomeNames();
   const id = useId();
   return (

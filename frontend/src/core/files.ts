@@ -35,10 +35,14 @@ export type UploadState =
   | { kind: 'uploading'; sent: number }
   /** The server found storage full. It waits for Retry. */
   | { kind: 'full' }
+  /** Its task or note has more attachments than one may have, as two devices adding at once can make. It waits for Retry. */
+  | { kind: 'tooMany' }
   /** Past this hour's uploads: it goes by itself from then. */
   | { kind: 'limit'; from: Instant }
   /** Refused for good, as a type or size no app sends. */
-  | { kind: 'refused' };
+  | { kind: 'refused' }
+  /** Its record changed after its upload was granted, so no upload under its id can match. Refused for good. */
+  | { kind: 'changed' };
 
 export interface Usage {
   used: number;
@@ -86,18 +90,20 @@ export function createFiles(deps: { db: Db; clock: Clock; store: FileBytes; api:
 
   async function uploadOne(id: string): Promise<'next' | 'stop' | 'limit'> {
     const state = states.get(id);
-    if (state?.kind === 'full' || state?.kind === 'refused') return 'next';
+    if (state?.kind === 'full' || state?.kind === 'tooMany' || state?.kind === 'refused' || state?.kind === 'changed') return 'next';
     const bytes = await store.get(id);
     // Added on another device, which uploads it.
     if (!bytes) return 'next';
     const res = await api.grantUpload(id);
     const answer = await body(res);
     if (res.status === 403 && answer?.error === 'quota_exceeded') return set(id, { kind: 'full' }), 'next';
+    if (res.status === 400 && answer?.error === 'too_many_attachments') return set(id, { kind: 'tooMany' }), 'next';
     if (res.status === 429 && typeof answer?.retry_at === 'string') {
       limitedUntil = answer.retry_at;
       return 'limit';
     }
     if (res.status === 404) return set(id, { kind: 'waiting' }), 'next';
+    if (res.status === 409 && answer?.error === 'attachment_changed') return set(id, { kind: 'changed' }), 'next';
     if ([400, 413, 415].includes(res.status)) return set(id, { kind: 'refused' }), 'next';
     if (!res.ok || typeof answer?.url !== 'string' || !answer.headers || typeof answer.headers !== 'object') {
       set(id, { kind: 'waiting' });
@@ -159,7 +165,7 @@ export function createFiles(deps: { db: Db; clock: Clock; store: FileBytes; api:
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    /** Tries an upload storage refused again. */
+    /** Tries an upload again that was held for storage or for the attachments a task may have. */
     retry(id: string): Promise<void> {
       set(id, { kind: 'waiting' });
       return run();

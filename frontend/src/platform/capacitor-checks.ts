@@ -9,17 +9,26 @@ import { systemClock } from '../core/clock';
 import { addDays, addWeeks, nowInstant, thisWeek, toInstant, today } from '../core/dates';
 import { META, openDb, refreshStatistics } from '../core/db';
 import type { Db } from '../core/db';
+import { dailyAttributes, exceptionAttributes } from '../core/metrickit';
 import { planProblems, seedLarge } from '../core/queries-testing';
 import { nextStretch } from '../core/plan';
 import { historyChanges } from '../core/history-testing';
 import { KEEP, KEPT } from '../core/perf';
 import { applyRemote, getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
+import { newestId, writeSeen } from '../core/whatsNew';
+import { WHATS_NEW } from '../whatsNew';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
 
 /** The debug build's hooks for this page (ChecksPlugin in BridgeViewController.swift). */
-const Checks = registerPlugin<{ openCapture(): Promise<void>; share(options: { text: string }): Promise<void> }>('MultiscaleChecks');
+const Checks = registerPlugin<{ openCapture(): Promise<void>; share(options: { text: string }): Promise<void>; deliverEnergy(): Promise<void> }>('MultiscaleChecks');
+/** The widgets plugin's debug-only hooks (WidgetsPlugin.swift): what the snapshot holds, a widget button's tap, a refresh. */
+const WidgetChecks = registerPlugin<{
+  snapshotForTest(): Promise<{ snapshot: string | null }>;
+  tapForTest(options: { at: number }): Promise<{ tapped: string | null; mode: string }>;
+  refreshForTest(): Promise<{ completed: boolean }>;
+}>('MultiscaleWidgets');
 
 const output = document.getElementById('log')!;
 const log = (line: string) => {
@@ -75,7 +84,10 @@ async function erase(platform: Platform): Promise<string> {
   for (const key of ['auth.session', 'auth.pending']) await platform.tokens.remove(key);
   await platform.notifications.replaceAll([]);
   await LocalNotifications.removeAllDeliveredNotifications();
+  await platform.widgets?.clear();
   localStorage.clear();
+  // A new install has seen every What's new line, which setup records; the seeds skip setup, so it's recorded here.
+  writeSeen(newestId(WHATS_NEW));
   const left = (await platform.db.all('SELECT id FROM records')).length;
   const session = await platform.tokens.get('auth.session');
   return left === 0 && session === null ? 'erased' : `erase left ${left} records and ${session === null ? 'no' : 'a'} session`;
@@ -89,7 +101,12 @@ const MINUTE_MS = 60_000;
  * clock can't be set, so the UI tests run a seeded app on a page clock shifted to the morning, except where they need
  * the real one (launchApp in MultiscaleUITests.swift).
  */
-async function seed(db: Db, blocks: readonly { title: string; from: number; to: number; started?: boolean }[], picked: readonly string[] = []): Promise<string> {
+async function seed(
+  db: Db,
+  blocks: readonly { title: string; from: number; to: number; started?: boolean }[],
+  picked: readonly string[] = [],
+  dated: readonly { title: string; inDays: number }[] = [],
+): Promise<string> {
   const clock = systemClock;
   const on = today(clock);
   const now = clock.now();
@@ -107,6 +124,10 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
     for (const title of picked) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title, estimate_min: 30 });
       await setWeekPick(w, thisWeek(clock), task, 30);
+    }
+    for (const d of dated) {
+      const from = addDays(on, d.inDays);
+      await w.create('task', { kind: 'one_off', title: d.title, schedule: { type: 'once', from, to: null }, next_due: from });
     }
     for (const b of blocks) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title: b.title, estimate_min: 120 });
@@ -232,10 +253,52 @@ button('Control', async () => {
   await Checks.openCapture();
   return 'control:ran';
 });
+// The widgets, through the App Group the build has with the extensions on.
+button('Widgets', async () => (platform.widgets ? 'widgets:on' : 'widgets:off'));
+// What the app last wrote for the widgets: its blocks, the ones started, and the Inbox.
+button('Widget snapshot', async () => {
+  const { snapshot } = await WidgetChecks.snapshotForTest();
+  if (!snapshot) return 'snapshot:none';
+  const s = JSON.parse(snapshot) as { blocks: { title: string | null; startedAt: string | null }[]; inbox: { count: number } | null };
+  const started = s.blocks.filter((b) => b.startedAt).map((b) => b.title);
+  return `snapshot:blocks=${s.blocks.length} started=${started.join('|')} inbox=${s.inbox?.count ?? '-'}`;
+});
+// The medium widget's button, as its intent runs it, at the page's time, which a seeded app runs ahead of the real one.
+button('Widget tap', async () => {
+  const { tapped, mode } = await WidgetChecks.tapForTest({ at: Date.now() });
+  return `widget-tap:${tapped ?? 'none'}:${mode}`;
+});
+// A background refresh as iOS runs it: the page hears it, and iOS is told it finished once the page says so.
+button('Widget refresh', async () => {
+  platform.widgets?.onRefresh(async () => log('refresh:heard'));
+  const { completed } = await WidgetChecks.refreshForTest();
+  return `refresh:completed:${completed}`;
+});
 button('Diagnostics', async () => {
   const snap = await platform.diagnostics!.snapshot();
   log(`previous:${snap.previous?.state ?? 'none'}`);
   return snap.footprint > 0 && snap.peak >= snap.footprint && /^\w+\d/.test(snap.model ?? '') ? 'diagnostics:ok' : `diagnostics:${JSON.stringify(snap)}`;
+});
+// What MetricKit would deliver, kept by the energy plugin as it keeps a real delivery, through the debug build's hook.
+button('Deliver energy', async () => {
+  // After taking any an earlier run left, so the check sees only these.
+  await platform.energy!.reports!();
+  await Checks.deliverEnergy();
+  return 'energy:delivered';
+});
+// The reports kept, as telemetry sends them, each handed over once, and the battery's state.
+button('Energy', async () => {
+  const energy = platform.energy!;
+  const { daily, exceptions } = await energy.reports!();
+  const sent = JSON.stringify([...daily.map(dailyAttributes), ...exceptions.map(exceptionAttributes)]);
+  const again = await energy.reports!();
+  const { power } = await energy.sample();
+  const expected = JSON.stringify([
+    { 'energy.day': '2026-11-15', 'energy.cpu_seconds': 100.5, 'energy.cellular_bytes': 2000000, 'energy.background_seconds': 40 },
+    { 'energy.exception.kind': 'cpu', 'energy.exception.cpu_seconds': 90, 'code.function': 'App+0x28a3c' },
+  ]);
+  const ok = sent === expected && again.daily.length + again.exceptions.length === 0 && typeof power.lowPower === 'boolean' && /^(nominal|fair|serious|critical)$/.test(power.thermal ?? '');
+  return ok ? 'energy:ok' : `energy:${sent} again:${JSON.stringify(again)} power:${JSON.stringify(power)}`;
 });
 button('Erase', () => erase(platform));
 button('Seed plan', () => seed(platform.db, []));
@@ -253,6 +316,8 @@ button('Seed today', () =>
 button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
 // A block half an hour out, still to come with free time after it, for Week's day to move.
 button('Seed later', () => seed(platform.db, [{ title: 'Shape the loaf', from: 30, to: 90 }]));
+// A one off dated two weeks out, so its popup has a date field with a date in it, which iOS draws its own way.
+button('Seed dated one off', () => seed(platform.db, [], [], [{ title: 'Return the drill', inDays: 14 }]));
 // The performance runner's data and numbers (PerfUITests, scripts/test-perf-ios.sh): a year of history ending now, as a
 // sync would apply it; the app's measures kept from now on; and then what it kept, by name, with the app's peak memory
 // in the run before this page's, the session that was timed.

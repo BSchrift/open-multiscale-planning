@@ -103,6 +103,7 @@ export function DeleteAccountPage(props: { layout: Layout }) {
       const answer = await sync.deleteAccount();
       if (answer === 'sign_in_again') toast.show('Sign in again first: your last sign-in was too long ago.');
       if (answer === 'wrong_account') toast.show("You're signed in to another account. Nothing was deleted.");
+      if (answer === 'protected') toast.show("Couldn't delete this account.");
     } catch (error) {
       toast.show(error instanceof SyncError && error.code === 'offline' ? "You're offline. Connect to delete your account." : "That didn't work. Try again.");
     }

@@ -54,6 +54,7 @@ describe('scripts/ci-changes.sh', () => {
       'config/retention.yaml',
       'config/retention.ts',
       'scripts/test-ios.sh',
+      'scripts/test-widget-renders.sh',
       'scripts/local-stack.sh',
       'Makefile',
       '.github/workflows/ci.yml',
@@ -159,17 +160,60 @@ describe('scripts/ci-changes.sh', () => {
 describe('the iPhone job in .github/workflows/ci.yml', () => {
   const ci = parse(readFileSync(join(repo, '.github/workflows/ci.yml'), 'utf8')) as {
     on: Record<string, unknown>;
-    jobs: Record<string, { 'runs-on': string; needs?: string[]; if?: string; outputs?: Record<string, string>; steps: { run?: string }[] }>;
+    jobs: Record<
+      string,
+      {
+        'runs-on': string;
+        needs?: string[];
+        if?: string;
+        outputs?: Record<string, string>;
+        strategy?: { 'fail-fast'?: boolean; matrix?: Record<string, unknown> };
+        steps: { run?: string; uses?: string; env?: Record<string, string>; with?: Record<string, unknown> }[];
+      }
+    >;
   };
 
   it('waits for the changes job on Linux and runs only when it says so', () => {
-    const { ios, changes: job } = ci.jobs;
+    const { 'ios-simulator': simulator, changes: job } = ci.jobs;
     assert.ok(job, 'a changes job');
     assert.equal(job['runs-on'], 'ubuntu-latest');
     assert.ok(job.steps.some((step) => step.run?.includes('scripts/ci-changes.sh "$GITHUB_EVENT_NAME"')));
     assert.match(job.outputs?.ios ?? '', /steps\.\w+\.outputs\.ios/);
-    assert.ok(ios?.needs?.includes('changes'));
-    assert.equal(ios?.if, "needs.changes.outputs.ios == 'true'");
+    assert.ok(simulator?.needs?.includes('changes'));
+    assert.equal(simulator?.if, "needs.changes.outputs.ios == 'true'");
+  });
+
+  // The two builds' tests, one after the other, outlast a job's hour on GitHub's Macs, so each has a Mac of its own.
+  it('runs each build, extensions off and on, on a Mac of its own, and keeps both results', () => {
+    const simulator = ci.jobs['ios-simulator']!;
+    assert.match(simulator['runs-on'], /^macos-/);
+    assert.deepEqual(simulator.strategy?.matrix, { extensions: ['NO', 'YES'] });
+    // One failing build doesn't stop the other, so a run shows every failure.
+    assert.equal(simulator.strategy?.['fail-fast'], false);
+    const test = simulator.steps.find((step) => step.run === 'make test-ios');
+    assert.equal(test?.env?.MULTISCALE_RUNS, '${{ matrix.extensions }}');
+    const upload = simulator.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    assert.match(String(upload?.with?.name), /\$\{\{ matrix\.extensions \}\}/);
+  });
+
+  // Branch protection names one check, ios, rather than one per build.
+  describe('its one result, ios', () => {
+    const ios = ci.jobs.ios!;
+
+    it('waits for both builds on Linux, unless the run was cancelled or the changes job skipped them', () => {
+      assert.equal(ios['runs-on'], 'ubuntu-latest');
+      assert.deepEqual(ios.needs, ['changes', 'ios-simulator']);
+      assert.equal(ios.if, "${{ !cancelled() && needs.changes.outputs.ios == 'true' }}");
+    });
+
+    it('passes only when both builds passed', () => {
+      const [step] = ios.steps;
+      assert.equal(step?.env?.RESULT, '${{ needs.ios-simulator.result }}');
+      for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
+        const r = spawnSync('bash', ['-e', '-c', step!.run!], { encoding: 'utf8', env: { PATH: process.env.PATH, RESULT: result } });
+        assert.equal(r.status === 0, result === 'success', `${result}: ${r.stdout}${r.stderr}`);
+      }
+    });
   });
 
   // The changes step as written, in a shallow checkout like actions/checkout's, of a throwaway repo: main, then a branch
@@ -241,8 +285,11 @@ describe('the iPhone job in .github/workflows/ci.yml', () => {
     assert.ok('workflow_dispatch' in ci.on);
   });
 
+  // The iPhone widgets' job holds a macOS runner too, and tests only what the iPhone app is built from, so it runs when
+  // the iPhone job does.
   it('leaves every other job to run whatever changed', () => {
     const conditional = Object.entries(ci.jobs).filter(([, job]) => job.if).map(([name]) => name);
-    assert.deepEqual(conditional, ['ios']);
+    assert.deepEqual(conditional, ['ios-simulator', 'ios', 'widgets']);
+    assert.equal(ci.jobs.widgets!.if, ci.jobs['ios-simulator']!.if);
   });
 });

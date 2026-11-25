@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, skipPlanningOnToday, touchDrag } from './seed';
 import type { Seed } from './seed';
+import { askOnBlock, nowCard, openBlock, phoneView, showNow, todayRead, waitingSheet } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -32,25 +33,31 @@ async function open(page: Page, records: Seed[]) {
 test('the Now card: Start counts down, Mark done now frees the time, and Undo puts it back', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:58', '15:00'), block('b2', 't2', '16:00', '17:00')]);
-  const now = page.getByRole('region', { name: 'Current block' });
-  await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
-  await expect(now.getByRole('heading', { name: 'Write the report' })).toBeVisible();
+  // On phone, the block raised on the day: its times after the word Now, and its name.
+  const now = await showNow(page, phone);
+  const times = (range: string) => now.getByText(phone ? range : `Now, ${range}`);
+  await expect(times('1:58pm to 3pm')).toBeVisible();
+  await (phone ? expect(now).toContainText('Write the report') : expect(now.getByRole('heading', { name: 'Write the report' })).toBeVisible());
 
   const start = now.getByRole('button', { name: 'Start', exact: true });
   if (phone) await expectTapTarget(start);
   await start.click();
-  await expect(now.getByText('In progress, time left')).toBeVisible();
-  await expect(now.getByRole('timer')).toHaveText(/^5\d:\d\d$/);
+  if (phone) await expect(now.getByText(/ left$/)).toBeVisible();
+  else {
+    await expect(now.getByText('In progress, time left')).toBeVisible();
+    await expect(now.getByRole('timer')).toHaveText(/^5\d:\d\d$/);
+  }
 
   const done = now.getByRole('button', { name: 'Mark done now' });
   if (phone) await expectTapTarget(done);
   await done.click();
   await expect(page.getByText("Marked done. You're free until 4pm.")).toBeVisible();
-  await expect(now.getByText(phone ? 'Free until 4pm. Next:' : 'Free until 4pm')).toBeVisible();
+  // On phone the now line says it, with the next block marked Next on the day.
+  await expect((phone ? page : now).getByText('Free until 4pm', { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath('today-free.png') });
 
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
+  await expect(times('1:58pm to 3pm')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -59,53 +66,56 @@ test('the time-spent ring pauses and resumes the block under way, each with a to
   const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') }), block('b2', 't2', '16:00', '17:00')]);
   await page.clock.setFixedTime(NOW);
-  const now = page.getByRole('region', { name: 'Current block' });
+  // On phone, the block raised on the day carries the ring and its time left; the countdown and the ring's key are
+  // desktop's Now card's.
+  const now = await showNow(page, phone);
+  const times = (range: string) => now.getByText(phone ? range : `Now, ${range}`);
 
   const ring = now.getByRole('button', { name: 'Pause, 22 minutes spent, 37% of the block' });
   await expect(ring).toBeVisible();
   // The middle shows the percent; the name says the time spent as well.
   await expect(ring).toHaveText('37%');
-  await expect(now.getByRole('timer')).toHaveText('38:00');
-  const key = now.getByRole('button', { name: 'What the ring means' });
-  if (phone) {
-    await expectTapTarget(ring);
-    await expectTapTarget(key);
-  }
   await shot('ring-under-way');
-
-  await key.click();
-  await expect(now.getByRole('group', { name: 'Key' })).toContainText(
-    phone ? 'Tap the ring to pause the countdown' : 'Tap the ring or press P to pause the countdown',
-  );
-  await shot('ring-key');
-  await key.click();
-  await expect(now.getByRole('group', { name: 'Key' })).toHaveCount(0);
+  if (phone) {
+    await expect(now.getByText('38 min left')).toBeVisible();
+    await expectTapTarget(ring);
+  } else {
+    await expect(now.getByRole('timer')).toHaveText('38:00');
+    const key = now.getByRole('button', { name: 'What the ring means' });
+    await key.click();
+    await expect(now.getByRole('group', { name: 'Key' })).toContainText('Tap the ring or press P to pause the countdown');
+    await shot('ring-key');
+    await key.click();
+    await expect(now.getByRole('group', { name: 'Key' })).toHaveCount(0);
+  }
 
   await ring.click();
   const resume = now.getByRole('button', { name: 'Resume, 22 minutes spent, 37% of the block' });
   // Focus stays on the ring. WebKit doesn't focus a button on a tap, so there's none to keep on phone.
   await (phone ? expect(resume).toBeVisible() : expect(resume).toBeFocused());
-  await expect(now.getByText('Ends at 2:38pm unless you resume.')).toBeVisible();
+  await expect(now.getByText(phone ? 'Paused, 38 min left' : 'Ends at 2:38pm unless you resume.')).toBeVisible();
   const toast = page.locator('.toast');
   await expect(toast).toContainText('Paused Write the report');
   await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
   await shot('pause-toast');
   await page.clock.setFixedTime(NOW.getTime() + 6 * 60_000);
-  await expect(now.getByText('Paused for 6 min')).toBeVisible();
-  await expect(now.getByRole('timer')).toHaveText('38:00');
+  if (!phone) {
+    await expect(now.getByText('Paused for 6 min')).toBeVisible();
+    await expect(now.getByRole('timer')).toHaveText('38:00');
+  }
   await shot('ring-paused');
 
   // Resume moves the end on by the pause and says so, in the toast's one place: a tap on the ring straight after
   // takes it back, and Pause's toast takes the place of Resume's.
   await now.getByRole('button', { name: /^Resume, / }).click();
-  await expect(now.getByText('Now, 1:38pm to 2:44pm')).toBeVisible();
+  await expect(times('1:38pm to 2:44pm')).toBeVisible();
   await expect(now.getByRole('button', { name: /^Pause, 22 minutes spent/ })).toBeVisible();
   await expect(toast).toHaveCount(1);
   await expect(toast).toHaveText(/^Resumed\. It now ends at 2:44pm\.\s*Undo$/);
   await shot('ring-resumed');
   await now.getByRole('button', { name: /^Pause, / }).click();
-  await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
-  await expect(now.getByText('Paused for 6 min')).toBeVisible();
+  await expect(times('1:38pm to 2:38pm')).toBeVisible();
+  if (!phone) await expect(now.getByText('Paused for 6 min')).toBeVisible();
   await expect(toast).toHaveCount(1);
   await expect(toast).toContainText('Paused Write the report');
   expect(errors).toEqual([]);
@@ -149,6 +159,8 @@ test('the ring changes without animating under reduced motion, and reads in dark
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
   const errors = await open(page, [planned, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
   await page.clock.setFixedTime(NOW);
+  // On phone, the ring is in the card a tap on the block in progress shows.
+  await showNow(page, info.project.name === 'phone');
   // The app's reduced-motion rule cuts every transition to a hundredth of a millisecond.
   expect(await page.locator('.spentring .rfill').evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))).toBeLessThan(0.001);
   await page.screenshot({ path: info.outputPath(`ring-dark-${info.project.name}.png`) });
@@ -163,15 +175,17 @@ test('a pause running to the end asks the end question, whose Resume runs into t
   const paused = block('b1', 't1', '13:00', '13:50', { started_at: at('13:00'), paused_at: at('13:22') });
   const errors = await open(page, [planned, report, fence, paused, block('b2', 't2', '14:15', '14:45')]);
   await page.clock.setFixedTime(NOW);
-  const prompt = page.getByRole('dialog', { name: 'Block finished' });
-  await expect(prompt.getByText('22m spent. Paused at 1:22pm.')).toBeVisible();
+  // On phone the block asks on itself, raised on the day.
+  const prompt = phone ? await askOnBlock(page, /^Write the report, 1pm to 1:50pm/) : page.getByRole('dialog', { name: 'Block finished' });
+  if (!phone) await expect(prompt.getByText('22m spent. Paused at 1:22pm.')).toBeVisible();
   await expect(prompt.getByRole('button', { name: /Still going/ })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`end-paused-${info.project.name}.png`) });
   await prompt.getByRole('button', { name: 'Resume, 28m left' }).click();
-  const now = page.getByRole('region', { name: 'Current block' });
-  await expect(now.getByText('Now, 1pm to 2:28pm')).toBeVisible();
-  await expect(now.getByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
+  // The toast first: on phone, the tap that shows the block's card puts it away.
   await expect(page.locator('.toast')).toContainText('Resumed. It now ends at 2:28pm.');
+  const now = await showNow(page, phone);
+  await expect(now.getByText(phone ? '1pm to 2:28pm' : 'Now, 1pm to 2:28pm')).toBeVisible();
+  await expect(now.getByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
 
   await expect(page.getByText('Paint the fence conflicts with Write the report.')).toBeVisible();
   await page.getByRole('button', { name: 'Shift rest of today' }).click();
@@ -187,7 +201,8 @@ test('a pause running to the end asks the end question, whose Resume runs into t
 test('a finished block asks how it went; Partly sets the time left and it waits in Needs a new time', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, block('b1', 't1', '12:00', '13:00')]);
-  const prompt = page.getByRole('dialog', { name: 'Block finished' });
+  // On phone the block asks on itself, raised on the day.
+  const prompt = phone ? await askOnBlock(page, /^Write the report, 12pm to 1pm/) : page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText('Write the report')).toBeVisible();
   // Each answer is its word after its icon, a whole tap target on phone.
   for (const name of ['Done', 'Partly', 'Not done']) {
@@ -210,12 +225,9 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
 
   // The answer's own alert: until the screen reads the saved answer back, the block still shows as missed, with a
-  // Review of its own.
-  await (phone
-    ? page.getByRole('button', { name: '1 task needs a new time Review' })
-    : page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' })
-  ).click();
-  const queue = phone ? page.getByRole('dialog', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
+  // Review of its own. On phone it waits in the sheet behind the waiting row.
+  if (!phone) await page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' }).click();
+  const queue = phone ? (await waitingSheet(page)).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Partly done today, 1h 30m left')).toBeVisible();
   await expect(queue.getByRole('button', { name: /^Place Write the report, / })).toBeVisible();
   if (phone) await expect(queue.getByRole('button', { name: 'Place on calendar' })).toBeVisible();
@@ -227,16 +239,21 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   expect(errors).toEqual([]);
 });
 
-test('an unplanned week opens on the prompt to plan; skipping leaves a banner and Next up', async ({ page }, info) => {
+test('an unplanned week opens on the prompt to plan; skipping leaves a banner and Next up, or on phone, Start something in the free time', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
   const errors = await open(page, [fence]);
-  await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
+  // On phone the prompt is the strip's footer, with today's calendar under it.
+  await expect(phone ? page.getByText('Not planned yet') : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
   await expect(page.getByText('1 one off due.')).toHaveCount(0);
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
-  await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
+  await skipPlanningOnToday(page);
+  if (phone) {
+    await expect(page.getByText('Skipped planning this week.')).toBeVisible();
+    await page.getByRole('button', { name: 'Start something' }).click();
+  } else await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
   const next = page.getByRole('region', { name: 'Next up' });
-  if (info.project.name === 'phone') await expectTapTarget(next.getByRole('button', { name: 'Paint the fence', exact: true }));
+  if (phone) await expectTapTarget(next.getByRole('button', { name: 'Paint the fence', exact: true }));
   await next.getByRole('button', { name: 'Start Paint the fence' }).click();
-  await expect(page.getByRole('region', { name: 'Current block' }).getByText('Now, 2pm to 2:30pm')).toBeVisible();
+  await expect((await showNow(page, phone)).getByText(phone ? '2pm to 2:30pm' : 'Now, 2pm to 2:30pm')).toBeVisible();
   // The skip is saved on the week's plan now, and phone WebKit's database saves 200ms after a change (platform/web.ts).
   await page.waitForTimeout(600);
   await page.reload();
@@ -244,7 +261,7 @@ test('an unplanned week opens on the prompt to plan; skipping leaves a banner an
   expect(errors).toEqual([]);
 });
 
-test('a block gone by is struck through only when done; Not done and Partly carry their answer badge and say so instead', async ({ page }) => {
+test('a block gone by is struck through only when done; Not done and Partly carry their answer badge and say so instead', async ({ page }, info) => {
   const outcome = (id: string, result: string, time: string): Seed => ({ type: 'block_outcome', id: `outcome:${id}`, fields: { result, answered_at: at(time) } });
   const notes: Seed = { type: 'task', id: 't3', fields: { kind: 'project', project_id: 'p', title: 'Read the notes', estimate_min: 60 } };
   const errors = await open(page, [
@@ -260,6 +277,8 @@ test('a block gone by is struck through only when done; Not done and Partly carr
     outcome('b3', 'partly', '12:00'),
   ]);
   const timeline = page.getByRole('region', { name: "Today's timeline" });
+  // On phone the morning is folded into the Earlier row until it's opened.
+  if (info.project.name === 'phone') await timeline.getByRole('button', { name: /^Earlier, / }).click();
   // The title is struck only when done; each answer has its round badge; Partly is half filled with its kind's tint.
   const look = (name: string) =>
     timeline.getByRole('button', { name }).evaluate((e) => ({
@@ -284,9 +303,27 @@ test('the current-time line passes behind the block under way, its dot in front,
   // prompt for the planning task Today makes once it has drawn. Either landing late pushes the timeline down, and with
   // the page still at its top nothing scrolls to keep the line in view, so it can leave the screen between being
   // scrolled to and being hit tested.
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
   const timeline = page.getByRole('region', { name: "Today's timeline" });
+  if (phone) {
+    // The block under way is raised over its lane as a card, and the line passes behind that too. The zoom is in
+    // Today's menu, so nothing sits over the day.
+    const line = timeline.getByRole('img', { name: 'Current time' });
+    await line.scrollIntoViewIfNeeded();
+    await expect(line).toHaveCSS('pointer-events', 'none');
+    const card = await nowCard(page, true).boundingBox();
+    const under = await line.evaluate((el, x) => !!document.elementFromPoint(x, el.getBoundingClientRect().top + 1)?.closest('.cev.raised'), card!.x + card!.width / 2);
+    expect(under).toBe(true);
+    await expect(timeline.getByRole('group', { name: 'Calendar zoom' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'View and week' }).click();
+    for (const name of ['Zoom out', 'Zoom in']) await expectTapTarget(page.getByRole('menuitem', { name }));
+    await page.keyboard.press('Escape');
+    await phoneView(page, 'Zoom in');
+    await page.screenshot({ path: info.outputPath(`today-now-line-${info.project.name}.png`) });
+    expect(errors).toEqual([]);
+    return;
+  }
   const zoom = timeline.getByRole('group', { name: 'Calendar zoom' });
   // In the heading row, beside the view buttons, rather than over the calendar. Measured in one go, as the page may
   // still be scrolling.
@@ -298,11 +335,9 @@ test('the current-time line passes behind the block under way, its dot in front,
   expect(Math.abs(z.y + z.height / 2 - (v.y + v.height / 2))).toBeLessThan(4);
   expect(z.x + z.width).toBeLessThanOrEqual(v.x);
   expect(z.y + z.height).toBeLessThanOrEqual(day.y);
-  if (phone) for (const name of ['Zoom out', 'Zoom in']) await expectTapTarget(zoom.getByRole('button', { name }));
   await zoom.getByRole('button', { name: 'Zoom in' }).click();
   await zoom.getByRole('button', { name: 'Zoom in' }).click();
 
-  // Under way, it no longer moves, so it's a button on phone too.
   const b = timeline.getByRole('button', { name: /^Write the report, 1pm to 3pm/ });
   const line = timeline.getByRole('img', { name: 'Current time' });
   await line.scrollIntoViewIfNeeded();
@@ -340,7 +375,7 @@ test("on phone, a block's resize grip stays under the block right below it, so a
   test.skip(info.project.name !== 'phone', 'Phone only');
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '16:00', '17:00'), block('b2', 't2', '17:00', '18:00')]);
   // Zoomed in, so the block above is tall enough that 10px into this one is past its own grip.
-  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await phoneView(page, 'Zoom in');
   const below = page.getByRole('slider', { name: /^Paint the fence, 5pm to 6pm/ });
   await below.scrollIntoViewIfNeeded();
   const box = (await below.boundingBox())!;
@@ -348,8 +383,9 @@ test("on phone, a block's resize grip stays under the block right below it, so a
   const at = { x: box.x + box.width - 12, y: box.y + 10 };
   const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('.cev')?.getAttribute('aria-label'), at);
   expect(hit).toMatch(/^Paint the fence, 5pm to 6pm/);
+  // A tap there selects that one, raised with what it can do now.
   await page.mouse.click(at.x, at.y);
-  await expect(page.getByRole('dialog', { name: 'Paint the fence' })).toBeVisible();
+  await expect(below).toHaveAccessibleName(/Selected\.$/);
   expect(errors).toEqual([]);
 });
 
@@ -360,7 +396,7 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   const role = phone ? 'slider' : 'button';
   // To schedule, above the day, reads the week on its own, and changes height once it has. Measured before that, the
   // block had moved down 80px by the time the mouse pressed, which then missed it.
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   // So are the other screens' styles, which load after Today and can move the day a few pixels.
   await settled(page);
   const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
@@ -368,9 +404,10 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   const box = (await b.boundingBox())!;
   const x = box.x + box.width / 3;
   await holdMouse(page, { x, y: box.y + 4 });
-  // The first zoom draws 30px an hour, so 15px down is half an hour later.
-  await page.mouse.move(x, box.y + 12, { steps: 3 });
-  await page.mouse.move(x, box.y + 19, { steps: 3 });
+  // Half an hour later: desktop's first zoom draws 30px an hour, and the phone's day 72pt.
+  const half = phone ? 36 : 15;
+  await page.mouse.move(x, box.y + 4 + half / 2, { steps: 3 });
+  await page.mouse.move(x, box.y + 4 + half, { steps: 3 });
   await page.screenshot({ path: info.outputPath(phone ? 'today-drag-phone.png' : 'today-drag-desktop.png') });
   await page.mouse.up();
   await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
@@ -393,17 +430,17 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   expect(errors).toEqual([]);
 });
 
-test("a click or tap on a block opens its task, a hand's wobble is still a click, and on phone a swipe leaves it be", async ({ page }, info) => {
+test("a click on a block opens its task, on phone a tap selects it and a second opens it, a hand's wobble is still a click, and on phone a swipe leaves it be", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, block('b1', 't1', '16:00', '17:00')]);
   const role = phone ? 'slider' : 'button';
-  // Measured once To schedule above the day has settled its height, as in the drag test above.
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  // Measured once what's above the day has settled its height, as in the drag test above.
+  await todayRead(page, phone);
   const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
   const mid = { x: box.x + box.width / 3, y: box.y + box.height / 2 };
-  if (phone) await b.tap();
+  if (phone) await openBlock(page, b, true);
   else {
     // 3px is six minutes at this zoom, under the few pixels a drag needs.
     await page.mouse.move(mid.x, mid.y);
@@ -417,7 +454,7 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
   // The block's own section, at the top, with what can be done to it.
   const section = popup.getByRole('region', { name: 'Time block' });
   await expect(section.getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
-  for (const name of ['Start now', 'Done', 'Remove from calendar']) {
+  for (const name of ['Start now', 'Mark done', 'Remove from calendar']) {
     const action = section.getByRole('button', { name });
     await expect(action).toBeVisible();
     if (phone) await expectTapTarget(action);
@@ -440,25 +477,25 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
     await touchDrag(page, b, { x: mid.x, y: mid.y + 60 }, 50);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(b).toBeVisible();
-    // Held, then dragged: it moves, and opens nothing. 15px is half an hour.
-    await touchDrag(page, b, { x: mid.x, y: mid.y + 15 }, 500);
+    // Held, then dragged: it moves, and opens nothing. 36pt is half an hour on the phone's day.
+    await touchDrag(page, b, { x: mid.x, y: mid.y + 36 }, 500);
     await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }
   expect(errors).toEqual([]);
 });
 
-test("Done in a block's popup: one later today finishes its task and frees the time, and the one under way ends now, after Pause and Resume", async ({ page }, info) => {
+test("Mark done in a block's popup: one later today finishes its task and frees the time, and the one under way ends now, after Pause and Resume", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:30', '15:00', { started_at: at('13:30') }), block('b2', 't2', '16:00', '17:00')]);
-  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await todayRead(page, phone);
   const section = (title: string) => page.getByRole('dialog', { name: title }).getByRole('region', { name: 'Time block' });
 
-  // Later today: Done ticks the one off, and its block comes off the calendar.
+  // Later today: Mark done ticks the one off, and its block comes off the calendar.
   const later = page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 4pm to 5pm/ });
   await later.scrollIntoViewIfNeeded();
-  await (phone ? later.tap() : later.click());
-  const done = section('Paint the fence').getByRole('button', { name: 'Done' });
+  await openBlock(page, later, phone);
+  const done = section('Paint the fence').getByRole('button', { name: 'Mark done' });
   if (phone) await expectTapTarget(done);
   await done.click();
   await expect(page.getByText('Marked Paint the fence done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
@@ -468,11 +505,11 @@ test("Done in a block's popup: one later today finishes its task and frees the t
   await page.getByRole('dialog', { name: 'Paint the fence' }).getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
-  // Under way: Pause, Resume, then Done ends it now and says how long it took.
+  // Under way: Pause, Resume, then Mark done ends it now and says how long it took.
   const now = page.getByRole('button', { name: /^Write the report, 1:30pm to 3pm/ });
-  await (phone ? now.tap() : now.click());
+  await openBlock(page, now, phone);
   const own = section('Write the report');
-  for (const name of ['Done', 'Pause']) if (phone) await expectTapTarget(own.getByRole('button', { name }));
+  for (const name of ['Mark done', 'Pause']) if (phone) await expectTapTarget(own.getByRole('button', { name }));
   // Once the popup has finished sliding in.
   await page.waitForTimeout(300);
   await page.screenshot({ path: info.outputPath(`today-done-under-way-${info.project.name}.png`) });
@@ -480,9 +517,9 @@ test("Done in a block's popup: one later today finishes its task and frees the t
   await expect(page.getByText('Paused Write the report')).toBeVisible();
   await own.getByRole('button', { name: 'Resume' }).click();
   await expect(page.getByText('Resumed. It now ends at 3pm.')).toBeVisible();
-  await own.getByRole('button', { name: 'Done' }).click();
+  await own.getByRole('button', { name: 'Mark done' }).click();
   await expect(page.getByText("Marked done after 30m. You're free until 4pm.")).toBeVisible();
-  await expect(own.getByRole('button', { name: 'Done' })).toHaveCount(0);
+  await expect(own.getByRole('button', { name: 'Mark done' })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`today-done-marked-${info.project.name}.png`) });
   expect(errors).toEqual([]);
 });
@@ -528,14 +565,40 @@ test('a clash with the calendar shifts the rest of today', async ({ page }, info
   expect(errors).toEqual([]);
 });
 
-test('to schedule sits just above the day, and a card dragged onto it is placed there, held first on phone', async ({ page }, info) => {
+test("to schedule sits just above the day, or on phone in the waiting row's sheet, and a card dragged onto the day is placed there, held first on phone", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const pick: Seed = { type: 'week_pick', id: 'pick:2026-11-02:t2', fields: { week_start: '2026-11-02', task_id: 't2', minutes: 30 } };
   const errors = await open(page, [planned, report, fence, pick, block('b1', 't1', '16:00', '17:00')]);
+  if (phone) {
+    await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
+    await settled(page);
+    const day = page.locator('[data-drop-date="2026-11-02"]');
+    const card = (await waitingSheet(page)).getByRole('button', { name: /^Paint the fence, One off, 30m/ });
+    await expectTapTarget(card);
+    await page.screenshot({ path: info.outputPath(`today-to-schedule-${info.project.name}.png`) });
+    // 3pm brought up to the middle of the screen, above the sheet and away from the bottom edge, where a held card
+    // scrolls the day on. The day is measured once the page, and the strip folding as it scrolls, have come to rest.
+    await day.evaluate((el) => document.querySelector('.pane')!.scrollBy(0, Math.max(0, el.getBoundingClientRect().y + 144 - innerHeight / 2)));
+    let rest = -1;
+    const still = async () => {
+      const top = await page.evaluate(() => document.querySelector('.pane')!.scrollTop);
+      const same = top === rest;
+      rest = top;
+      return same;
+    };
+    await expect.poll(still).toBe(true);
+    const d = (await day.boundingBox())!;
+    // The phone's day opens at 1pm, an hour before now, at 72pt an hour, so 3pm is 144pt down. Held, the card lifts
+    // and the sheet steps aside.
+    await touchDrag(page, card, { x: d.x + d.width / 2, y: d.y + 144 + 2 });
+    await expect(page.getByRole('slider', { name: /^Paint the fence, 3pm to 3:30pm/ })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'To schedule' })).toHaveCount(0);
+    expect(errors).toEqual([]);
+    return;
+  }
   const lane = page.getByRole('region', { name: 'To schedule' });
   const card = lane.getByRole('button', { name: /^Paint the fence, One off, 30m/ });
   await expect(card).toBeVisible();
-  if (phone) await expectTapTarget(card);
   // The day is measured once nothing above it is still to come, since the drop goes where 3pm was then. The prompt for
   // the planning task Today makes once it has drawn lands above To schedule, and the other screens' code, loaded once
   // Today has drawn, restyles Today's view buttons, moving the day down a few pixels: enough to drop at 2:45pm.
@@ -549,19 +612,16 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
 
   // The first zoom draws 30px an hour from 7am, so 3pm is 240px down.
   const to = { x: d.x + d.width / 2, y: d.y + 240 + 2 };
-  if (phone) await touchDrag(page, card, to);
-  else {
-    const c = (await card.boundingBox())!;
-    await holdMouse(page, { x: c.x + 20, y: c.y + 10 });
-    await page.mouse.move(to.x, to.y, { steps: 8 });
-    await page.mouse.up();
-  }
-  await expect(page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 3pm to 3:30pm/ })).toBeVisible();
+  const c = (await card.boundingBox())!;
+  await holdMouse(page, { x: c.x + 20, y: c.y + 10 });
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 3pm to 3:30pm/ })).toBeVisible();
   await expect(card).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
-test("a practice on set days waits in To schedule on its own days only, at that day's time, and Choose a time places it on Week", async ({ page }, info) => {
+test("a practice on set days, taken off its set time, waits in To schedule on its own days only, at that day's time, and Choose a time places it on Week", async ({ page }, info) => {
   const run: Seed = {
     type: 'practice',
     id: 'run',
@@ -572,15 +632,25 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   // Wednesday at 8am: not one of its days.
   await page.clock.install({ time: new Date('2026-11-04T14:00:00Z') });
   await openSeeded(page, [planned, run]);
-  const lane = page.getByRole('region', { name: 'To schedule' });
-  await expect(lane).toBeVisible();
-  await expect(lane.getByRole('button', { name: /^Morning run/ })).toHaveCount(0);
+  // Friday's own 9:30 is its set time, so the app places it there; Undo takes it off, to wait for a time.
+  await expect(page.getByText('Placed Morning run at its set time, Fri 9:30am.')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  // On phone, To schedule is in the waiting row's sheet, and the row is there only with something waiting for today.
+  const phone = info.project.name === 'phone';
+  if (phone) {
+    await todayRead(page, phone);
+    await expect(page.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
+  } else {
+    const lane = page.getByRole('region', { name: 'To schedule' });
+    await expect(lane).toBeVisible();
+    await expect(lane.getByRole('button', { name: /^Morning run/ })).toHaveCount(0);
+  }
   // Saved before the reload, which otherwise can come before phone WebKit's save and open a first-run app.
-  await saved(page, 'Morning run');
+  await saved(page, '"cancelled":true');
   // Friday at 8am: there, at 9:30.
   await page.clock.setFixedTime(new Date('2026-11-06T14:00:00Z'));
   await page.reload();
-  const card = page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule' });
+  const card = (phone ? await waitingSheet(page) : page.getByRole('region', { name: 'To schedule' })).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule' });
   await card.click();
   await expect(page.getByRole('group', { name: 'Suggested times for Morning run' }).getByRole('button').first()).toHaveText('Fri 9:30am to 10am');
   await page.screenshot({ path: info.outputPath(`today-practice-${info.project.name}.png`) });

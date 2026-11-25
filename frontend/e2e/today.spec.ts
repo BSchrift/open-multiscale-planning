@@ -561,7 +561,7 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   expect(errors).toEqual([]);
 });
 
-test("a practice on set days waits in To schedule on its own days only, at that day's time, and Choose a time places it on Week", async ({ page }, info) => {
+test("a practice on set days, taken off its set time, waits in To schedule on its own days only, at that day's time, and Choose a time places it on Week", async ({ page }, info) => {
   const run: Seed = {
     type: 'practice',
     id: 'run',
@@ -572,11 +572,14 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   // Wednesday at 8am: not one of its days.
   await page.clock.install({ time: new Date('2026-11-04T14:00:00Z') });
   await openSeeded(page, [planned, run]);
+  // Friday's own 9:30 is its set time, so the app places it there; Undo takes it off, to wait for a time.
+  await expect(page.getByText('Placed Morning run at its set time, Fri 9:30am.')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
   const lane = page.getByRole('region', { name: 'To schedule' });
   await expect(lane).toBeVisible();
   await expect(lane.getByRole('button', { name: /^Morning run/ })).toHaveCount(0);
   // Saved before the reload, which otherwise can come before phone WebKit's save and open a first-run app.
-  await saved(page, 'Morning run');
+  await saved(page, '"cancelled":true');
   // Friday at 8am: there, at 9:30.
   await page.clock.setFixedTime(new Date('2026-11-06T14:00:00Z'));
   await page.reload();

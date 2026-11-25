@@ -1,16 +1,12 @@
-// A block's details: when, its outcome and what it belongs to. A sheet on phone; on desktop a panel in
-// place, or the body alone for a caller that has its own popover.
+// A block's details, its outcome and what it belongs to, in its popup's block section.
 
 import type { Sql } from '../../../core/db';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
-import { useApp, useQuery } from '../../app/store';
+import { useQuery } from '../../app/store';
 import { Pill } from '../Pill';
-import { Sheet } from '../Sheet';
-import { TaskName } from '../task/TaskName';
-import { describeBlock, formatRange, OUTCOME_WORD } from './describe';
+import { describeBlock, OUTCOME_WORD } from './describe';
 import type { BlockRecords } from './describe';
-import { Button } from '../ds/Button';
 
 /** The records describeBlock needs for one block. */
 async function loadBlockRecords(sql: Sql, block: Pick<BlockRow, 'task_id' | 'practice_id'>): Promise<BlockRecords> {
@@ -40,41 +36,5 @@ export function BlockDetailBody(props: { block: BlockRow }) {
         </div>
       )}
     </>
-  );
-}
-
-export function BlockDetail(props: { block: BlockRow; onClose(): void }) {
-  const { block } = props;
-  const { layout, clock } = useApp();
-  const when = formatRange(block.start, block.end, clock.zone());
-  // A task's name opens its popup.
-  const name = block.task_id ? <TaskName id={block.task_id} title={block.title ?? ''} /> : block.title;
-  if (layout === 'phone') {
-    return (
-      <Sheet label={block.title ?? 'Time block'} onClose={props.onClose}>
-        <div>
-          <div className="small quiet">{when}</div>
-          <h2>{name}</h2>
-        </div>
-        <div className="stack8 small">
-          <BlockDetailBody block={block} />
-        </div>
-        <Button type="button" onClick={props.onClose}>
-          Close
-        </Button>
-      </Sheet>
-    );
-  }
-  return (
-    <div className="panel stack8 small" role="region" aria-label={block.title ?? 'Time block'}>
-      <div className="between">
-        <span className="strong">{name}</span>
-        <button className="link" type="button" onClick={props.onClose}>
-          Close
-        </button>
-      </div>
-      <div className="quiet">{when}</div>
-      <BlockDetailBody block={block} />
-    </div>
   );
 }

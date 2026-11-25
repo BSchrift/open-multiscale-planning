@@ -47,9 +47,21 @@ extension XCUIApplication {
     /// Any kind of element by the start of its label, for one WebKit doesn't call a button: a row of a list, or a button
     /// that opens a dialog, such as Process's Add to.
     func tapWeb(anyStartingWith prefix: String, file: StaticString = #filePath, line: UInt = #line) {
-        let row = page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        let row = webElement(startingWith: prefix)
         MultiscaleUITests.exists(row, file: file, line: line)
         row.tap()
+    }
+    /// Any kind of element by the start of its label, such as a row that opens a popup, which iOS calls a pop-up button.
+    func webElement(startingWith prefix: String) -> XCUIElement {
+        page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+    }
+    /// tapWeb(anyStartingWith:) that waits for what the tap brings, and taps again if the tap was lost, as
+    /// tapWeb(_:until:) does.
+    func tapWeb(anyStartingWith prefix: String, until effect: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        tapWeb(anyStartingWith: prefix, file: file, line: line)
+        let row = webElement(startingWith: prefix)
+        if !effect.waitForExistence(timeout: 5), row.exists, row.isHittable { row.tap() }
+        MultiscaleUITests.exists(effect, file: file, line: line)
     }
     /// Taps, then waits for what the tap brings. On CI's iOS 26 Simulator a tap on the page is now and then lost, most
     /// often the first after a launch, so a button still there a few seconds on is tapped again, as a person would.
@@ -359,11 +371,12 @@ final class ShellUITests: XCTestCase {
         exists(add)
         add.tap()
         app.type("Morning run", into: app.page.textFields["Name"])
-        app.tapWeb("Add practice", until: app.webButton(startingWith: "Morning run"))
+        // The practice's row opens its popup, so iOS gives it the pop-up button type: matched by label alone.
+        app.tapWeb("Add practice", until: app.webElement(startingWith: "Morning run"))
 
         // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full. The row's tap waits for
-        // the editor, since on CI's Simulator a tap now and then is lost.
-        app.tapWeb(startingWith: "Morning run", until: app.webButton("Weekdays"))
+        // the popup, since on CI's Simulator a tap now and then is lost.
+        app.tapWeb(anyStartingWith: "Morning run", until: app.webButton("Weekdays"))
         app.tapWeb("Weekdays")
         for day in ["Wednesday", "Thursday"] {
             let chip = app.page.descendants(matching: .any).matching(NSPredicate(format: "label == %@", day)).firstMatch
@@ -373,10 +386,11 @@ final class ShellUITests: XCTestCase {
         // The summary as VoiceOver reads it.
         exists(app.webText("Summary: 30 minutes on Monday, Tuesday and Friday, around 7 AM"))
         app.tapWeb("Save")
-        exists(app.webText("Saved Morning run: 30m on Mon, Tue and Fri, around 7am."))
+        // The sessions placed at 7am on the days now dropped come off, which the same toast goes on to say.
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Saved Morning run: 30m on Mon, Tue and Fri, around 7am.")).firstMatch)
         // Undo puts back every day.
         app.tapWeb("Undo")
-        app.tapWeb(startingWith: "Morning run", until: app.webText("Summary: 30 minutes every day, around 7 AM"))
+        app.tapWeb(anyStartingWith: "Morning run", until: app.webText("Summary: 30 minutes every day, around 7 AM"))
         app.tapWeb("Cancel")
     }
 
@@ -416,6 +430,35 @@ final class ShellUITests: XCTestCase {
         exists(app.webButton("Edit description"))
         exists(app.webText("rye"))
         XCTAssertFalse(app.page.textViews["Description"].exists)
+    }
+
+    /// iOS draws a date field its own way, wider than the browsers the web tests run in, and once pushed a task popup's
+    /// body wider than the sheet, so it slid sideways and cut off its left. Every field stays inside the sheet's gutter.
+    func testATaskPopupWithADateFitsThePhoneAndNeverSlidesSideways() {
+        let app = launchApp(seed: "Seed dated one off")
+        // The first tap after a launch is now and then lost on CI's Simulator, so More is tapped until One offs shows.
+        app.tapWeb("More", until: app.webButton(startingWith: "One offs"))
+        app.tapWeb(startingWith: "One offs")
+        app.tapWeb("Return the drill", until: app.webButton("Start now"))
+        // The field, which holds the date, not its label, which has the same name. iOS calls both the field and Belongs
+        // to's button "other" rather than a text field or a button.
+        let other = XCUIElement.ElementType.other.rawValue
+        let field = NSPredicate(format: "label == 'Date (optional)' AND elementType == %d AND value != nil AND value != ''", other)
+        let date = app.page.descendants(matching: .any).matching(field).firstMatch
+        let belongs = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Belongs to: '")).firstMatch
+        let start = app.webButton("Start now")
+        for element in [date, belongs, start] { exists(element) }
+        let screen = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(date.frame.maxX, belongs.frame.maxX + 1, "the date field reaches past the other fields: \(date.frame) against \(belongs.frame)")
+        XCTAssertLessThanOrEqual(date.frame.maxX, screen.maxX, "the date field runs off the screen: \(date.frame) in \(screen)")
+        // A drag leftwards across the popup, along Repeats' label where nothing takes a tap, leaves it where it was.
+        let label = app.webText("Repeats")
+        exists(label)
+        let before = start.frame.minX
+        label.coordinate(withNormalizedOffset: CGVector(dx: 3, dy: 0.5)).press(forDuration: 0.1, thenDragTo: label.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)))
+        XCTAssertEqual(start.frame.minX, before, accuracy: 1, "the popup slid sideways")
+        XCTAssertGreaterThanOrEqual(start.frame.minX, screen.minX, "Start now is cut off on the left")
+        app.tapWeb("Cancel")
     }
 
     func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
@@ -600,12 +643,50 @@ final class ShellUITests: XCTestCase {
                        "Shape the loaf is \(again.frame.height)pt tall after a new launch, from \(before)pt")
     }
 
+    func testSwipingWeeksDayLeftShowsTheNextDayAndSwipingRightComesBack() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        app.openWeek()
+        // Today's block, which is drawn only while today is the day shown.
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        exists(block)
+
+        // As for a block held on the day: the block is scrolled to where its middle is clear of the week's top, which
+        // stays over the day, and of the Capture button, by the margin left of the day, where nothing is held.
+        let strip = app.webElement("Choose a day")
+        let capture = app.webButton("Capture a task")
+        exists(strip)
+        exists(capture)
+        let top = strip.frame.maxY + 44
+        let bottom = capture.frame.minY - 22
+        let clear = { block.frame.midY >= top && block.frame.midY <= bottom }
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        for _ in 0..<3 where !clear() {
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: (top + bottom) / 2 - block.frame.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
+
+        // A quick swipe left across the day, from right of the block's middle, well short of a hold: the next day, which
+        // has no block. Points on the screen, since the block goes.
+        let screen = app.coordinate(withNormalizedOffset: .zero)
+        let (right, left, y) = (block.frame.minX + block.frame.width * 0.85, block.frame.minX + block.frame.width * 0.15, block.frame.midY)
+        let away = right - left
+        screen.withOffset(CGVector(dx: right, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: left, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: block)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: patience), .completed, "Shape the loaf is still drawn after a swipe left of \(away)pt. On screen:\n\(app.debugDescription)")
+
+        // And a swipe right comes back to today, block and all.
+        screen.withOffset(CGVector(dx: left, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: right, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
+        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch)
+    }
+
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()
 
-        // The block that ended half an hour ago asks first. Partly opens the slider at the time left.
-        exists(app.webText("Feed the starter"))
+        // The block that ended half an hour ago asks first, its name a button that opens its popup. Partly opens the
+        // slider at the time left.
+        exists(app.webButton("Feed the starter"))
         let left = app.page.sliders["Time left"]
         app.tapWeb("Partly", until: left)
         XCTAssertEqual(left.value as? String, "1h")
@@ -618,8 +699,10 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(["30m", "35m", "40m", "45m", "50m", "55m"].contains(set), "the slider reads \(set)")
         app.tapWeb("Save")
 
-        // Then the one that began six minutes ago without a Start. Its sheet hides the toast from the tree.
-        exists(app.webText("Have you started Shape the dough?"))
+        // Then the one that began six minutes ago without a Start, which asks Have you started with its name a button
+        // that opens its popup. Its sheet hides the toast from the tree.
+        exists(app.webButton("Yes, started"))
+        exists(app.webButton("Shape the dough"))
         app.tapWeb("Yes, started")
         exists(app.webText("In progress, time left"))
 

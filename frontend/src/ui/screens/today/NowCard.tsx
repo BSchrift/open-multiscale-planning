@@ -1,8 +1,8 @@
 // The block in progress with its countdown and time-spent ring, or the next one with Start early. The ring is also
 // Pause and Resume: a tap stops the countdown and the ring together, and the sign inside says which a tap will do. On
 // desktop, P does the same.
-// During a task's block the card also shows the first lines of its description and how many attachments it has, and a
-// task's name opens its popup.
+// During a task's block the card also shows the first lines of its description and how many attachments it has. The
+// block's name opens its popup: a task's, or a practice's with the block's section at its top.
 // Once a task's block is started, it can end early either way: Mark done now, or Stop for now, which asks how much is
 // left, as Partly at the end does. A practice's block has only Mark done now, which already logs just the time spent,
 // and a practice has no time left to place.
@@ -20,7 +20,7 @@ import { useApp, useNow, useQuery } from '../../app/store';
 import { busy } from '../../components/blocks/BlockPrompts';
 import { formatRange } from '../../components/blocks/describe';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
-import { TaskName } from '../../components/task/TaskName';
+import { BlockName } from '../../components/blocks/BlockName';
 import { PlanningNow } from './PlanningNow';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
@@ -195,7 +195,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
       <section className={`now stack${started ? ' timed' : ''}`} aria-label="Current block">
         <div className="small quiet">Now, {formatRange(cur.start, cur.end, zone)}</div>
         <h2 ref={head} tabIndex={-1}>
-          {cur.task_id ? <TaskName id={cur.task_id} title={cur.title ?? ''} /> : cur.title}
+          <BlockName block={cur} />
         </h2>
         {glance.length > 0 && <p className="nownotes">{glance.join('\n')}</p>}
         {attached > 0 && <div className="small quiet">{attached === 1 ? '1 attachment' : `${attached} attachments`}</div>}
@@ -242,7 +242,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
         <div className="small quiet">{phone ? `${free}. Next:` : free}</div>
         <h2 ref={head} tabIndex={-1}>
           {!phone && 'Next: '}
-          {next.task_id ? <TaskName id={next.task_id} title={next.title ?? ''} /> : next.title}
+          <BlockName block={next} />
         </h2>
         <div className="row">
           <Button variant={phone ? 'primary' : 'secondary'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>

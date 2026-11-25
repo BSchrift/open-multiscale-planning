@@ -66,7 +66,7 @@ describe('Capture on a calendar’s draft, with the tasks you have', () => {
     expect(names()).toEqual([
       'New Inbox task',
       'Renew the passport, One off · 30m, Fits',
-      "Stretching, Practice · Thursday's session · 20m · 7am, Fits",
+      "Stretching, Practice · Thursday's session · 20m · usually 7am, Fits",
       'Write the report, Project · 1h, Fits',
       'Plan the offsite, Project · 2h, Longer by 45m',
       'Climbing, Practice · 1 more this week · 1h each, Already on Monday, 7am',

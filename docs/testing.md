@@ -15,7 +15,7 @@ feature gets a row, and a test that covers a cell gets named in it.
 | The last release beside this one | `frontend/e2e/compat/` | Web desktop | `scripts/e2e.sh compat`, CI's e2e-compat, every PR and push to main |
 | Sync and the last release, with staging's retention | `frontend/e2e/stack/`, `frontend/e2e/compat/` | Web desktop | `RETENTION=staging scripts/e2e.sh stack compat`, CI's e2e-staging-retention, every PR and push to main. Staging runs both suites on every release with its retention of minutes ([config/retention.yaml](../config/retention.yaml)), where the local stack and CI's other jobs keep records for years, so a test that needs an old record to stay fails here first |
 | iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main: each build, extensions off and on, on a Mac of its own (`ios-simulator`), with the shell's tests run once, with the extensions on, and the offline ones with them off. Its signed-in tests (`SignedInUITests`) need a backend, and GitHub's Macs have no Docker for the local stack, so CI's ios skips them; `.github/workflows/ios-staging.yml` runs them against staging every night |
-| iPhone widgets | `frontend/ios/App/MultiscaleWidgets/` (a Swift package); the contract fixtures it shares with `frontend/src/core/widgetFixtures.test.ts` | macOS, no Simulator | `make test-widgets`, CI's widgets, every PR and push to main. The fixtures are written by the app's own code and checked by the frontend job, so the app and the widgets can't drift |
+| iPhone widgets | `frontend/ios/App/MultiscaleWidgets/` (a Swift package); the contract fixtures it shares with `frontend/src/core/widgetFixtures.test.ts` | macOS, no Simulator; the renders on the iPhone Simulator | `make test-widgets` and `scripts/test-widget-renders.sh`, CI's widgets, every PR and push to main. The fixtures are written by the app's own code and checked by the frontend job, so the app and the widgets can't drift |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
 | Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`); the server's routes and sync against staging each night, from the release pipeline |
@@ -182,7 +182,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A click or tap opens any block, one that moves included, and only a hold drags it, on Today and Week | covered (click-and-hold: "Today: a click that wobbles opens any block…", "Week, desktop: while editing, a click that wobbles opens a block or a card…") | covered (click-and-hold: "Today: …", "Week, phone: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it") | missing | missing |
 | The grid: a block's length from its edge, Shift and arrows | covered (week-blocks: "desktop: while editing, a block's bottom edge snaps its length…") | n/a | covered (sync: same test) | n/a |
 | A press held on empty time drafts an hour there, and Capture saves it as an Inbox item, with Undo; a press held on a block still opens it on desktop | covered (week-blocks: "a press held on empty time on Week drafts an hour there…") | covered (same, a Free row of the day) | missing | covered (testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem) |
-| The block's details beside the week | covered (week-blocks: "desktop: a block clicked on the grid shows its details beside the week…") | n/a | missing | n/a |
+| A block opens its popup, a practice's session and planning too | covered (week-blocks: "desktop: a practice's block opens its popup and Esc gives focus back…"; practice-popup: "Week: a session opens the same popup…") | covered (practice-popup: "Week: …", from the phone's day) | missing | n/a |
 | Phone: pinching the day zooms its hours, around the fingers, from the whole day to three times, kept on the device | n/a | covered (week-pinch, in Chromium: WebKit here can't put down a second finger; pinch.test: the zoom's sums) | n/a | covered (testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem) |
 | Phone: the day strip, a block's sheet, Move to another day, Length, Remove | n/a | covered (week: "phone: the day strip, a block sheet, and Move to another day", "phone: a day with no slot stays readable"; week-blocks: "phone: a block's sheet changes its length on a slider…") | n/a | partly (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek: it draws) |
 | To schedule above the week: a suggestion places it, Undo, drag both ways, rows shared across days | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…", "desktop: what waits above the week shares rows across days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
@@ -207,7 +207,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A task moved to another milestone, by popup or by holding it | covered (milestones: "a task's popup moves it to another milestone with Undo…") | covered (same, held on phone) | missing | missing |
 | Practices: add and edit, link to a goal | covered (goals: "edits a practice with no goal and links it to one"; journeys/capture-and-process) | covered (same) | covered (journeys/capture-and-process, journeys/next-stretch) | missing |
 | Practice schedules: set days with their own times, times a week | covered (goals: "builds Mon, Tue and Fri with Friday at 9:30…"; practices: "Times a week with a longer session…"; stack/sync: two devices) | covered (same) | missing | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| Practices: Pause, Resume, End practice | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
+| Practices: Pause practice, Resume practice, End practice, in the practice's popup | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
 
 ### One offs
 
@@ -234,6 +234,18 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Notes: the formatting bar, links open outside, the limit | covered (notes: "writes a description with the bar…", "stops a description at the limit…") | covered (same) | missing | covered (testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBar…) |
 | Attachments: links | covered (attachments: "a task's links: added, opened outside the app, and removed with Undo") | covered (same) | missing | missing |
 | Attachments: photos, synced and opened on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (the stack layer runs desktop only) | missing | missing |
+
+### The practice popup
+
+A practice's session and a planning block open one popup, in the task popup's frame (PopupShell), wherever they show.
+
+| Feature | Web desktop | Web phone | Mac app | iPhone |
+| --- | --- | --- | --- | --- |
+| The same sections in the same order from Today's calendar and list, Week (editing too), the Now card, Done, To schedule, the prompts and Goals | covered (practice-popup: "Today: a session opens its popup…", "To schedule and Done…", "Goals: a practice's row opens the same popup…", "Week: a session opens the same popup…", "the prompt that logs a session…"; each opener in practice.test.tsx, Goals in goals.test.tsx) | covered (same, with 44pt checks) | missing | missing |
+| Its block's own section: Start, Mark done, Did it, Some and Skipped, Move…, Remove from calendar, and Length on Week's phone day | covered (practice-popup; Some's minutes in practice.test.tsx) | covered (same) | missing | missing |
+| Name, goal and schedule saved together with Undo; Cancel, and Esc with unsaved changes | covered (practice-popup: "Today: … Save changes its goal with Undo"; the rest in practice.test.tsx) | covered (same) | missing | missing |
+| Pause practice with no block, and End practice, each with Undo | covered (practice-popup: "To schedule and Done…"; End practice in practice.test.tsx) | covered (same) | missing | missing |
+| A planning block: Start planning, Move…, Remove from calendar, and Close | covered (practice-popup: "Today: …"; Start planning opening planning in practice.test.tsx) | covered (same) | missing | missing |
 
 ### Done and Analytics
 
@@ -301,6 +313,8 @@ app's side, the Swift package the widgets' side, the fixtures both, and XCUITest
 | Timeline entries only where the widget changes, Smart Stack relevance, the countdown, the bar and the pause | Swift | `TimelineTests`, `StateTests` |
 | A button's intent queues its tap, checked against the plan at the tap; Undo of an unapplied start takes it off the queue | Swift | `TapTests`, `StoreTests` |
 | VoiceOver: one label per widget in order of importance, end times, buttons named in full | Swift | `WordsTests` |
+| How each widget draws: Now and next (small, medium, StandBy) and Capture, in every state, light, dark and tinted (StandBy dark and night, and locked with names hidden), at the default and the largest text size, fits its size and isn't empty | Swift on the iPhone Simulator | `NowNextRenderTests`, by `scripts/test-widget-renders.sh` in CI's widgets job, which keeps each picture as the `widget-renders` artifact |
+| The widgets' colours and font are the app's | Vitest | `widgetTokens.test.ts` |
 | The app writes the snapshot after a plan change; queued actions apply on opening with an Undo toast; background refresh reaches the page | XCUITest | `WidgetUITests` |
 | The App Group: the widget extension has it exactly when the app does, and a free personal team's build has neither | Script, Vitest | `scripts/test-ios.sh`; `ios-project.test.ts` |
 | A widget on the real Home Screen, Lock Screen or StandBy | not automatable | XCUITest can't add a widget to the Home Screen or tap one there: Home Screen editing isn't scriptable, and WidgetKit draws widgets in SpringBoard, outside any app's tree. The closest checks: every layer either side of the widget above |

@@ -80,5 +80,7 @@ final class WordsTests: XCTestCase {
         XCTAssertEqual(Format.pause(1), "1 minute")
         XCTAssertEqual(Format.pause(12), "12 minutes")
         XCTAssertEqual(Format.pause(70), "1h 10m")
+        XCTAssertEqual(Format.pause(12, short: true), "12 min")
+        XCTAssertEqual(Format.pause(70, short: true), "1h 10m")
     }
 }

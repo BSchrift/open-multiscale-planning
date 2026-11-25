@@ -138,6 +138,11 @@
   color: var(--danger);
 }
 
+/* With nothing to save, as for planning, Close stands where Save would. */
+[data-layout] .taskpopclosebar {
+  margin-left: auto;
+}
+
 [data-layout='desktop'] .overlay:has(> .sheet.taskpop) {
   align-items: center;
   padding: var(--space-6);

@@ -9,6 +9,7 @@ import { dragCard } from '../../components/weekgrid';
 import { KIND_WORD } from '../../components/blocks/describe';
 import { DAY_NAMES, sayMinutes, sayTime } from '../../components/editors/PracticeSchedule';
 import { TaskName } from '../../components/task/TaskName';
+import { useOpenPractice } from '../../components/blocks/BlockName';
 import { dayName } from '../../components/weekgrid';
 import type { LaneItem } from './data';
 // The card styles, for Today too.
@@ -81,6 +82,7 @@ export function LaneActions(props: {
 }) {
   const { item, canPlace } = props;
   const { layout } = useApp();
+  const openPractice = useOpenPractice();
   const btn = { size: 'compact' as const };
   const when = datesText(item.dates);
   const s = sessionDay(item);
@@ -92,8 +94,18 @@ export function LaneActions(props: {
   return (
     <>
       <div>
-        {/* A task's name opens its popup; a practice's session has none. */}
-        <div className="strong mhead">{item.task ? <TaskName id={item.task.id} title={item.title} details={!!item.task.notes} /> : item.title}</div>
+        {/* A task's name opens its popup, and a practice's opens its own, with no block yet. */}
+        <div className="strong mhead">
+          {item.task ? (
+            <TaskName id={item.task.id} title={item.title} details={!!item.task.notes} />
+          ) : item.practice ? (
+            <button className="taskname" type="button" onClick={() => openPractice({ practice: item.practice!.id })}>
+              {item.title}
+            </button>
+          ) : (
+            item.title
+          )}
+        </div>
         <div className="small quiet">{sub}</div>
       </div>
       {canPlace && (

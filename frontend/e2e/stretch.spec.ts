@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, pane, readRecord } from './seed';
+import { historyChanges } from '../src/core/history-testing';
+import { expectTapTarget, openSeeded, openWithHistory, pane, readRecord } from './seed';
 import type { Seed } from './seed';
 
 // Stretch planning's cadence choices and its way through the steps, beyond plan.spec.ts and the next-stretch journey.
@@ -218,4 +219,31 @@ test('a first plan begun on another device continues at its step, and from Finis
   // Still a first plan: Save and exit planned nothing.
   await expect(page.getByText('Plan your first stretch. Projects keep their own dates.')).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+// On prod's shared test user, whose history is longer than the five-year account's, planning stayed open more than 15
+// seconds after Save and exit on desktop: its writes waited behind every open screen's reads of the steps' own changes.
+// Writes now go ahead of reads still waiting (core/db.ts), so it closes within the 5 seconds checks wait here, where it
+// took 7 to 8 seconds before.
+test('on a five-year history, with Inbox and Week open behind it, Save and exit leaves planning at once', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', "Prod's desktop met it; the order writes go in is shared code, which core.test.ts checks");
+  test.setTimeout(180_000);
+  // Loading the history and each screen's first read of it are slow by design here; only Save and exit is timed.
+  const loading = { timeout: 60_000 };
+  await openWithHistory(page, historyChanges({ now: Date.now() }));
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await expect(nav.getByRole('button', { name: /^Inbox \d+$/ })).toBeVisible(loading);
+  for (const label of ['Inbox', 'Week']) {
+    await nav.getByRole('button', { name: new RegExp(`^${label}( \\d+)?$`) }).click();
+    await expect(pane(page, label).getByRole('heading', { name: label, level: 1 })).toBeVisible(loading);
+  }
+  await nav.getByRole('button', { name: 'Plan' }).click();
+  // Which way in depends on today's date, which the history ends on.
+  await page.getByRole('button', { name: /^(Continue planning|Plan now|Plan the next stretch)$/ }).first().click(loading);
+  for (const step of ['Goals', 'Practices', 'Projects', 'Inbox', 'Finish']) {
+    await steps(page).getByRole('button', { name: new RegExp(`^(\\d\\. )?${step}`) }).click();
+    await expect(heading(page, new RegExp(`^Step \\d of \\d, ${step}\\.`))).toBeVisible(loading);
+  }
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  await expect(steps(page)).toHaveCount(0);
 });

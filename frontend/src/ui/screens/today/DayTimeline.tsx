@@ -1,6 +1,8 @@
 // The day's timeline: a calendar column that zooms (buttons, or pinching on phone), or a list. Blocks are coloured
 // by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so, and
 // blocks at the same time sit side by side.
+// The phone's list (list.ts) is the day by time, with free time between as rows that add a task there and a Now row on
+// today; the selected block is its card in its row, as on the calendar, and only a tap grows it.
 // On the calendar, blocks still to start drag and resize as on Week, once held, so a click stays a click and a swipe
 // still scrolls, and the one under way changes its end. A click or tap on a block, on the calendar or the list, opens
 // its popup with the block's own section at its top: its task's, or its practice's or planning's (BlockPopup). A press
@@ -50,7 +52,8 @@ import type { DayData } from './data';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 import { Segmented } from '../../components/ds/Controls';
-import { minutesWords, Raised, Settling } from './Raised';
+import { CardBody, InLane, minutesWords, Raised, Settling } from './Raised';
+import { listRows } from './list';
 import { earlierRow, raiseOf, toAnswer } from './selection';
 
 /** Phone's zoom: big enough for a block's name and time on two lines, as the day opens at the right hour. */
@@ -62,6 +65,8 @@ export const ZOOM = [30, 48, 72, 96];
  */
 export interface PhoneDay {
   view: 'calendar' | 'list';
+  /** Text at an accessibility size, where the list puts each row's time above it. */
+  big?: boolean;
   ph: number;
   setPh(ph: number): void;
   /** The block raised as a card; select(null) hands the selection back to the one Today picks. */
@@ -244,7 +249,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
   // what they hold, with how many still ask for an answer, until it's opened.
   const answering = new Set(pd ? toAnswer(data.blocks, data.away, clock).map((b) => b.id) : []);
   const earlier =
-    pd && pd.open !== null && view === 'calendar' && data.date === today(clock)
+    pd && pd.open !== null && data.date === today(clock)
       ? earlierRow(data.blocks, { from: drawnFrom, open: pd.open, zone, date: data.date, answer: answering })
       : null;
   const from = earlier && !pd!.earlierOpen ? earlier.to : drawnFrom;
@@ -508,7 +513,8 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
 
   // On a day with nothing left to do, free time is drawn as such, dashed: the stretch you're in offers Start something,
   // and a later one adds a task there.
-  const emptyDay = !!pd && isToday && view === 'calendar' && !cur && !nextUp && (!data.planned || !data.blocks.some((b) => b.task_kind !== 'planning'));
+  const emptyToday = !!pd && isToday && !cur && !nextUp && (!data.planned || !data.blocks.some((b) => b.task_kind !== 'planning'));
+  const emptyDay = emptyToday && view === 'calendar';
   const gaps: { start: number; end: number; now: boolean; until: string | null }[] = [];
   if (emptyDay && nowMin < to) {
     let at = Math.max(nowMin, from);
@@ -817,6 +823,132 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
     );
   });
 
+  // The phone's day as a list: the hours folded into the Earlier row stay folded, free time counts from now on today and
+  // from the start of a day to come, and the Now row sits where now falls when nothing's under way.
+  const phoneList = (() => {
+    if (!pd || view !== 'list') return null;
+    const shown = items.filter((i) => !(earlier && !pd.earlierOpen && i.from < earlier.to));
+    const rows = listRows(shown, {
+      now: isToday && !cur && nowMin < to ? nowMin : null,
+      from: isToday ? nowMin : data.date > today(clock) ? from : null,
+      to,
+    });
+    const timeCol = (label: string, hidden = false) => (
+      <span className="tltime" aria-hidden={hidden || undefined}>
+        {label}
+      </span>
+    );
+    return (
+      <div className={`tdlist${pd.big ? ' big' : ''}`}>
+        <span id={`${helpId}-list`} hidden>
+          {tapWords}
+        </span>
+        {rows.map((r) => {
+          if (r.kind === 'now') {
+            const nextAt = shown.find((i) => i.from === r.until)?.start ?? null;
+            const free = r.free ? (r.until === null ? ', free for the rest of the day' : `, free until ${formatTimeOfDay(r.until)}`) : '';
+            return (
+              <div key="now" className="tlrow tlnow">
+                {timeCol('Now')}
+                <div className="tlcard">
+                  <span>
+                    {formatTimeOfDay(nowMin)}
+                    {free}
+                  </span>
+                  {emptyToday && r.free && (
+                    <Button size="compact" type="button" onClick={() => pd.startSomething(nextAt)}>
+                      Start something
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          if (r.kind === 'free') {
+            return (
+              <div key={`free${r.start}`} className="tlrow">
+                {timeCol(formatTimeOfDay(r.start), true)}
+                <button
+                  className="tlcard tlfree blk k-info"
+                  type="button"
+                  aria-label={`Free, ${formatTimeOfDay(r.start)} to ${formatTimeOfDay(r.end)}. Add a task then`}
+                  onClick={() => holdNew.create(data.date, r.start)}
+                >
+                  <span>
+                    Free until {formatTimeOfDay(r.end)}, {minutesWords(r.end - r.start)}
+                  </span>
+                  <Icon name="plus" size={16} />
+                </button>
+              </div>
+            );
+          }
+          const i = shown.find((x) => x.id === r.id)!;
+          if (!i.block) {
+            return (
+              <div key={i.id} className="tlrow">
+                {timeCol(formatTime(i.start, zone))}
+                <div className={`tlcard ${blockClass('event', 'planned')}`} title={i.time}>
+                  <span className="blktitle">{i.title}</span>
+                  <span className="time">Busy, {minutesWords(i.to - i.from)}</span>
+                </div>
+              </div>
+            );
+          }
+          const b = i.block;
+          const state = blockState({ result: b.result, ended: ended(b), now: i.cur });
+          const look = LOOK[i.kind!];
+          const sel = pd.selected === i.id;
+          const lane = inLane(i);
+          const raise = raiseOf(b, data.blocks, clock);
+          const titleCls = b.result === 'done' ? 'done' : i.cur ? 'strong' : undefined;
+          const line = [minutesWords(i.to - i.from), i.clash ? i.note : '', overlapsText(others(i))].filter(Boolean).join(', ');
+          const card = {
+            block: b,
+            raise,
+            kind: i.kind!,
+            look,
+            actions,
+            next: nextUp,
+            onMove: movable(b) && actions.moveChoices(b, ctx).length > 0 ? (from: HTMLElement) => setMoveMenu({ id: i.id, at: below(from), from }) : undefined,
+            onDetails: () => openItem(i),
+            onSelect: () => pd.select(i.id),
+          };
+          // The block's own button stays the same element as it's selected, so focus stays on it: a row's face, or over
+          // its card, under the card's buttons.
+          return (
+            <div key={i.id} className={`tlrow${sel ? (lane ? ' tlsel tlin' : ' tlsel') : ''}`}>
+              {timeCol(formatTime(i.start, zone), true)}
+              <div className={`tlcard ${blockClass(look, state)}${sel ? ` cev raised r-${raise}${lane ? ' inlane' : ''}` : ''}`} data-raised={sel ? b.id : undefined}>
+                <button
+                  className="tlbtn"
+                  type="button"
+                  data-block={b.id}
+                  aria-label={sel && !lane ? `${alt(i)} Selected.` : alt(i)}
+                  aria-describedby={`${helpId}-list`}
+                  {...opens}
+                  onClick={() => tap(i)}
+                >
+                  {!sel && (
+                    <>
+                      <span className="cevt">
+                        <BlockMarks state={state} look={look} />
+                        <OutcomeTag result={b.result} />
+                        {nextTagged === i.id && <span className="nexttag">Next</span>}
+                        <span className={`blktitle${titleCls ? ` ${titleCls}` : ''}`}>{i.title}</span>
+                      </span>
+                      <span className="time">{line}</span>
+                    </>
+                  )}
+                </button>
+                {sel && <div className="rcin">{lane ? <InLane {...card} /> : <CardBody {...card} />}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  })();
+
   return (
     <div className={pd ? 'tdday' : phone ? 'card' : 'tl card'} role="region" aria-label="Today's timeline">
       {/* On phone the view and zoom are in Today's header menu. */}
@@ -841,7 +973,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
           <Icon name="chevron-down" size={16} />
         </button>
       )}
-      {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
+      {view === 'calendar' ? calendar : (phoneList ?? <div className="tllist">{list}</div>)}
       {actions.asking}
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {holdNew.draft?.open && (

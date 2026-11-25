@@ -234,7 +234,8 @@ test("the Now card, or on phone a selected block's Details, a To schedule card a
   await expect(popup).toHaveCount(0);
   if (phone) await phoneView(page, 'Show as a list');
   else await page.getByRole('button', { name: 'List' }).click();
-  await page.getByRole('button', { name: phone ? /^Draft the summary, 4pm to 5pm/ : /^4pm to 5pm/ }).click();
+  // On phone a tap selects its row, and a second opens it.
+  await openBlock(page, page.getByRole('button', { name: phone ? /^Draft the summary, 4pm to 5pm/ : /^4pm to 5pm/ }), phone);
   await expect(popup).toBeVisible();
 });
 

@@ -108,7 +108,7 @@ export function Raised(props: RaisedProps) {
   };
   return (
     <div ref={ref} className={`cev raised r-${raise} ${props.cls}${props.inLane ? ' inlane' : ''}${props.away ? ' away' : ''}`} style={props.style} data-raised={block.id} onClick={open} onPointerDown={props.onHold}>
-      <div className="rcin">{props.inLane ? <InLane {...props} /> : <Body {...props} />}</div>
+      <div className="rcin">{props.inLane ? <InLane {...props} /> : <CardBody {...props} />}</div>
     </div>
   );
 }
@@ -128,7 +128,10 @@ export function Settling(props: { id: string; cls: string; style: CSSProperties;
   return <div ref={ref} className={`cev raised settling ${props.cls}`} style={{ ...props.style, height: props.height }} aria-hidden="true" />;
 }
 
-function Body(props: RaisedProps) {
+/** What the card holds, on the calendar or in the list (DayTimeline's List view). */
+export type CardProps = Pick<RaisedProps, 'block' | 'raise' | 'kind' | 'look' | 'actions' | 'next' | 'onMove' | 'onDetails' | 'short' | 'onSelect'>;
+
+export function CardBody(props: CardProps) {
   const { block, raise, actions } = props;
   const { clock } = useApp();
   // Answered as the end of a block asks, with its words.
@@ -217,7 +220,7 @@ function Body(props: RaisedProps) {
  * As the end of a block asks: one paused till it ended resumes into the time after, if it's today's, and one that ran
  * to its end without stopping can keep going. Neither for a practice, which only logs what it got.
  */
-function Carry(props: RaisedProps) {
+function Carry(props: CardProps) {
   const { block, actions } = props;
   const { clock } = useApp();
   if (block.practice_id) return null;
@@ -244,7 +247,7 @@ function Carry(props: RaisedProps) {
  * left; the next block with Start early; one that ended with How did it go?, which grows it to its answers. On a block
  * too short for the button, the button is a chip in the caption's size. Either is pressed from 44pt around it.
  */
-function InLane(props: RaisedProps) {
+export function InLane(props: CardProps) {
   const { block, raise, actions } = props;
   const title = (
     <span className="blktitle" aria-hidden="true">
@@ -290,7 +293,7 @@ function NowLine(props: { block: BlockRow }) {
   );
 }
 
-type Parts = RaisedProps & { range: string; title: ReactNode; details: ReactNode };
+type Parts = CardProps & { range: string; title: ReactNode; details: ReactNode };
 
 function NowBody(props: Parts) {
   const { block, actions, next } = props;

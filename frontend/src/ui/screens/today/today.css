@@ -108,6 +108,35 @@
 [data-layout='phone'] .tdday { margin: 0 calc(-1 * var(--space-4)); border-top: 1px solid var(--hairline); background: var(--card); }
 [data-layout='phone'] .tdday .daywrap { padding: var(--space-4) calc(var(--space-4) + var(--space-1)) var(--space-3) calc(var(--space-12) + var(--space-1)); }
 [data-layout='phone'] .tdday .tllist { padding: 0 var(--space-4) var(--space-1); }
+/* The phone's day as a list (option C): each row's time, then its block, event or free time in the calendar's looks.
+   Rows grow with their words. The selected block is its card across the row, in place; selected by Today rather than
+   a tap, it stays in its row with its one line. At the accessibility text sizes each time goes above its row. */
+[data-layout='phone'] .tdlist { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-4); }
+[data-layout='phone'] .tdlist .tlrow { display: grid; grid-template-columns: calc(var(--space-12) + var(--space-4)) minmax(0, 1fr); gap: var(--space-3); align-items: start; margin: 0; }
+[data-layout='phone'] .tdlist.big .tlrow { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+[data-layout='phone'] .tltime { padding-top: var(--space-3); color: var(--ink-2); font-size: var(--fs-meta); line-height: var(--lh-meta); text-align: right; font-variant-numeric: tabular-nums; }
+[data-layout='phone'] .tdlist.big .tltime { padding-top: 0; text-align: left; }
+[data-layout='phone'] .tlnow .tltime { color: var(--ink); font-weight: var(--fw-strong); }
+[data-layout='phone'] .tlcard { position: relative; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; min-height: var(--tap); padding: var(--space-2) var(--space-3); border-radius: var(--radius-block); font: inherit; text-align: left; }
+[data-layout='phone'] .tlcard .blktitle { overflow-wrap: anywhere; }
+[data-layout='phone'] .tlcard .time { color: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); white-space: normal; }
+[data-layout='phone'] .tlcard .cevt { white-space: normal; }
+[data-layout='phone'] .tlnow .tlcard { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; border: var(--border-hairline) solid var(--ink); background: var(--card); color: var(--ink-2); }
+[data-layout='phone'] .tlfree { flex-direction: row; align-items: center; justify-content: space-between; color: var(--ink-2); font-size: var(--fs-meta); line-height: var(--lh-meta); cursor: pointer; }
+[data-layout='phone'] .tlfree svg { flex: none; color: var(--ink-3); }
+/* A block's own button is the row's face; over a selected block's card, it's the card's tap, under the card's buttons. */
+[data-layout='phone'] .tdlist .tlbtn { display: flex; flex-direction: column; gap: var(--space-1); width: 100%; min-height: calc(var(--tap) - 2 * var(--space-2)); margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+[data-layout='phone'] .tdlist .tlsel .tlbtn { position: absolute; inset: 0; min-height: 0; border-radius: inherit; }
+[data-layout='phone'] .tdlist .tlsel .rcin { position: relative; pointer-events: none; }
+[data-layout='phone'] .tdlist .tlsel .rcin :is(button, a) { pointer-events: auto; }
+[data-layout='phone'] .tdlist .tlsel .cev.raised { position: relative; inset: auto; z-index: auto; min-height: var(--tap); }
+[data-layout='phone'] .tdlist .tlsel:not(.tlin) { grid-template-columns: minmax(0, 1fr); }
+[data-layout='phone'] .tdlist .tlsel:not(.tlin) .tltime { display: none; }
+[data-layout='phone'] .tdlist .cev.raised.inlane { justify-content: center; padding: var(--space-2) var(--space-3); }
+/* Rows grow with the words: the card's lines wrap rather than cut a name short, and its buttons stack at large sizes. */
+[data-layout='phone'] .tdlist :is(.rcmeta, .rctitle) { white-space: normal; }
+[data-layout='phone'] .tdlist .rcline { flex-wrap: wrap; white-space: normal; }
+[data-layout='phone'] .tdlist.big :is(.rcacts, .rcans) { display: flex; flex-direction: column; }
 /* The hours before the day opens, folded into one row that says what they hold. */
 [data-layout='phone'] .earlier { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: var(--tap); padding: var(--space-2) var(--space-4) var(--space-2) calc(var(--space-12) + var(--space-1)); border: 0; border-bottom: 1px solid var(--hairline); background: var(--wash); color: var(--ink-2); font: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); text-align: left; }
 [data-layout='phone'] .earlier svg { flex: none; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease); }

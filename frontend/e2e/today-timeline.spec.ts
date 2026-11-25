@@ -72,18 +72,32 @@ test('the timeline switches to a list of the day in order, whose practice opens 
   }
   await expect(timeline.getByRole('group', { name: 'Calendar zoom' })).toHaveCount(0);
 
-  // Each block and event in order of time; phone says a block's time, title and kind, desktop its range and project.
-  const rows = timeline.locator('.tllist > *');
+  // Each block and event in order of time; phone says a block's time, title and length, with free time between and a Now
+  // row, and desktop its range and project.
+  const rows = timeline.locator(phone ? '.tdlist > .tlrow' : '.tllist > *');
   if (phone) {
-    await expect(rows).toHaveText([/^9am\s*Write the report\s*Project, Done$/, /^4pm\s*Paint the fence\s*One off$/, /^6pm\s*Piano practice\s*Practice$/, /^7pm\s*Quiz night$/]);
+    // The morning folds into the Earlier row, as on the calendar.
+    await timeline.getByRole('button', { name: /^Earlier, 7am to 1pm/ }).click();
+    await expect(rows).toHaveText([
+      /^9am\s*Write the report\s*1h$/,
+      /^Now\s*2pm, free until 4pm$/,
+      /^4pm\s*Next\s*Paint the fence\s*1h 30m$/,
+      /^5:30pm\s*Free until 6pm, 30 min$/,
+      /^6pm\s*Piano practice\s*30 min$/,
+      /^6:30pm\s*Free until 7pm, 30 min$/,
+      /^7pm\s*Quiz night\s*Busy, 1h$/,
+      /^8pm\s*Free until 10pm, 2h$/,
+    ]);
     await expectTapTarget(timeline.getByRole('button', { name: 'Paint the fence, 4pm to 5:30pm, One off.' }));
+    await expectTapTarget(timeline.getByRole('button', { name: 'Free, 5:30pm to 6pm. Add a task then' }));
   } else {
     await expect(rows).toHaveText([/^9am to 10am\s*Write the report\s*Annual report/, /^4pm to 5:30pm\s*Paint the fence\s*One off/, /^6pm to 6:30pm\s*Piano practice\s*Practice/, /^7pm to 8pm\s*Quiz night$/]);
   }
   await page.screenshot({ path: info.outputPath(`today-list-${info.project.name}.png`) });
 
-  // A practice's session opens its popup, as it does on the calendar, on both layouts.
-  await timeline.getByRole('button', phone ? { name: 'Piano practice, 6pm to 6:30pm, Practice.' } : { name: /^6pm to 6:30pm\s*Piano practice/ }).click();
+  // A practice's session opens its popup, as it does on the calendar, on both layouts: on phone, a tap selects it and a
+  // second opens it.
+  await openBlock(page, timeline.getByRole('button', phone ? { name: /^Piano practice, 6pm to 6:30pm, Practice\./ } : { name: /^6pm to 6:30pm\s*Piano practice/ }), phone);
   const popup = page.getByRole('dialog', { name: 'Piano practice' });
   const section = popup.getByRole('region', { name: 'Time block' });
   await expect(section.getByText('Mon Nov 2, 6pm to 6:30pm')).toBeVisible();
@@ -94,7 +108,7 @@ test('the timeline switches to a list of the day in order, whose practice opens 
   // The choice is kept on this device.
   await page.reload();
   if (!phone) await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('region', { name: "Today's timeline" }).locator('.tllist > *')).toHaveCount(4);
+  await expect(page.getByRole('region', { name: "Today's timeline" }).locator(phone ? '.tdlist > .tlrow' : '.tllist > *')).toHaveCount(phone ? 7 : 4);
   if (phone) {
     await phoneView(page, 'Show as a calendar');
     await expect(page.getByRole('region', { name: "Today's timeline" }).locator('.day')).toBeVisible();

@@ -50,6 +50,7 @@ import { minutesWords } from './Raised';
 import { defaultSelection, openMinute, raiseOf } from './selection';
 import { ShiftPanel } from './ShiftPanel';
 import { ToScheduleActions, useToSchedule } from './ToSchedule';
+import { useLargeText } from './list';
 import { useLanding } from '../week/landing';
 import { useWeekActions } from '../week/useWeekActions';
 import { usePrompts } from './usePrompts';
@@ -93,7 +94,12 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
   const [panel, setPanel] = useState<{ kind: 'shift' | 'start' | 'plan' } | { kind: 'waiting'; day: LocalDate; add(): void } | null>(null);
   const [startUntil, setStartUntil] = useState<string | null>(null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
-  const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
+  // At the accessibility text sizes the day is a list, where a row grows with its words and a calendar's fixed hours
+  // can't; the calendar is still a choice from the menu, kept for those sizes on its own.
+  const big = useLargeText();
+  const [usual, setUsual] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
+  const [large, setLarge] = useStickyState<'calendar' | 'list'>('today.largeView', 'list');
+  const [view, setView] = big ? [large, setLarge] : [usual, setUsual];
   // Pinched, or stepped from the menu, the day's hours are kept on this device as a multiple of the usual 72pt, from
   // the size that fits the whole day under the strip to three times. Week's own zoom ('week.zoom') isn't read.
   const zoomNow = useRef(1);
@@ -200,6 +206,7 @@ export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplan
   };
   const phoneDay = (w: HostWeek, current: boolean) => ({
     view,
+    big,
     ph,
     setPh,
     pinch,

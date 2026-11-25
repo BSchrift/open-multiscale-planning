@@ -100,7 +100,7 @@ test("Today: a session opens its popup from the calendar, the list and the Now c
 
   // The list opens the same popup, not details in place.
   await (phone ? phoneView(page, 'Show as a list') : timeline.getByRole('button', { name: 'List' }).click());
-  await timeline.getByRole('button', phone ? { name: 'Piano practice, 4pm to 4:30pm, Practice.' } : { name: /^4pm to 4:30pm\s*Piano practice/ }).click();
+  await openBlock(page, timeline.getByRole('button', phone ? { name: /^Piano practice, 4pm to 4:30pm, Practice\./ } : { name: /^4pm to 4:30pm\s*Piano practice/ }), phone);
   await expectFrame(popup, 'Time block', phone);
   await shoot(page, popup, shot('today-list'));
   await popup.getByRole('button', { name: 'Cancel' }).click();

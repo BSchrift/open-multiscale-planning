@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import { openSeeded, pane, readRecord, saved } from './seed';
 import type { Seed } from './seed';
+import { openStrip } from './today';
 
 // Practices at their set times: on opening, the app places each set day at its time, this week and next once its
 // planning has appeared, and says so once with Undo. A day whose time is taken waits, saying why, on Week and in
@@ -72,12 +73,14 @@ test('Week shows them as planned, and the day whose time is taken waits above it
   const phone = info.project.name === 'phone';
   await open(page);
   await expect(page.getByText('Placed 7 practice sessions at their set times next week.')).toBeVisible();
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  // On phone, Week is Today's: its strip goes to next week, and Thursday's card waits in the footer's sheet.
+  if (!phone) await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   await page.getByRole('button', { name: 'Next week', exact: true }).click();
-  const week = pane(page, 'Week');
+  const week = pane(page, phone ? 'Today' : 'Week');
   if (phone) {
-    await week.getByRole('button', { name: /^Thu/ }).first().click();
-    const card = week.getByRole('button', { name: 'Morning run, Practice, 30 minutes on Thursday, 7 AM is taken, to schedule' });
+    await (await openStrip(page)).getByRole('button', { name: /^Thu/ }).tap();
+    await page.getByRole('button', { name: /^\d+ to schedule/ }).tap();
+    const card = page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Thursday, 7 AM is taken, to schedule' });
     await expect(card).toBeVisible();
     await expect(card.getByText('Thu · 7am is taken')).toBeVisible();
   } else {

@@ -783,13 +783,19 @@ describe('To schedule on Week', () => {
     expect(within(screen.getByRole('group', { name: 'Piano practice' })).getByText('6:30pm is taken by Quiz night, so 7:30pm')).toBeVisible();
     cleanup();
 
-    // On phone, Tuesday's card says so in words.
-    await open({ seed, layout: 'phone' });
-    await userEvent.click(await screen.findByRole('button', { name: /^Tue/ }));
-    const card = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' });
+    // On phone, where Week is Today's, Tuesday's card in the strip footer's sheet says so in words.
+    await renderScreen('today', { zone: ZONE, layout: 'phone', seed: async (w) => (await week(w), await seed(w)) });
+    const day = async (name: RegExp) => {
+      await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' }, { timeout: 5000 })).getByRole('button', { name }));
+      await userEvent.click(await screen.findByRole('button', { name: /^\d+ to schedule/ }));
+      return screen.findByRole('dialog', { name: 'To schedule' });
+    };
+    let sheet = await day(/^Tue/);
+    const card = within(sheet).getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' });
     expect(within(card).getByText('Tue · 6:30pm is taken')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: /^Thu/ }));
-    const thu = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' });
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+    sheet = await day(/^Thu/);
+    const thu = within(sheet).getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' });
     expect(within(thu).getByText('30m · usually 6:30pm')).toBeVisible();
   });
 

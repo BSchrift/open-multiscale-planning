@@ -108,7 +108,10 @@ const scrolled = (page: Page) =>
     return (s ?? document.scrollingElement!).scrollTop;
   });
 
+let errors: string[] = [];
 test.beforeEach(async ({ page }) => {
+  errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
   // Every screen's styles, which load after the first and can move the day, are in before anything is measured.
@@ -116,6 +119,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   await expect(heading(page)).toHaveText('Mon Nov 2');
 });
+test.afterEach(() => expect(errors).toEqual([]));
 
 test('a quick short flick moves one day, and the strip follows', async ({ page }) => {
   // 60px in 32ms: far short of halfway, but 1875 pt/s, well past the flick speed.
@@ -149,6 +153,10 @@ test('a long drag, flicked on at the end, moves exactly one day, drawing the nex
   await expect(strip(page).getByRole('button', { name: /^Tue Nov 3/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(heading(page)).toHaveText('Mon Nov 2');
   for (const p of points.slice(14)) await send('move', p, p.t);
+  // Far past one day, the day after next is never drawn, and the page never scrolls sideways.
+  await expect(day(page).locator('.dppane')).toHaveCount(3);
+  await expect(day(page).locator('.dppane[data-day="2026-11-04"]')).toHaveCount(0);
+  expect(await page.evaluate(() => [...document.querySelectorAll('*')].filter((el) => el.scrollLeft > 0).length + scrollX)).toBe(0);
   await send('up', null, points.at(-1)!.t + 2);
   await still(page);
   await expect(heading(page)).toHaveText('Tue Nov 3');
@@ -227,4 +235,21 @@ test('the time of day at the top of the day stays put from day to day', async ({
   await expect(heading(page)).toHaveText('Tue Nov 3');
   await still(page);
   expect(Math.abs((await timeAtTop(page)) - before)).toBeLessThan(5);
+});
+
+test('with reduced motion, the day changes as the finger lifts, with no spring', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const points = path(await onDay(page), 4, -15, 0, 8);
+  const send = finger(page);
+  for (const [i, p] of points.entries()) await send(i ? 'move' : 'down', p, p.t);
+  // Every place the day is drawn at from here on: with no spring, none between where the finger left it and the next day.
+  await day(page).locator('.dptrack').evaluate((track) => {
+    const seen: string[] = [];
+    new MutationObserver(() => seen.push((track as HTMLElement).style.transform)).observe(track, { attributes: true, attributeFilter: ['style'] });
+    (window as unknown as { seen: string[] }).seen = seen;
+  });
+  await send('up', null, 34);
+  await expect(heading(page)).toHaveText('Tue Nov 3');
+  await still(page);
+  expect(await page.evaluate(() => (window as unknown as { seen: string[] }).seen.filter(Boolean))).toEqual([]);
 });

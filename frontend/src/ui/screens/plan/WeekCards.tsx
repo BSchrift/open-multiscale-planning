@@ -51,7 +51,7 @@ function ThisWeek(props: { data: WeekData; model: WeekModel }) {
   const { clock } = useApp();
   const nav = useNav();
   const gate = weekGate(data.planning, clock) === 'gate';
-  const waiting = model.unscheduled.length;
+  const waiting = model.toSchedule;
   return (
     <section className="card stack8 planweek" aria-label="This week">
       <Head title="This week" week={data.week} />

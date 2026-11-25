@@ -191,7 +191,7 @@ test('Add to this week is off again on each new card, and the item it adds waits
   let lane = page.getByRole('region', { name: 'To schedule' });
   if (phone) {
     await nav(page).getByRole('button', { name: 'Today' }).click();
-    lane = (await waitingSheet(page)).getByRole('region', { name: 'Waiting for a day' });
+    lane = (await waitingSheet(page)).getByRole('region', { name: 'Waiting for today' });
   } else await nav(page).getByRole('button', { name: 'Week' }).click();
   // With no estimate, an item added to a project counts as an hour.
   await expect(lane.getByRole('button', { name: /^Call the bank, Project, 1h\b/ })).toBeVisible();

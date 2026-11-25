@@ -322,8 +322,8 @@ describe("To schedule, from Today's strip footer and while editing", () => {
 
   it("a card in the footer's sheet opens its suggested times in a sheet of its own, and one places it", async () => {
     const t = await open({ seed: picks });
-    // Today is Monday, so the sheet shows Monday's session.
-    const waiting = within(await waitingSheet()).getByRole('region', { name: 'Waiting for a day' });
+    // Today is Monday, so the sheet shows Monday's session first.
+    const waiting = within(await waitingSheet()).getByRole('region', { name: 'Waiting for today' });
     await userEvent.click(within(waiting).getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Monday, to schedule' }));
     const sheet = await screen.findByRole('dialog', { name: 'Piano practice' });
     await userEvent.click(within(within(sheet).getByRole('group', { name: 'Suggested times for Piano practice' })).getAllByRole('button')[0]!);
@@ -356,7 +356,8 @@ describe("To schedule, from Today's strip footer and while editing", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const t = await open({ seed: picks });
-      const card = within(await waitingSheet()).getByRole('button', { name: /^Piano practice, Practice/ });
+      // Monday's, the day shown, which drags onto it.
+      const card = within(within(await waitingSheet()).getByRole('region', { name: 'Waiting for today' })).getByRole('button', { name: /^Piano practice, Practice/ });
       // jsdom has no layout: the day is drawn 450px tall from the minute it opens at to the one it ends at.
       const day = document.querySelector<HTMLElement>('.day[data-drop-date="2026-11-02"]')!;
       const [from, to] = [Number(day.dataset.dropFrom), Number(day.dataset.dropTo)];

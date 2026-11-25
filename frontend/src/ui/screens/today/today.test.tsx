@@ -2758,8 +2758,8 @@ describe('To schedule on Today', () => {
     const run = (w: Writer) => w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', days: [1, 4], preferred_times: [7 * 60 + 30], state: 'active' }, 'run');
     // Tuesday at 6am, before its 7:30 run.
     const t = await open(run, { layout, now: '2026-11-03T12:00:00Z' });
-    // On phone, To schedule is in the waiting row's sheet.
-    if (layout === 'phone') await userEvent.click(await screen.findByRole('button', { name: '1 to schedule' }));
+    // On phone, To schedule is in the sheet behind the strip footer's count, the week's: Tuesday's run and Friday's.
+    if (layout === 'phone') await userEvent.click(await screen.findByRole('button', { name: '2 to schedule' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Morning run, Practice, 30 minutes on Tuesday around 7:30 AM, to schedule' }));
     const panel = layout === 'phone' ? await dialog('Morning run') : screen.getByRole('group', { name: 'Morning run' });
     const times = within(within(panel).getByRole('group', { name: 'Suggested times for Morning run' })).getAllByRole('button');
@@ -3270,6 +3270,43 @@ describe("Today on phone, with the week's strip over the day", () => {
     expect(screen.getByText('This week')).toBeVisible();
   });
 
+  // The week's cards: one for any day, one dated Tuesday and one dated Thursday; and one not done this morning, which
+  // needs a new time.
+  const waiting = async (w: Writer) => {
+    await week(w);
+    await task(w, 't3', 'Read the notes', { estimate_min: 60 });
+    await setWeekPick(w, DAY, 't3', 60);
+    await w.create('task', { kind: 'one_off', title: 'Pay the bill', estimate_min: 15, schedule: { type: 'once', from: '2026-11-03' } }, 'o1');
+    await w.create('task', { kind: 'one_off', title: 'Call the bank', estimate_min: 30, schedule: { type: 'once', from: '2026-11-05' } }, 'o2');
+    await task(w, 't4', 'File the receipts', { estimate_min: 60 });
+    await block(w, 'b4', 't4', '09:00', '10:00');
+    await w.create('block_outcome', { result: 'not', answered_at: at('10:00') }, outcomeId('b4'));
+  };
+
+  it("the footer counts the week's To schedule, Needs a new time included, the same number as Plan's This week", async () => {
+    await open(waiting, { layout: 'phone' });
+    expect(await screen.findByRole('button', { name: '4 to schedule' })).toBeVisible();
+    cleanup();
+    await renderScreen('plan', { now: NOW, zone: ZONE, layout: 'phone', seed: async (w) => { await planned(w); await waiting(w); } });
+    // The Plan page is a module of its own, loaded on its first render in a run.
+    const card = await screen.findByRole('region', { name: 'This week' }, { timeout: 5000 });
+    expect(within(card).getByText(/, 4 to schedule\.$/)).toBeVisible();
+  });
+
+  it("the footer's sheet lists the week's cards, the day shown first and then the other days in order, Needs a new time and all", async () => {
+    await open(waiting, { layout: 'phone' });
+    await userEvent.click(within(await strip()).getByRole('button', { name: /^Wed Nov 4/ }));
+    await heading('Wednesday');
+    await userEvent.click(await screen.findByRole('button', { name: '4 to schedule' }));
+    const sheet = await dialog('To schedule');
+    const sections = within(sheet).getAllByRole('region');
+    expect(sections.map((s) => s.getAttribute('aria-label'))).toEqual(['Needs a new time', 'Waiting for Wednesday', 'Waiting for tomorrow', 'Waiting for Thursday']);
+    expect(within(sections[0]!).getByText('File the receipts')).toBeVisible();
+    expect(within(sections[1]!).getByRole('button', { name: /^Read the notes/ })).toBeVisible();
+    expect(within(sections[2]!).getByRole('button', { name: /^Pay the bill/ })).toBeVisible();
+    expect(within(sections[3]!).getByRole('button', { name: /^Call the bank/ })).toBeVisible();
+  });
+
   it("another day's block is selected by a tap, and Choose a time… waits on the day, for the strip to carry to another day", async () => {
     const t = await open(week, { layout: 'phone' });
     await userEvent.click(within(await strip()).getByRole('button', { name: /^Wed Nov 4/ }));
@@ -3294,7 +3331,7 @@ describe("Today on phone, with the week's strip over the day", () => {
     );
     await userEvent.click(await screen.findByRole('button', { name: '1 to schedule' }));
     const sheet = await dialog('To schedule');
-    expect(within(within(sheet).getByRole('region', { name: 'Waiting for a day' })).getByRole('button', { name: /^Read the notes/ })).toBeVisible();
+    expect(within(within(sheet).getByRole('region', { name: 'Waiting for today' })).getByRole('button', { name: /^Read the notes/ })).toBeVisible();
     await userEvent.click(within(sheet).getByRole('button', { name: 'Add a task' }));
     expect(await dialog('Add to this week')).toBeVisible();
   });

@@ -278,6 +278,11 @@ export function weekModel(d: WeekData, clock: Clock) {
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
     unscheduled: [...planning, ...unscheduled],
+    /**
+     * To schedule's count, as Today's strip footer and the Plan page's This week say it: the week's cards but planning,
+     * which has its own row, and the tasks needing a new time that aren't among them.
+     */
+    toSchedule: unscheduled.length + queue.filter((q) => !unscheduled.some((x) => x.id === q.id)).length,
     /** A task as To schedule shows it, with its suggested times: its own card there, or one for all its time left. */
     itemFor: (t: Task): LaneItem => unscheduled.find((x) => x.id === t.id) ?? taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null),
     /** Whether Week's Choose a time can place it: it's a task to add, or waiting in To schedule. */

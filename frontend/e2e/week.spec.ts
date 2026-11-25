@@ -508,9 +508,8 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
   const errors = await openWeek(page, [...records, pick]);
   // Above the week on desktop, and on phone in the sheet behind the strip's count of what's waiting for a time.
   const lane = phone ? await waitingSheet(page) : page.getByRole('region', { name: 'To schedule' });
-  // Piano practice counts a session for each day still without one: on desktop the week's, and on phone those of the
-  // day shown, today, and the days before it.
-  await expect(lane.getByText(phone ? '2 · 2h 30m' : '7 · 5h')).toBeVisible();
+  // Piano practice counts a session for each day still without one, the week's, on phone too.
+  await expect(lane.getByText('7 · 5h')).toBeVisible();
   const card = lane.getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' });
   if (phone) await expectTapTarget(card);
   await page.screenshot({ path: info.outputPath(`to-schedule-${info.project.name}.png`) });
@@ -521,7 +520,7 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
   await expect(first).toHaveAccessibleName(/^\w{3} \d/);
   await first.click();
   await expect(card).toHaveCount(0);
-  await expect(lane.getByText(phone ? '1 · 30m' : '6 · 3h')).toBeVisible();
+  await expect(lane.getByText('6 · 3h')).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(card).toBeVisible();
 

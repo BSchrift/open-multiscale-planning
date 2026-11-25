@@ -122,8 +122,8 @@ test("To schedule and Done: a practice's name opens the same popup, with Pause p
   const phone = info.project.name === 'phone';
   const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
   const errors = await open(page);
-  // On phone, To schedule is behind Today's waiting row.
-  await (phone ? await waitingSheet(page) : page.getByRole('region', { name: 'To schedule' })).getByRole('button', { name: /^Stretch, Practice/ }).click();
+  // On phone, To schedule is in the sheet behind the strip's count, today's cards first.
+  await (phone ? (await waitingSheet(page)).getByRole('region', { name: 'Waiting for today' }) : page.getByRole('region', { name: 'To schedule' })).getByRole('button', { name: /^Stretch, Practice/ }).click();
   const card = phone ? page.getByRole('dialog', { name: 'Stretch' }) : page.getByRole('group', { name: 'Stretch' });
   await card.getByRole('button', { name: 'Stretch', exact: true }).click();
   const stretch = page.getByRole('dialog', { name: 'Stretch' }).and(page.locator('.taskpop'));

@@ -635,11 +635,14 @@ test("a practice on set days, taken off its set time, waits in To schedule on it
   // Friday's own 9:30 is its set time, so the app places it there; Undo takes it off, to wait for a time.
   await expect(page.getByText('Placed Morning run at its set time, Fri 9:30am.')).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
-  // On phone, To schedule is in the waiting row's sheet, and the row is there only with something waiting for today.
+  // On phone, To schedule is in the sheet behind the strip's count, which is the week's: Friday's session waits under
+  // Friday, with nothing under today.
   const phone = info.project.name === 'phone';
   if (phone) {
     await todayRead(page, phone);
-    await expect(page.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
+    const sheet = await waitingSheet(page);
+    await expect(sheet.getByRole('region', { name: 'Waiting for Friday' }).getByRole('button', { name: /^Morning run/ })).toBeVisible();
+    await expect(sheet.getByRole('region', { name: 'Waiting for today' })).toHaveCount(0);
   } else {
     const lane = page.getByRole('region', { name: 'To schedule' });
     await expect(lane).toBeVisible();

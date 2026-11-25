@@ -7,7 +7,7 @@
 
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { currentBlock, nextBlock, timeLeftMs } from '../../../core/blocks';
-import { addDays, formatTime, instantMs, localMinutes, thisWeek } from '../../../core/dates';
+import { addDays, formatTime, instantMs, localMinutes, thisWeek, today } from '../../../core/dates';
 import type { LocalDate } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { blockAhead, coveredWeek, rowState, stretchRow, weekGate, weekRow } from '../../../core/planning';
@@ -36,7 +36,7 @@ import { useCalendarCall } from '../settings/useCalendarCall';
 import { LaneCard, laneCount } from '../week/lane';
 import type { WeekData } from '../week/data';
 import { useWeekScreen } from '../week/index';
-import { PhoneWeek } from '../week/Phone';
+import { dayHeading, PhoneWeek } from '../week/Phone';
 import { fitZoom, usePinchZoom } from '../../components/week/pinch';
 import type { HostWeek } from '../week/Phone';
 import { dayOfWeek } from './data';
@@ -407,7 +407,8 @@ function TodayFoot(props: {
 }) {
   const { data, missed } = props;
   const lane = useToSchedule(props.day);
-  const waiting = data.queue.length + (lane?.items.length ?? 0);
+  // The week's, as Plan's This week counts it, Needs a new time included.
+  const waiting = lane?.model.toSchedule ?? data.queue.length;
   const label =
     [waiting ? `${waiting} to schedule` : '', missed ? `${missed.count} missed ${missed.count === 1 ? 'block' : 'blocks'} to check in on` : ''].filter(Boolean).join(', ') ||
     (props.connect ? 'Connect Google Calendar' : '');
@@ -515,14 +516,15 @@ function WaitingSheet(props: {
   // Held, a card lifts and the sheet steps aside, so it can be let go on the day; dropped there, it's placed.
   const [aside, setAside] = useState(false);
   const { landing, takeOff, asking } = useLanding(lane?.model.blocks ?? [], lane?.week ?? data.date);
-  const item = lane?.items.find((x) => x.id === openId);
+  const all = lane?.days.flatMap((g) => g.items) ?? [];
+  const item = all.find((x) => x.id === openId);
   return (
     <>
     <Sheet label="To schedule" onClose={onClose} tall className={`tdsheet${aside ? ' aside' : ''}`}>
       <div className="between">
         <div>
           <h2>To schedule</h2>
-          {lane && lane.items.length > 0 && <div className="small quiet">{laneCount(lane.items)}</div>}
+          {all.length > 0 && <div className="small quiet">{laneCount(all)}</div>}
         </div>
         <Button variant="icon" icon="close" label="Close" type="button" onClick={onClose} />
       </div>
@@ -548,17 +550,22 @@ function WaitingSheet(props: {
           </div>
         </section>
       )}
-      {lane && lane.items.length > 0 && (
-        <section className="stack8" aria-label="Waiting for a day">
-          <h3 className="tdsh">Waiting for a day</h3>
+      {/* The week's cards by the first day each can go on, the day shown first. Only its cards drag onto it. */}
+      {lane?.days.map((g) => {
+        const here = g.date === props.day;
+        const name = g.date === null ? 'Any day' : dayHeading(g.date, today(clock)).name;
+        const said = /^(Today|Tomorrow|Yesterday|Any day)$/.test(name) ? name.toLowerCase() : name;
+        return (
+        <section key={g.date ?? 'any'} className="stack8" aria-label={`Waiting for ${said}`}>
+          <h3 className="tdsh">{name}</h3>
           <div className="lanerow">
-            {lane.items.map((x) => (
+            {g.items.map((x) => (
               <LaneCard
                 key={x.id}
                 item={x}
                 ctx={lane.model.ctx}
                 open={false}
-                draggable
+                draggable={here}
                 onToggle={() => setOpenId(x.id)}
                 onPreview={() => undefined}
                 onLift={() => setAside(true)}
@@ -575,11 +582,12 @@ function WaitingSheet(props: {
               />
             ))}
           </div>
-          <p className="small quiet">Hold a card, then drag it onto the day, or tap it for suggested times.</p>
+          {here && <p className="small quiet">Hold a card, then drag it onto the day, or tap it for suggested times.</p>}
         </section>
-      )}
+        );
+      })}
       <div className="row">
-        {lane && lane.items.length > 0 && (
+        {all.length > 0 && lane && (
           <Button type="button" onClick={() => nav.openFlow('planning', { week: lane.week, step: 'schedule' })}>
             Schedule one at a time
           </Button>

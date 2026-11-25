@@ -3,7 +3,7 @@
 // suggested times, as on Week, and Choose a time opens Week to place it by hand.
 
 import { useMemo, useState } from 'react';
-import { weekStart } from '../../../core/dates';
+import { addDays, weekStart } from '../../../core/dates';
 import type { LocalDate } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useQuery } from '../../app/store';
@@ -18,7 +18,11 @@ import { Button } from '../../components/ds/Button';
 
 type Item = WeekModel['unscheduled'][number];
 
-/** This week's work waiting for a time on `date`: dated that day, or with no day of its own. Planning has its own row. */
+/**
+ * The week's work waiting for a time: `items` can go on `date`, dated that day or with no day of its own; `days` are the
+ * week's cards by the first day each can go on, `date` first and then the other days in order, with any that fit no day
+ * last (`date` null). Planning has its own row.
+ */
 export function useToSchedule(date: LocalDate) {
   const { clock } = useApp();
   const week = weekStart(date);
@@ -26,9 +30,18 @@ export function useToSchedule(date: LocalDate) {
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
   if (!model) return null;
   // A count's sessions wait on any day without one of its sessions; a set day's, on its own day only.
-  const hasSession = (x: Item) => !!x.practice && !x.dates && model.blocks.some((b) => b.practice_id === x.practice!.id && b.date === date);
-  const items = model.unscheduled.filter((x) => x.kind !== 'planning' && !hasSession(x) && (!x.dates || (x.dates.from <= date && date <= x.dates.to)));
-  return { week, model, items };
+  const fits = (x: Item, d: LocalDate) =>
+    !(x.practice && !x.dates && model.blocks.some((b) => b.practice_id === x.practice!.id && b.date === d)) && (!x.dates || (x.dates.from <= d && d <= x.dates.to));
+  let left = model.unscheduled.filter((x) => x.kind !== 'planning');
+  const days: { date: LocalDate | null; items: Item[] }[] = [];
+  for (const d of [date, ...Array.from({ length: 7 }, (_, k) => addDays(week, k)).filter((d) => d !== date)]) {
+    const on = left.filter((x) => fits(x, d));
+    left = left.filter((x) => !on.includes(x));
+    if (on.length) days.push({ date: d, items: on });
+  }
+  if (left.length) days.push({ date: null, items: left });
+  const items = days[0]?.date === date ? days[0].items : [];
+  return { week, model, items, days };
 }
 
 /** A card's suggested times and what else can be done with it, as on Week; Choose a time opens Week to place it by hand. */

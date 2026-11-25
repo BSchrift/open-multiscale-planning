@@ -532,10 +532,11 @@ test.describe('one device', () => {
     await go(page, 'Goals');
     await pane(page, 'Goals').getByRole('button', { name: /^Practices with no goal/ }).click();
     await pane(page, 'Goals').getByRole('button', { name: /^Morning run/ }).click();
-    // Its name is a field in the editor, or a heading the popup's Rename turns into one.
+    // An editor shows its Name field at once; the practice's popup, once the bundle before has it, shows the name as a
+    // button that turns into the field.
     const name = page.getByRole('textbox', { name: 'Name', exact: true });
     const rename = page.getByRole('button', { name: 'Rename Morning run' });
-    await expect(name.or(rename).first()).toBeVisible();
+    await expect(name.or(rename)).toBeVisible();
     if (await rename.isVisible()) await rename.click();
     await name.fill('Morning jog');
     // Editors that save on Save, once the bundle before has them.

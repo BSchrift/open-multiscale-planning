@@ -136,6 +136,9 @@ test.beforeEach(async ({ page }) => {
   await settled(page);
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   await expect(heading(page)).toHaveText('Mon Nov 2');
+  // Today's heading links to Done once its own query has read what was finished, after the day first draws, and it
+  // grows taller as it does, moving the day down the page: anything measured waits for it.
+  await expect(page.getByRole('button', { name: /^Done on Mon Nov 2: / })).toBeVisible();
 });
 test.afterEach(() => expect(errors).toEqual([]));
 

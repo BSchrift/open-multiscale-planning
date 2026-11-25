@@ -297,3 +297,16 @@ export async function release(page: Page, at: { x: number; y: number }, phone: b
     { ...at, pointerType: phone ? 'touch' : 'mouse' },
   );
 }
+
+/** Nothing in the popup's body reaches past its right edge, so it never scrolls sideways or cuts its content off. */
+export async function expectNoSideways(popup: Locator) {
+  const body = popup.locator('.taskpopbody');
+  await body.evaluate((e) => Promise.all(e.closest('.sheet')!.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))));
+  const fit = await body.evaluate((el) => {
+    const right = el.getBoundingClientRect().right;
+    const past = [...el.querySelectorAll('*')].filter((c) => c.getBoundingClientRect().right > right + 0.5).map((c) => c.outerHTML.slice(0, 90));
+    return { past, scroll: el.scrollWidth, client: el.clientWidth };
+  });
+  expect(fit.past).toEqual([]);
+  expect(fit.scroll).toBeLessThanOrEqual(fit.client);
+}

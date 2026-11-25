@@ -8,7 +8,7 @@
 //
 // Tests import this file; the app never does.
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -56,6 +56,8 @@ export interface HarnessOptions {
   showMenu?: Platform['showMenu'];
   /** As on an iPhone with the App Group the widgets read: usually memoryWidgets(). */
   widgets?: Widgets;
+  /** When the running bundle was built, in seconds, as main.tsx passes it. */
+  build?: number;
 }
 
 export interface Harness extends RenderResult {
@@ -92,7 +94,7 @@ function harness(
 ): Harness {
   const { platform, clock, write } = prepared;
   const result = render(
-    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})}>
+    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})} {...(options.build ? { build: options.build } : {})}>
       {ui}
     </AppProvider>,
   );
@@ -118,6 +120,19 @@ export function holdDown(el: Element, init: PointerEventInit = {}) {
   vi.spyOn(performance, 'now').mockImplementation(() => realNow() + heldFor);
 }
 
+/**
+ * Fake timers for tests that hold a press, so a hold's timer runs when `pass` moves time on rather than whenever a busy
+ * machine gets to it. They still move with the real clock, so findBy, waitFor and userEvent work as before.
+ */
+export const holdTimers = () => void vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+
+/**
+ * Moves holdTimers' clock on by ms, as a press held that long, and draws whatever the timers set off before it returns.
+ * A real wait raced the page: on a busy machine the hold's timer and the wait's ran back to back, and the test looked
+ * before the page had drawn the draft.
+ */
+export const pass = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
 /** Renders one area on its own, with the same data, toast and navigation context it has in the app. */
 export function renderScreen(
   area: AreaId,
@@ -128,7 +143,7 @@ export function renderScreen(
   return renderInApp(
     <Screen params={options.params ?? {}} layout={layout} presentation={options.presentation ?? 'page'} close={options.close ?? (() => undefined)} />,
     options,
-    area !== 'task',
+    area !== 'task' && area !== 'practice',
   );
 }
 
@@ -144,13 +159,13 @@ export async function renderInApp(ui: ReactElement, options: HarnessOptions = {}
     nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
-  // A task's popup opens over whatever showed the task, so it renders here as the shell renders it. Other overlays,
-  // such as Process, are screens of their own, tested on their own.
+  // A task's popup, and a practice's, open over whatever showed them, so they render here as the shell renders them.
+  // Other overlays, such as Process, are screens of their own, tested on their own.
   const TaskPopup = () => {
     const overlay = useOverlay();
     const { closeOverlay } = useNav();
-    if (overlay?.area !== 'task') return null;
-    const { Screen: Popup } = AREAS.task;
+    if (overlay?.area !== 'task' && overlay?.area !== 'practice') return null;
+    const { Screen: Popup } = AREAS[overlay.area];
     return <Popup params={overlay.params} layout={layout} presentation="overlay" close={closeOverlay} />;
   };
   return harness(

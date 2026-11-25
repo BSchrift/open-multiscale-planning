@@ -164,7 +164,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Timeline: resize from the bottom edge, Shift and arrows | covered (today-timeline: "a block still to come changes its length from its bottom edge…", "on desktop, Shift and the arrow keys change a block's length…", "the block under way keeps its start and changes only its end…") | covered (same, by the grip) | missing | missing |
 | Timeline: a press held on empty time drafts an hour with a ring, Capture saves it there as an Inbox item, Undo; none on time gone by or a quick press | covered (today-timeline: "a press held on empty time drafts an hour there with a ring…", "a press held on time gone by drafts nothing…") | covered (same, by touch pointer events) | missing | covered (testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem, testAHoldsTapReachesTheHapticsPlugin) |
 | Timeline: a click or tap opens the block's task | covered (today: "a click or tap on a block opens its task…"; details: "the Now card, a To schedule card and a block on Today open the popup") | covered (same) | missing | missing |
-| Timeline: Done in a block's popup, and Pause or Resume on the one under way | covered (today: "Done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
+| Timeline: Mark done in a block's popup, and Pause or Resume on the one under way | covered (today: "Mark done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
 | Timeline: a block's quick menu, by a right-click, Shift-F10 or the menu key, or a hold let go in place | partly (click-and-hold: "Today: a block's quick menu opens on a right-click or Shift-F10…" chooses Done and Pause, and lists Move to's items; choosing Next free time, Tomorrow, Back to To schedule or Choose a time is in today.test.tsx only) | partly (same, a hold let go in place) | partly (desktop: "a right-click's menu: macOS draws the items the page gives…", the bridge with Menu.popup stubbed; Today's blocks calling it are unit tests) | missing |
 | List view, kept after a reload | covered (today-timeline: "the timeline switches to a list of the day in order…") | covered (same) | missing | missing |
 | Zoom | covered (today-timeline: "zoom draws the calendar taller a step at a time and back…") | partly (the buttons; a pinch needs the Simulator) | missing | missing |
@@ -182,11 +182,12 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A click or tap opens any block, one that moves included, and only a hold drags it, on Today and Week | covered (click-and-hold: "Today: a click that wobbles opens any block…", "Week, desktop: while editing, a click that wobbles opens a block or a card…") | covered (click-and-hold: "Today: …", "Week, phone: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it") | missing | missing |
 | The grid: a block's length from its edge, Shift and arrows | covered (week-blocks: "desktop: while editing, a block's bottom edge snaps its length…") | n/a | covered (sync: same test) | n/a |
 | A press held on empty time drafts an hour there, and Capture saves it as an Inbox item, with Undo; a press held on a block still opens it on desktop | covered (week-blocks: "a press held on empty time on Week drafts an hour there…") | covered (same, a Free row of the day) | missing | covered (testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem) |
-| The block's details beside the week | covered (week-blocks: "desktop: a block clicked on the grid shows its details beside the week…") | n/a | missing | n/a |
+| A block opens its popup, a practice's session and planning too | covered (week-blocks: "desktop: a practice's block opens its popup and Esc gives focus back…"; practice-popup: "Week: a session opens the same popup…") | covered (practice-popup: "Week: …", from the phone's day) | missing | n/a |
 | Phone: pinching the day zooms its hours, around the fingers, from the whole day to three times, kept on the device | n/a | covered (week-pinch, in Chromium: WebKit here can't put down a second finger; pinch.test: the zoom's sums) | n/a | covered (testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem) |
 | Phone: the day strip, a block's sheet, Move to another day, Length, Remove | n/a | covered (week: "phone: the day strip, a block sheet, and Move to another day", "phone: a day with no slot stays readable"; week-blocks: "phone: a block's sheet changes its length on a slider…") | n/a | partly (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek: it draws) |
 | To schedule above the week: a suggestion places it, Undo, drag both ways, rows shared across days | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…", "desktop: what waits above the week shares rows across days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
 | Add a task at its suggested time; Edit this week's plan | covered (week: "desktop: add a task at its suggested time") | covered (week: "phone: Edit this week's plan and add a task from the drawer") | missing | missing |
+| Reset this week's plan, or next week's: asks first, saying what goes and what stays; keeps what has happened; one Undo | covered (week-reset: "Reset this week's plan asks first, takes out what's to come, and Undo puts it all back") | covered (same) | missing | missing |
 | Week arrows and This week | covered (week: "week arrows reach any week and This week comes back") | covered (same) | partly (journeys/answered-weeks) | missing |
 | Past weeks: read only, linked to their analytics | covered (week-blocks: "a past week can be read but not changed…") | covered (same) | missing | missing |
 | Day headings open Done on that day | covered (done: "Week's day headings open Done on that day…") | covered (same) | missing | missing |
@@ -206,7 +207,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A task moved to another milestone, by popup or by holding it | covered (milestones: "a task's popup moves it to another milestone with Undo…") | covered (same, held on phone) | missing | missing |
 | Practices: add and edit, link to a goal | covered (goals: "edits a practice with no goal and links it to one"; journeys/capture-and-process) | covered (same) | covered (journeys/capture-and-process, journeys/next-stretch) | missing |
 | Practice schedules: set days with their own times, times a week | covered (goals: "builds Mon, Tue and Fri with Friday at 9:30…"; practices: "Times a week with a longer session…"; stack/sync: two devices) | covered (same) | missing | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| Practices: Pause, Resume, End practice | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
+| Practices: Pause practice, Resume practice, End practice, in the practice's popup | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
 
 ### One offs
 
@@ -222,12 +223,29 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
 | Opens from anywhere a task is named, edits everything, Undo | covered (details: "a task opens in its popup from its project…", "the Now card, a To schedule card and a block on Today open the popup", "the body scrolls once the popup reaches 70%…") | covered (same) | covered (journeys/first-week; desktop: "closing the window keeps the edits not yet saved…") | partly (testATaskOpensWithTheKeyboardDown…) |
+| The same sections in the same order from every opener; only the actions change | partly (task-actions: "from a list…", "from Inbox…", "from a block on Today…"; the unit tests check Inbox, One offs, a project and a Today block: task.test.tsx) | partly (same) | missing | missing |
+| Mark done from a list, a repeating one off for this time only, and from a block on another day or answered, with Undo | covered (task-actions: "from a list: Start now, Mark done and Schedule…", "from a block on Today…"; the repeat and the answered block in the unit tests) | covered (same) | missing | missing |
+| Start now from a list: a block from now, started, with Undo | covered (task-actions: "from a list…") | covered (same) | missing | missing |
+| Schedule…: To schedule's times this week, placed with Undo, and Choose a time… on Week | covered (task-actions: "from a list…") | covered (same) | missing | missing |
+| Dates: a one off's date, range and repeat, a project task's date or range, none in the Inbox | covered (task-actions: "from a list…", "from Inbox…"; each rule in task.test.tsx and oneoffs.test.tsx) | covered (same) | missing | missing |
 | Belongs to: a search of the places a task can go, under the field on desktop and in a sheet on phone | covered (details: "Belongs to searches the places a task can go…") | covered (same, with a 44pt check) | missing | missing |
 | Cancel, Esc, the close button and a tap outside with unsaved changes | covered (popup: "Cancel drops the popup's changes, and Esc, the close button or a tap outside keep them until Save") | covered (same) | partly (desktop: closing the window keeps them; quitting drops them, reported) | missing |
 | Delete task, with its block, Undo | covered (popup: "Delete task takes the task and its block off Today…") | covered (same) | missing | missing |
 | Notes: the formatting bar, links open outside, the limit | covered (notes: "writes a description with the bar…", "stops a description at the limit…") | covered (same) | missing | covered (testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBar…) |
 | Attachments: links | covered (attachments: "a task's links: added, opened outside the app, and removed with Undo") | covered (same) | missing | missing |
 | Attachments: photos, synced and opened on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (the stack layer runs desktop only) | missing | missing |
+
+### The practice popup
+
+A practice's session and a planning block open one popup, in the task popup's frame (PopupShell), wherever they show.
+
+| Feature | Web desktop | Web phone | Mac app | iPhone |
+| --- | --- | --- | --- | --- |
+| The same sections in the same order from Today's calendar and list, Week (editing too), the Now card, Done, To schedule, the prompts and Goals | covered (practice-popup: "Today: a session opens its popup…", "To schedule and Done…", "Goals: a practice's row opens the same popup…", "Week: a session opens the same popup…", "the prompt that logs a session…"; each opener in practice.test.tsx, Goals in goals.test.tsx) | covered (same, with 44pt checks) | missing | missing |
+| Its block's own section: Start, Mark done, Did it, Some and Skipped, Move…, Remove from calendar, and Length on Week's phone day | covered (practice-popup; Some's minutes in practice.test.tsx) | covered (same) | missing | missing |
+| Name, goal and schedule saved together with Undo; Cancel, and Esc with unsaved changes | covered (practice-popup: "Today: … Save changes its goal with Undo"; the rest in practice.test.tsx) | covered (same) | missing | missing |
+| Pause practice with no block, and End practice, each with Undo | covered (practice-popup: "To schedule and Done…"; End practice in practice.test.tsx) | covered (same) | missing | missing |
+| A planning block: Start planning, Move…, Remove from calendar, and Close | covered (practice-popup: "Today: …"; Start planning opening planning in practice.test.tsx) | covered (same) | missing | missing |
 
 ### Done and Analytics
 
@@ -294,9 +312,11 @@ app's side, the Swift package the widgets' side, the fixtures both, and XCUITest
 | The app and the widgets agree: the snapshot decodes, the block under the clock and the next match the app's own at every edge of both days, action files and what a tap leaves match, times, weeks ("Nov 16 to 22") and lengths read alike, the week decodes and a snapshot from before it still does | Fixtures | `widgetFixtures.test.ts` writes them, `FixtureTests` reads them |
 | Timeline entries only where the widget changes, Smart Stack relevance, the countdown, the bar and the pause | Swift | `TimelineTests`, `StateTests` |
 | A button's intent queues its tap, checked against the plan at the tap; Undo of an unapplied start takes it off the queue | Swift | `TapTests`, `StoreTests` |
-| VoiceOver: one label per widget in order of importance, end times, buttons named in full | Swift | `WordsTests` |
+| This week from the snapshot: each day's time with today marked through the week, aims' bars, lines and pills, practices' sessions, a week not planned (opens Plan), a new week before the app has run, signed out, no snapshot, one from before This week, and an entry only at midnight | Swift | `WeekTests` |
+| VoiceOver: one label per widget in order of importance, end times, buttons named in full; This week's days, aims and practices read in full, only those drawn | Swift | `WordsTests`, `WeekTests` |
 | The Lock Screen set: inline, rectangular, the countdown circle and the Inbox circle say the block, its time and its state in words for every state; far-off next blocks give their time; plurals; the Inbox count caps at 999+; each reads one VoiceOver label with end times | Swift | `LockTests` |
 | Today: the block in progress on, the blocks behind folded into counts, gone-by events dropped; a finished day keeps its last rows and folds the earliest; each row's state in words; the head says the day, free time or the last sync; the medium widget reads as one label, the large one row by row | Swift | `TodayTests` |
+| How This week draws: medium and large, in every state (planned, stale, encrypted, not planned, new week, signed out, no data, too new, no aims, long names, more aims and practices than fit, a busy week with red pills), light, dark and tinted, at the default and the largest text size, and with names hidden: fits its size and isn't empty | Swift on the iPhone Simulator | `WeekRenderTests`, by `scripts/test-widget-renders.sh`; its pictures are `widget-week-*.png` in the `widget-renders` artifact |
 | How each widget draws: Now and next (small, medium, StandBy) and Capture, in every state, light, dark and tinted (StandBy dark and night, and locked with names hidden), at the default and the largest text size, fits its size and isn't empty | Swift on the iPhone Simulator | `NowNextRenderTests`, by `scripts/test-widget-renders.sh` in CI's widgets job, which keeps each picture as the `widget-renders` artifact |
 | How the Lock Screen set (inline, rectangular, countdown and Inbox circles) and Today (medium, large) draw: every state, plus a long block, a far-off next block, a full Inbox, a busy day and an untitled event, light, dark and tinted, at the default and the largest text size, fits its size and isn't empty; the Lock Screen's also locked with names hidden | Swift on the iPhone Simulator | `LockTodayRenderTests`, by `scripts/test-widget-renders.sh` in CI's widgets job (pictures in the `widget-renders` artifact) |
 | The widgets' colours and font are the app's | Vitest | `widgetTokens.test.ts` |
@@ -335,8 +355,8 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| One offs | oneoffs-repeats: dates in place, Change repeat's delete | missing | missing |
-| The task popup | details: Save; popup: Delete task; attachments: link removed | missing | missing |
+| One offs | oneoffs-repeats: dates in place, the popup's Delete task | missing | missing |
+| The task popup | details: Save; popup: Delete task; attachments: link removed; task-actions: Mark done, Start now, a placed time | missing | missing |
 | Notes | notes-list: Delete note's Undo takes focus; unit tests: Save as note's Undo (process/note.test.tsx), Save and Belongs to: Inbox (notes/notes.test.tsx) | missing | missing |
 | Done and Analytics | done: marked finished; analytics: a pattern; analytics-estimates: Raise estimates | missing | missing |
 | Settings | settings-sections: away dates removed | missing | missing |

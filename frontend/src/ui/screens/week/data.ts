@@ -267,6 +267,10 @@ export function weekModel(d: WeekData, clock: Clock) {
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
     unscheduled: [...planning, ...unscheduled],
+    /** A task as To schedule shows it, with its suggested times: its own card there, or one for all its time left. */
+    itemFor: (t: Task): LaneItem => unscheduled.find((x) => x.id === t.id) ?? taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null),
+    /** Whether Week's Choose a time can place it: it's a task to add, or waiting in To schedule. */
+    canChoose: (id: string) => unscheduled.some((x) => x.id === id) || addGroups.some((g) => g.rows.some((r) => r.task.id === id)),
     practices: records.practices,
     current,
     thisPlanned: d.weekPlans.some((p) => p.week_start === current && !!p.finished_at),

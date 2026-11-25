@@ -3,11 +3,6 @@ import WidgetKit
 import WidgetCore
 
 @available(iOS 17.0, macOS 14.0, *)
-extension WidgetSize {
-    public static let large = CGSize(width: 338, height: 354)
-}
-
-@available(iOS 17.0, macOS 14.0, *)
 /// Today: the rest of the day on the Home Screen, as Today's timeline draws it. The block in progress framed, what's
 /// after it, and the blocks behind folded into one line with their answers. Large makes each row a link to Today at
 /// that block; medium is one link, since its rows are too small to tap one by one. No buttons: answering stays in the app.

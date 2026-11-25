@@ -13,6 +13,7 @@ struct CaptureWidgets: WidgetBundle {
         LockNowWidget()
         LockInboxWidget()
         TodayWidget()
+        WeekWidget()
         #endif
     }
 }

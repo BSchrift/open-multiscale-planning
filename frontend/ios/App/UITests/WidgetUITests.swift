@@ -110,10 +110,12 @@ final class WidgetUITests: XCTestCase {
         app.launchLoaded()
         let toast = app.webText("Started Shape the loaf early, at 10am, from the widget.")
         exists(toast)
-        let written = waitFor(snapshotWritten)
+        // The write the Undo leads to, the only one since the toast with nothing started: any write would do as well
+        // for the one applying the start, which can come after the toast.
+        let undone = waitFor(snapshotWritten + ".started-0")
         app.tapWeb("Undo")
         XCTAssertTrue(toast.waitForNonExistence(timeout: patience), "the toast stayed after Undo")
-        written()
+        undone()
         app.terminate()
 
         checks = checksPage()

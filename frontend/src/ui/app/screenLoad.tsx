@@ -1,20 +1,20 @@
 // Screens whose code loads on first use rather than with the app, and what shows when one fails. In the browser that
 // code comes from the server, so a screen first opened offline can't load until the connection is back.
 
-import { Component, createElement, lazy } from 'react';
+import { Component, createElement, lazy, useState } from 'react';
 import type { ComponentType, MouseEvent, ReactNode } from 'react';
 import type { ScreenProps } from './registry';
 import { Button } from '../components/ds/Button';
 
-type ScreenModule = { default: ComponentType<ScreenProps> };
+type ScreenModule<P> = { default: ComponentType<P> };
 
 /** A screen's code didn't arrive, so opening it again can work, unlike a screen that failed as it drew. */
 class ScreenLoadError extends Error {
   override name = 'ScreenLoadError';
 }
 
-export interface LazyScreen {
-  (props: ScreenProps): ReactNode;
+export interface LazyScreen<P = ScreenProps> {
+  (props: P): ReactNode;
   /** Loads the code now, saying whether it arrived. A failure is left for opening the screen to try again. */
   preload(): Promise<boolean>;
 }
@@ -22,8 +22,11 @@ export interface LazyScreen {
 // React.lazy keeps a failed load for good, so each screen that failed swaps in a fresh one to try again.
 const failed = new Set<() => void>();
 
-export function lazyScreen(load: () => Promise<ScreenModule>): LazyScreen {
-  let loading: Promise<ScreenModule> | undefined;
+export function lazyScreen<P extends object = ScreenProps>(load: () => Promise<ScreenModule<P>>): LazyScreen<P> {
+  let loading: Promise<ScreenModule<P>> | undefined;
+  // React.lazy suspends the first time it draws, however long ago the code arrived, and React then holds the screen
+  // back 300ms. So code already here is drawn as it is, and a tap on a screen loaded ahead opens it at once.
+  let loaded: ComponentType<P> | undefined;
   const fail = (cause: unknown) => {
     failed.add(reset);
     return new ScreenLoadError('A screen failed to load', { cause });
@@ -35,16 +38,27 @@ export function lazyScreen(load: () => Promise<ScreenModule>): LazyScreen {
     // shortcut: one that fails while the browser says it's online, such as behind a captive portal, can stay failed
     // like that until a reload; reload on Try again if that shows up.
     if (!navigator.onLine && /^https?:$/.test(location.protocol)) return Promise.reject(fail('offline'));
-    return (loading = load().catch((error: unknown) => {
-      loading = undefined;
-      throw fail(error);
-    }));
+    return (loading = load().then(
+      (module) => {
+        loaded = module.default;
+        return module;
+      },
+      (error: unknown) => {
+        loading = undefined;
+        throw fail(error);
+      },
+    ));
   };
   let Lazy = lazy(get);
   const reset = () => {
     Lazy = lazy(get);
   };
-  const Screen = (props: ScreenProps) => createElement(Lazy, props);
+  const Screen = (props: P) => {
+    // Kept for the screen's life, so one drawn while its code was on the way isn't drawn afresh, losing its state, once
+    // it arrives.
+    const [Loaded] = useState(() => loaded);
+    return createElement(Loaded ?? Lazy, props);
+  };
   return Object.assign(Screen, { preload: () => get().then(() => true, () => false) });
 }
 

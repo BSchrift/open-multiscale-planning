@@ -406,7 +406,8 @@ test('with nothing left to place in the Schedule step, a press held on empty tim
   await page.screenshot({ path: info.outputPath('schedule-hold-capture.png') });
   await page.keyboard.press('Enter');
   await expect(draft).toHaveCount(0);
-  await expect(page.locator('.cev, .ev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
+  // In the step: Today's day draws it too, behind the flow.
+  await expect(page.locator('.cev, .ev').filter({ hasText: 'Book dentist', visible: true }).first()).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-hold-saved.png') });
   expect(errors).toEqual([]);
 });
@@ -480,7 +481,8 @@ test("phone: + in the step's bar is New task, opening Capture at the first free 
   await page.keyboard.type('Book dentist');
   await page.keyboard.press('Enter');
   await expect(capture).toHaveCount(0);
-  await expect(page.locator('.dragblock, .cev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
+  // In the step: Today's day draws it too, behind the flow.
+  await expect(page.locator('.dragblock, .cev').filter({ hasText: 'Book dentist', visible: true }).first()).toBeVisible();
   // The step's task still waits in the dock.
   await expect(page.locator('.flowdock').getByRole('button', { name: 'Place here' })).toBeVisible();
   expect(errors).toEqual([]);

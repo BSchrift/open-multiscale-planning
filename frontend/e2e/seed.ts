@@ -162,12 +162,35 @@ export async function syncNow(page: Page, timeout = 30_000) {
 }
 
 /**
+ * Starts planning from Today's prompt to plan this week: its button on desktop, and on phone, where the prompt is a row
+ * above the day, its Plan it, then Start planning.
+ */
+export async function startPlanningOnToday(page: Page): Promise<void> {
+  // On phone, the strip footer's Plan this week, or Plan next week once that's due, opens the way to start.
+  const planIt = page.getByRole('button', { name: /^Plan (this|next) week$/ });
+  await expect(planIt.or(page.getByRole('button', { name: 'Start planning' })).first()).toBeVisible();
+  if (await planIt.isVisible()) await planIt.click();
+  await page.getByRole('button', { name: 'Start planning' }).first().click();
+}
+
+/** Skip planning this week from Today: on phone, in the sheet the strip footer's Plan this week opens. */
+export async function skipPlanningOnToday(page: Page): Promise<void> {
+  const planIt = page.getByRole('button', { name: 'Plan this week', exact: true });
+  await expect(planIt.or(page.getByRole('button', { name: /^Skip (for now|planning this week)$/ })).first()).toBeVisible();
+  if (await planIt.isVisible()) await planIt.click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+}
+
+/** Today's prompt to plan this week: on phone, the strip footer's Plan this week. */
+export const planPrompt = (page: Page): Locator => page.getByRole('button', { name: 'Plan this week', exact: true }).or(page.getByRole('button', { name: 'Start planning' })).first();
+
+/**
  * Start planning, then its toast's Undo, which keeps this week's times free: Start puts planning on the clock from now.
  * Undo waits until planning has drawn, since on phone the toast moves down then, and a press on Undo while it moves is
  * let go beside it, which leaves the toast and the planning block in place.
  */
 export async function startPlanningThenUndo(page: Page) {
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await expect(page.getByRole('navigation', { name: 'Planning steps' })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByText(/^Planning until /)).toHaveCount(0);

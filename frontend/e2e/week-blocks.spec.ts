@@ -1,10 +1,12 @@
-// A block on Week once it's placed: its popup on desktop, its length on both layouts, Remove on phone, and a past
-// week, which can be read but not changed. week.spec.ts has moving blocks, To schedule and the week arrows.
+// A block on Week once it's placed, or on phone on the week Today draws: its popup on desktop, its length on both
+// layouts, Remove on phone, and a past week, which can be read but not changed. week.spec.ts has moving blocks, To
+// schedule and the week arrows.
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, pane, pressOn, release } from './seed';
 import type { Seed } from './seed';
+import { isPhone, openBlock, phoneView, todayRead } from './today';
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -29,14 +31,25 @@ const records: Seed[] = [
   { type: 'block_outcome', id: 'outcome:b3', fields: { result: 'done', answered_at: at(2, '10:00') } },
 ];
 
+/** Week on desktop; on phone, Today, which draws the week, once it has read it and nothing more comes in above the day. */
 async function openWeek(page: Page, list = records) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, list);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  if (await isPhone(page)) {
+    await todayRead(page, true);
+    // Today makes the first stretch's planning task by itself, and its row then comes in above the day, moving the day
+    // down the page.
+    await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
+  } else await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   return errors;
 }
+
+/** Edits this week: Week's button on desktop, and on phone Today's menu. */
+const editWeek = (page: Page, phone: boolean) => (phone ? phoneView(page, "Edit this week's plan") : page.getByRole('button', { name: "Edit this week's plan" }).click());
+/** Today's day on phone, as drawn for the day shown. */
+const todayDay = (page: Page) => page.locator('.tdpager .dppane:not(.dpside) .day');
 
 test("desktop: a practice's block opens its popup and Esc gives focus back, and a task's block opens the task with how it went", async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
@@ -107,8 +120,8 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
 test("a task's block made shorter while editing asks what about the rest, and Change the estimate takes it off the task", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await openWeek(page);
-  await page.getByRole('button', { name: "Edit this week's plan" }).click();
-  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  await editWeek(page, phone);
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).tap();
   // Shift and the up arrow take a quarter hour off, on both layouts.
   const block = phone ? page.getByRole('slider', { name: /^Draft the summary\./ }) : page.getByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
   await block.focus();
@@ -122,12 +135,17 @@ test("a task's block made shorter while editing asks what about the rest, and Ch
   expect(errors).toEqual([]);
 });
 
-test("phone: a task's block changes its length on a slider in the task's popup, and Remove from calendar takes it off with Undo", async ({ page }, info) => {
+test("phone: while editing the week on Today, a task's block changes its length on a slider in the task's popup, and Remove from calendar takes it off with Undo", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip is the phone layout');
   const errors = await openWeek(page);
-  await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  // The popup Today's own day opens moves a block and takes it off; its length changes on the day, from the block's
+  // edge, and here, while editing, on a slider too.
+  await editWeek(page, true);
+  await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).tap();
   await expect(page.getByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
-  await page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm, Project\./ }).click();
+  const block = page.getByRole('slider', { name: /^Draft the summary\./ });
+  await expect(block).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 6pm to 7pm');
+  await block.tap();
   const popup = page.getByRole('dialog', { name: 'Draft the summary' });
   const section = popup.getByRole('region', { name: 'Time block' });
   const length = section.getByRole('slider', { name: 'Length' });
@@ -147,12 +165,12 @@ test("phone: a task's block changes its length on a slider in the task's popup, 
   await section.getByRole('button', { name: 'Remove from calendar', exact: true }).click();
   await expect(page.getByText('Removed Draft the summary')).toBeVisible();
   await expect(section).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Draft the summary, / })).toHaveCount(0);
+  await expect(block).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(section.getByText('Tue Nov 3, 6pm to 6:55pm')).toBeVisible();
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(popup).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 6:55pm, Project\./ })).toBeVisible();
+  await expect(block).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 6pm to 6:55pm');
   expect(errors).toEqual([]);
 });
 
@@ -164,17 +182,23 @@ test("a past week can be read but not changed: its blocks don't move, open their
   ];
   const errors = await openWeek(page, [...records, ...last]);
   await page.getByRole('button', { name: 'Previous week' }).click();
-  await expect(page.getByRole('heading', { name: 'Past week' })).toBeVisible();
+  // On phone, the strip on Today, which names its week so.
+  await expect(phone ? page.getByRole('region', { name: /^Past week, / }) : page.getByRole('heading', { name: 'Past week' })).toBeVisible();
   await expect(page.getByText('Past weeks can be viewed but not changed.')).toBeVisible();
   await expect(page.getByRole('button', { name: "Edit this week's plan" })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'To schedule' })).toHaveCount(0);
 
   if (phone) {
-    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
-    await expect(page.getByRole('heading', { name: 'Tue Oct 27' })).toBeVisible();
-    const row = page.locator('.tlrow', { hasText: 'Draft the summary' });
-    await expect(row).toContainText('10amDraft the summaryProject, 1h');
-    await row.getByRole('button', { name: /^Draft the summary, 10am to 11am, Project\./ }).click();
+    // Today's menu has nothing to change it with either.
+    await page.getByRole('button', { name: 'View and week' }).click();
+    await expect(page.getByRole('menuitem', { name: /^(Edit|Reset) / })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).tap();
+    await expect(page.getByRole('heading', { name: 'Tuesday', level: 1 })).toBeVisible();
+    // A button to open, not a slider to move, and the first tap selects it, raised as a card, and a second opens it.
+    const block = page.getByRole('button', { name: /^Draft the summary, 10am to 11am, Project\. Done\./ });
+    await expect(page.getByRole('slider', { name: /^Draft the summary/ })).toHaveCount(0);
+    await openBlock(page, block, true);
   } else {
     // A button to open, not a block to drag: the arrow keys leave it where it was.
     const b = page.getByRole('button', { name: 'Draft the summary, Tue Oct 27, 10am to 11am, Project. Done.' });
@@ -197,9 +221,13 @@ test("a past week can be read but not changed: its blocks don't move, open their
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(popup).toHaveCount(0);
 
-  const analytics = page.getByRole('button', { name: phone ? "See that week's analytics" : "See this week's analytics" });
-  if (phone) await expectTapTarget(analytics);
-  await analytics.click();
+  // On phone, in Today's menu.
+  if (phone) {
+    await page.getByRole('button', { name: 'View and week' }).click();
+    const analytics = page.getByRole('menuitem', { name: "See that week's analytics" });
+    await expectTapTarget(analytics);
+    await analytics.click();
+  } else await page.getByRole('button', { name: "See this week's analytics" }).click();
   const a = pane(page, 'Analytics');
   await expect(a.getByText('Oct 26 to Nov 1')).toBeVisible();
   await expect(a.getByText('Past week')).toBeVisible();
@@ -210,7 +238,8 @@ test("Capture on Week's draft is a search too: it starts on a new Inbox task, ty
   const phone = info.project.name === 'phone';
   const pick: Seed = { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 120 } };
   const errors = await openWeek(page, [...records, pick]);
-  const target = phone ? page.locator('.tlrow', { has: page.getByText(/^Free, 2(:30)?pm to 10pm$/) }) : page.locator('.colbody[data-drop-date="2026-11-04"]');
+  // Desktop: Wednesday's column, drawn from 6am to 11pm. Phone: today's day on Today, which says the time it covers.
+  const target = phone ? todayDay(page) : page.locator('.colbody[data-drop-date="2026-11-04"]');
   const draft = page.locator('.holddraft');
   const hold = async () => {
     const at = await pressOn(target, 17 * 60 + 50, phone, phone ? undefined : { from: 360, to: 1380 });
@@ -256,7 +285,7 @@ test("Capture on Week's draft is a search too: it starts on a new Inbox task, ty
   await expect(page.locator('.toast')).toContainText(/Placed Draft the summary, .*5:45pm/);
   await expect(capture).toHaveCount(0);
   await expect(draft).toHaveCount(0);
-  const placed = page.getByRole('button', { name: phone ? 'Draft the summary, 5:45pm to 6:45pm, Project.' : 'Draft the summary, Wed Nov 4, 5:45pm to 6:45pm, Project.' });
+  const placed = phone ? page.getByRole('slider', { name: 'Draft the summary, 5:45pm to 6:45pm, Project.' }) : page.getByRole('button', { name: 'Draft the summary, Wed Nov 4, 5:45pm to 6:45pm, Project.' });
   await expect(placed).toBeVisible();
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
   await expect(placed).toHaveCount(0);
@@ -266,9 +295,8 @@ test("Capture on Week's draft is a search too: it starts on a new Inbox task, ty
 test('a press held on empty time on Week drafts an hour there, and Capture saves it there as an Inbox item, with Undo; on desktop a press held on a block still opens it', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await openWeek(page);
-  // Desktop: Wednesday's column, drawn from 6am to 11pm. Phone: today's free row in the evening, which says the time it
-  // covers.
-  const target = phone ? page.locator('.tlrow', { has: page.getByText(/^Free, 2(:30)?pm to 10pm$/) }) : page.locator('.colbody[data-drop-date="2026-11-04"]');
+  // Desktop: Wednesday's column, drawn from 6am to 11pm. Phone: today's day on Today, which says the time it covers.
+  const target = phone ? todayDay(page) : page.locator('.colbody[data-drop-date="2026-11-04"]');
   const at = await pressOn(target, 17 * 60 + 50, phone, phone ? undefined : { from: 360, to: 1380 });
   const draft = page.locator('.holddraft');
   await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
@@ -281,14 +309,22 @@ test('a press held on empty time on Week drafts an hour there, and Capture saves
   await expect(capture.getByRole('combobox', { name: 'Capture to Inbox' })).toBeFocused();
   await page.keyboard.type('Book dentist');
   await expect(draft).toContainText('Book dentist');
-  // The draft stays in view beside Capture on desktop, and above its sheet on phone.
+  // The draft stays in view beside Capture on desktop, and above its sheet on phone, where Today scrolls it up there
+  // smoothly, which is waited for.
+  if (phone) {
+    const clear = async () => {
+      const [d, c] = [(await draft.boundingBox())!, (await capture.boundingBox())!];
+      return d.y + d.height <= c.y;
+    };
+    await expect.poll(clear, { message: 'Capture covers the draft' }).toBe(true);
+  }
   const sheet = (await capture.boundingBox())!;
   const drawn = (await draft.boundingBox())!;
   const apart = drawn.x + drawn.width <= sheet.x || sheet.x + sheet.width <= drawn.x || drawn.y + drawn.height <= sheet.y || sheet.y + sheet.height <= drawn.y;
   expect(apart, 'Capture covers the draft').toBe(true);
-  // On phone it scrolls up the page to just under the week's top, which stays stuck above the day, not behind it.
+  // On phone it stays below the strip's day row, which stays stuck above the day, not behind it.
   if (phone) {
-    const top = (await page.locator('.weektop').boundingBox())!;
+    const top = (await page.locator('.sfbg').boundingBox())!;
     await expect.poll(async () => (await draft.boundingBox())!.y).toBeGreaterThanOrEqual(top.y + top.height);
   }
   await page.screenshot({ path: info.outputPath('week-hold-capture.png') });
@@ -296,7 +332,7 @@ test('a press held on empty time on Week drafts an hour there, and Capture saves
 
   await expect(page.locator('.toast')).toContainText(phone ? 'Saved to Inbox, 5:45pm to 6:45pm' : 'Saved to Inbox, Wed Nov 4, 5:45pm to 6:45pm');
   await expect(draft).toHaveCount(0);
-  const saved = page.getByRole('button', { name: phone ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Wed Nov 4, 5:45pm to 6:45pm, Inbox.' });
+  const saved = phone ? page.getByRole('slider', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' }) : page.getByRole('button', { name: 'Book dentist, Wed Nov 4, 5:45pm to 6:45pm, Inbox.' });
   await expect(saved).toHaveClass(/\bk-inbox\b/);
   await page.screenshot({ path: info.outputPath('week-hold-saved.png') });
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();

@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled as screensLoaded, touchDrag } from './seed';
+import { openBlock, phoneView, showNow, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -35,8 +36,8 @@ async function open(page: Page, records: Seed[]) {
   return errors;
 }
 
-/** To schedule, above the day, changes height once it has read the week, so blocks are measured after that. */
-const settled = (page: Page) => expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+/** What's above the day changes height once it has read the week, so blocks are measured after that. */
+const settled = (page: Page) => todayRead(page);
 
 test('the timeline switches to a list of the day in order, whose practice opens its popup, and the choice lasts after a reload', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
@@ -61,14 +62,14 @@ test('the timeline switches to a list of the day in order, whose practice opens 
   const timeline = page.getByRole('region', { name: "Today's timeline" });
   const views = timeline.getByRole('group', { name: 'Timeline view' });
   const [calendarView, listView] = [views.getByRole('button', { name: 'Calendar' }), views.getByRole('button', { name: 'List' })];
-  await expect(calendarView).toHaveAttribute('aria-pressed', 'true');
-  if (phone) {
-    await expectTapTarget(calendarView);
-    await expectTapTarget(listView);
+  // On phone the view is in Today's menu.
+  if (phone) await phoneView(page, 'Show as a list');
+  else {
+    await expect(calendarView).toHaveAttribute('aria-pressed', 'true');
+    await listView.click();
+    await expect(listView).toHaveAttribute('aria-pressed', 'true');
+    await expect(calendarView).toHaveAttribute('aria-pressed', 'false');
   }
-  await listView.click();
-  await expect(listView).toHaveAttribute('aria-pressed', 'true');
-  await expect(calendarView).toHaveAttribute('aria-pressed', 'false');
   await expect(timeline.getByRole('group', { name: 'Calendar zoom' })).toHaveCount(0);
 
   // Each block and event in order of time; phone says a block's time, title and kind, desktop its range and project.
@@ -92,10 +93,15 @@ test('the timeline switches to a list of the day in order, whose practice opens 
 
   // The choice is kept on this device.
   await page.reload();
-  await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
+  if (!phone) await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('region', { name: "Today's timeline" }).locator('.tllist > *')).toHaveCount(4);
-  await page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'Calendar' }).click();
-  await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Calendar zoom' })).toBeVisible();
+  if (phone) {
+    await phoneView(page, 'Show as a calendar');
+    await expect(page.getByRole('region', { name: "Today's timeline" }).locator('.day')).toBeVisible();
+  } else {
+    await page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'Calendar' }).click();
+    await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Calendar zoom' })).toBeVisible();
+  }
   expect(errors).toEqual([]);
 });
 
@@ -103,14 +109,15 @@ test("Calendar | List keeps its height once every screen's code has loaded, so t
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, fence, block('b2', { task_id: 't2' }, '16:00', '17:00')]);
   await settled(page);
-  const view = page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Timeline view' });
-  const height = async () => (await view.boundingBox())!.height;
+  // On phone the view is in Today's menu, so it's the day itself that mustn't move.
+  const view = phone ? page.locator('.day') : page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Timeline view' });
+  const height = async () => (phone ? (await view.boundingBox())!.y : (await view.boundingBox())!.height);
   const first = await height();
   // The app loads each screen's code after it draws, and each brings its styles; Process's once made this 10px taller.
   await screensLoaded(page);
   expect(await height()).toBe(first);
-  // A compact button and the control's padding on desktop; a full tap target on phone.
-  expect(first).toBe(phone ? 52 : 44);
+  // A compact button and the control's padding on desktop.
+  if (!phone) expect(first).toBe(44);
   expect(errors).toEqual([]);
 });
 
@@ -118,15 +125,32 @@ test('zoom draws the calendar taller a step at a time and back, each button stop
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, fence, block('b2', { task_id: 't2' }, '16:00', '17:00')]);
   await settled(page);
-  const zoom = page.getByRole('group', { name: 'Calendar zoom' });
-  const [zoomIn, zoomOut] = [zoom.getByRole('button', { name: 'Zoom in' }), zoom.getByRole('button', { name: 'Zoom out' })];
-  if (phone) {
-    await expectTapTarget(zoomIn);
-    await expectTapTarget(zoomOut);
-  }
   const hour = page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 4pm to 5pm/ });
   // An hour's block is an hour of the calendar, less a pixel of gap: 30, 48, 72 and 96 pixels an hour.
   const height = async () => Math.round((await hour.boundingBox())!.height);
+  if (phone) {
+    // In Today's menu, which offers only the steps there are. The phone's day opens at 72pt an hour.
+    const menu = page.getByRole('button', { name: 'View and week' });
+    expect(await height()).toBe(71);
+    await phoneView(page, 'Zoom in');
+    await expect.poll(height).toBe(95);
+    await menu.click();
+    await expect(page.getByRole('menuitem', { name: 'Zoom in' })).toHaveCount(0);
+    await expectTapTarget(page.getByRole('menuitem', { name: 'Zoom out' }));
+    await page.keyboard.press('Escape');
+    await page.screenshot({ path: info.outputPath(`today-zoomed-${info.project.name}.png`) });
+    for (const px of [72, 48, 30]) {
+      await phoneView(page, 'Zoom out');
+      await expect.poll(height).toBe(px - 1);
+    }
+    await menu.click();
+    await expect(page.getByRole('menuitem', { name: 'Zoom out' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Zoom in' })).toBeVisible();
+    expect(errors).toEqual([]);
+    return;
+  }
+  const zoom = page.getByRole('group', { name: 'Calendar zoom' });
+  const [zoomIn, zoomOut] = [zoom.getByRole('button', { name: 'Zoom in' }), zoom.getByRole('button', { name: 'Zoom out' })];
   await expect(zoomOut).toBeDisabled();
   expect(await height()).toBe(29);
   for (const px of [48, 72, 96]) {
@@ -150,11 +174,11 @@ test('a block still to come changes its length from its bottom edge, held first 
   await settled(page);
   const b = page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
-  // The first zoom draws 30px an hour, so 15px down is half an hour longer.
+  // Desktop's first zoom draws 30px an hour, so 15px down is half an hour longer; the phone's day 72pt, so 36.
   if (phone) {
     const grip = b.locator('.rz');
     const box = (await grip.boundingBox())!;
-    await touchDrag(page, grip, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 15 });
+    await touchDrag(page, grip, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 36 });
   } else {
     const edge = (await b.locator('.evh').boundingBox())!;
     const x = edge.x + edge.width / 2;
@@ -196,11 +220,13 @@ test('the block under way keeps its start and changes only its end, from its edg
   await settled(page);
   // Under way, it's a button on phone too, since it no longer moves.
   const b = page.getByRole('button', { name: /^Paint the fence, 1:30pm to 3pm, One off\. Now\./ });
-  await b.scrollIntoViewIfNeeded();
+  // Mid-screen on phone, clear of the edges where a drag scrolls the day on.
+  await b.evaluate((el, phone) => el.scrollIntoView({ block: phone ? 'center' : 'nearest' }), phone);
   if (phone) {
+    // Half an hour at the phone's 72pt.
     const grip = b.locator('.rz');
     const box = (await grip.boundingBox())!;
-    await touchDrag(page, grip, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 15 });
+    await touchDrag(page, grip, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 36 });
   } else {
     // Pressed in the middle, it doesn't move.
     const mid = (await b.boundingBox())!;
@@ -217,7 +243,7 @@ test('the block under way keeps its start and changes only its end, from its edg
     await page.mouse.up();
   }
   await expect(page.getByText('Paint the fence is now 1:30pm to 3:30pm.')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Current block' }).getByText('Now, 1:30pm to 3:30pm')).toBeVisible();
+  await expect((await showNow(page, phone)).getByText(phone ? '1:30pm to 3:30pm' : 'Now, 1:30pm to 3:30pm')).toBeVisible();
   if (!phone) {
     const longer = page.getByRole('button', { name: /^Paint the fence, 1:30pm to 3:30pm/ });
     await longer.focus();
@@ -240,12 +266,20 @@ test('an Inbox item’s block shows it isn’t sorted yet, on Today and on Week:
   await expect(drawn.locator('svg[data-icon="inbox"]')).toBeVisible();
   expect(await drawn.evaluate((el) => getComputedStyle(el).borderLeftStyle)).toBe('dashed');
 
+  // The phone has no Week: Today's day is the week's day there, where the block says so in words too, and opens as any
+  // block does.
+  if (phone) {
+    await expect(drawn).toContainText('Inbox, 5:45pm to 6:45pm');
+    await openBlock(page, drawn, true);
+    await expect(page.getByRole('dialog', { name: 'Book dentist' })).toBeVisible();
+    expect(errors).toEqual([]);
+    return;
+  }
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
-  const week = page.getByRole('button', { name: phone ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.' });
+  const week = page.getByRole('button', { name: 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.' });
   await week.scrollIntoViewIfNeeded();
   await expect(week).toHaveClass(/\bk-inbox\b/);
   await expect(week.locator('svg[data-icon="inbox"]')).toBeVisible();
-  if (phone) await expect(week).toContainText('Inbox, 1h');
   await week.click();
   await expect(page.getByRole('dialog', { name: 'Book dentist' })).toBeVisible();
   expect(errors).toEqual([]);
@@ -265,8 +299,8 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
   const b = page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
-  // The first zoom draws 30px an hour, so 15px down is half an hour later.
-  if (phone) await touchDrag(page, b, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 15 });
+  // Desktop's first zoom draws 30px an hour, so 15px down is half an hour later; the phone's day 72pt, so 36.
+  if (phone) await touchDrag(page, b, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 36 });
   else {
     await holdMouse(page, { x: box.x + box.width / 3, y: box.y + box.height / 2 });
     await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 + 15, { steps: 4 });
@@ -374,9 +408,16 @@ async function pressOnDay(page: Page, time: string, phone: boolean) {
   const [h, m] = time.split(':').map(Number);
   return page.evaluate(
     ({ minutes, pointerType }) => {
-      // From 7am, 30px an hour at the first zoom.
-      const box = document.querySelector('.day')!.getBoundingClientRect();
-      const at = { x: box.x + box.width * 0.6, y: box.y + ((minutes - 420) / 60) * 30 };
+      // Where the drawn day says the time is: desktop's from 7am, the phone's from where it opens.
+      const day = document.querySelector<HTMLElement>('.day')!;
+      const [from, to] = [Number(day.dataset.dropFrom), Number(day.dataset.dropTo)];
+      const point = () => {
+        const box = day.getBoundingClientRect();
+        return { x: box.x + box.width * 0.6, y: box.y + ((minutes - from) / (to - from)) * box.height };
+      };
+      // On phone, the time is brought to the middle of the screen, clear of the week's strip stuck over the day.
+      if (pointerType === 'touch') document.querySelector('.pane')!.scrollBy(0, point().y - innerHeight / 2);
+      const at = point();
       const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType, isPrimary: true, button: 0, buttons: 1, clientX: at.x, clientY: at.y };
       document.elementFromPoint(at.x, at.y)!.dispatchEvent(new PointerEvent('pointerdown', init));
       return at;
@@ -446,8 +487,12 @@ test("Capture on a draft is a search too: it starts on a new Inbox task, typing 
   const phone = info.project.name === 'phone';
   const pick: Seed = { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 60 } };
   const errors = await open(page, [planned, project, report, pick, fence]);
+  // Waiting to be placed: above the day on desktop, and on phone behind Today's waiting row.
   const lane = page.getByRole('region', { name: 'To schedule' });
-  await expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
+  const waiting = () =>
+    phone ? expect(page.getByRole('button', { name: /^\d+ to schedule/ })).toBeVisible() : expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
+  await waiting();
+  await settled(page);
   const capture = page.getByRole('dialog', { name: 'Capture' });
   const field = capture.getByRole('combobox', { name: 'Capture to Inbox' });
   const list = capture.getByRole('listbox', { name: 'A new task or one you have' });
@@ -506,7 +551,7 @@ test("Capture on a draft is a search too: it starts on a new Inbox task, typing 
   await expect(page.locator('[aria-label*=", Inbox."]')).toHaveCount(0);
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
   await expect(placed).toHaveCount(0);
-  await expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
+  await waiting();
   expect(errors).toEqual([]);
 });
 

@@ -8,6 +8,9 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 17, text: "On your phone, Plan has its own tab, with this week's and next week's plans on top." },
+  { id: 16, text: "On your phone, Today shows the week above your day: tap or swipe to see any day." },
+  { id: 15, text: "Today opens on your day's calendar, and a tap on a block shows what you can do with it now." },
   { id: 14, text: 'Swipe left or right on a day to move to the next or previous one.' },
   { id: 9, text: 'A one off on one date can now have a time of day, and it lands on your calendar then.' },
   { id: 8, text: "A practice's sessions now land on your calendar at its set times when those times are free." },

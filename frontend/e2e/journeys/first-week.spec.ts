@@ -1,4 +1,6 @@
 import { expect, test } from '../platform';
+import { skipPlanningOnToday, startPlanningOnToday } from '../seed';
+import { askOnBlock, showNow } from '../today';
 import { addMilestones, addProject, addTasks, chicago, firstRun, jumpTo, openProject, pane, processTo, slide, start, tab, TZ } from './journey';
 
 // From an empty first run to a planned week, then the day itself: check-in, end-of-block answers, and rescheduling.
@@ -11,9 +13,9 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   const errors = await start(page, chicago('2026-11-02', '07:30')); // Monday morning.
 
   await firstRun(page, 'Write a novel');
-  // A new install with nothing planned opens on the prompt to plan the week.
-  await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  // A new install with nothing planned opens on the prompt to plan the week: on phone, the strip's footer over today.
+  await expect(phone ? page.getByText('Not planned yet') : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
+  await skipPlanningOnToday(page);
 
   await tab(page, phone, 'Goals');
   await addProject(page, phone, 'Write a novel', 'Finish the first draft', '2026-12-18');
@@ -35,7 +37,7 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
 
   // Weekly planning: Inbox, Pick tasks, Schedule, Review.
   await tab(page, phone, 'Today');
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
   await expect(steps.locator('[aria-current="step"]')).toHaveText(/Inbox/);
   await page.getByRole('button', { name: 'Process 1 item' }).click();
@@ -98,7 +100,13 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   // Still to come, so on phone they're sliders that VoiceOver can move, as on Week.
   await expect(timeline.getByRole(phone ? 'slider' : 'button', { name: 'Sketch the chapter list, 5pm to 6pm, Project.' })).toBeVisible();
   await expect(timeline.getByRole(phone ? 'slider' : 'button', { name: 'Write the opening scene, 6pm to 7:30pm, Project.' })).toBeVisible();
-  const now = page.getByRole('region', { name: 'Current block' });
+  // The Now card, or on phone the block raised on the day.
+  const now = phone ? page.locator('.cev.raised:not(.settling)') : page.getByRole('region', { name: 'Current block' });
+  // On phone, the block in progress keeps to its own times until a tap shows its actions.
+  const counting = async () =>
+    phone ? expect((await showNow(page, phone)).getByRole('button', { name: 'Mark done now' })).toBeVisible() : expect(now.getByText('In progress, time left')).toBeVisible();
+  /** A block that ended asks how it went: in its prompt, and on phone on the block itself, once a tap selects it. */
+  const endOf = async (title: string) => (phone ? askOnBlock(page, new RegExp(`^${title}, `)) : page.getByRole('dialog', { name: 'Block finished' }));
 
   // A few minutes in, the start check-in asks; Yes starts the countdown.
   await jumpTo(page, chicago('2026-11-02', '17:06'));
@@ -106,15 +114,15 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(check.getByText('Have you started Sketch the chapter list?')).toBeVisible();
   await check.getByRole('button', { name: 'Yes, started' }).click();
   await expect(check).toHaveCount(0);
-  await expect(now.getByText('In progress, time left')).toBeVisible();
-  await expect(now.getByRole('timer')).toHaveText(/^5\d:\d\d$/);
+  await counting();
+  if (!phone) await expect(now.getByRole('timer')).toHaveText(/^5\d:\d\d$/);
 
   // At its end it asks how it went: Done.
   await jumpTo(page, chicago('2026-11-02', '18:01'));
-  let ended = page.getByRole('dialog', { name: 'Block finished' });
+  let ended = await endOf('Sketch the chapter list');
   await expect(ended.getByText('Sketch the chapter list')).toBeVisible();
   await ended.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(ended).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
   // The next block's check-in can wait ten minutes, and then asks again.
   await jumpTo(page, chicago('2026-11-02', '18:06'));
   await expect(check.getByText('Have you started Write the opening scene?')).toBeVisible();
@@ -122,13 +130,15 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(check).toHaveCount(0);
   await jumpTo(page, chicago('2026-11-02', '18:17'));
   await check.getByRole('button', { name: 'Yes, started' }).click();
-  await expect(now.getByRole('heading', { name: 'Write the opening scene' })).toBeVisible();
+  // On phone the block answered before stays selected; Today tapped again hands the selection back to the one under way.
+  if (phone) await tab(page, phone, 'Today');
+  await (phone ? expect(now).toContainText('Write the opening scene') : expect(now.getByRole('heading', { name: 'Write the opening scene' })).toBeVisible());
   // Saved before the clock moves on, or the block would have started at the later time.
-  await expect(now.getByText('In progress, time left')).toBeVisible();
+  await counting();
 
   // The second block ends: Partly, with the time left on the estimate slider.
   await jumpTo(page, chicago('2026-11-02', '19:31'));
-  ended = page.getByRole('dialog', { name: 'Block finished' });
+  ended = await endOf('Write the opening scene');
   await expect(ended.getByText('Write the opening scene')).toBeVisible();
   await ended.getByRole('button', { name: 'Partly' }).click();
   const left = page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' });
@@ -138,19 +148,23 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
 
   // Needs a new time: give it one.
   // The queue's own Review: until Today reads the answer back, the alert in its place reviews the missed block.
-  await (phone ? page.getByRole('button', { name: '1 task needs a new time Review' }) : page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' })).click();
-  const queue = phone ? page.getByRole('dialog', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
+  // On phone, behind Today's row of what's waiting for a time.
+  if (phone) await page.getByRole('button', { name: '1 to schedule' }).click();
+  else await page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' }).click();
+  const queue = phone ? page.getByRole('dialog', { name: 'To schedule' }).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Partly done today, 45m left')).toBeVisible();
   if (phone) {
+    // Placed from Today, which draws the week on phone: Thursday, chosen on the strip.
     await queue.getByRole('button', { name: 'Place on calendar' }).click();
-    await expect(pane(page, 'Week')).toBeVisible();
-    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(3).click();
-    await expect(page.getByRole('heading', { name: 'Thu Nov 5' })).toBeVisible();
+    await expect(pane(page, 'Today').getByText(/^Placing Write the opening scene, /)).toBeVisible();
+    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Thu Nov 5/ }).click();
+    await expect(page.getByRole('heading', { name: 'Thursday', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Place here' }).click();
     const toast = page.getByText(/^Placed Write the opening scene, Thu Nov 5, /);
     const time = (await toast.textContent())!.replace('Placed Write the opening scene, Thu Nov 5, ', '');
     await page.getByRole('button', { name: 'Done editing' }).click();
-    await expect(page.getByRole('button', { name: new RegExp(`^Write the opening scene, ${time} to `) })).toBeVisible();
+    // Still to come, so a slider on Thursday's day.
+    await expect(page.getByRole('slider', { name: new RegExp(`^Write the opening scene, ${time} to `) })).toBeVisible();
   } else {
     const offer = queue.getByRole('button', { name: /^Place Write the opening scene, / });
     const label = (await offer.getAttribute('aria-label'))!.replace('Place Write the opening scene, ', '');

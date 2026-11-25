@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { belongsTo, expectNoSideways, expectTapTarget, openSeeded, pane } from './seed';
+import { openBlock } from './today';
 import type { Seed } from './seed';
 
 // The task popup is the same wherever a task opens: from a list it can Start now, Mark done and Schedule…, and set its
@@ -113,11 +114,11 @@ test('from a list: Start now, Mark done and Schedule… save at once with Undo, 
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(toast(page)).toHaveCount(0);
 
-  // Choose a time… opens Week to place it by hand.
+  // Choose a time… opens Week to place it by hand: on phone, Today, which draws the week, its strip named so.
   await actions.getByRole('button', { name: 'Schedule…' }).click();
   await menu.getByRole('menuitem', { name: 'Choose a time…' }).click();
   await expect(popup).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
+  await expect(phone ? page.getByRole('region', { name: /^Editing this week, / }) : page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -147,7 +148,7 @@ test("from a block on Today: the block's section takes the actions' place, and M
   // On phone a block still to come is a slider.
   const block = page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
   await block.scrollIntoViewIfNeeded();
-  await (phone ? block.tap() : block.click());
+  await openBlock(page, block, phone);
   const popup = popupOf(page, 'Draft the summary');
   const section = popup.getByRole('region', { name: 'Time block' });
   await expect(section.getByRole('button')).toHaveText(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
@@ -172,7 +173,8 @@ test("phone: no popup scrolls sideways, whatever its fields, from a list or a bl
   // From a block on Today: a project's task, with its date field.
   const block = page.getByRole('slider', { name: /^Draft the summary, 4pm to 5pm/ });
   await block.scrollIntoViewIfNeeded();
-  await block.tap();
+  // On phone a tap selects a block, and a second opens it.
+  await openBlock(page, block, true);
   let popup = popupOf(page, 'Draft the summary');
   await expectNoSideways(popup);
   await popup.getByRole('button', { name: 'Cancel' }).tap();

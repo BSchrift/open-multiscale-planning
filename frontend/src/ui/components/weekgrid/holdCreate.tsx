@@ -19,7 +19,7 @@ import { useApp } from '../../app/store';
 import type { CaptureSlot } from '../../screens/capture';
 import { blockClass } from '../ds/Block';
 import { useToast } from '../Toast';
-import { DRAG_PX, heldPointers, HOLD_MS, SLOP_PX, swallowClick } from './drop';
+import { DRAG_PX, edgeScroll, heldPointers, HOLD_MS, SLOP_PX, swallowClick } from './drop';
 import './hold.css';
 
 /** Long enough for the ring's spread, which is twice --dur-slow. */
@@ -125,6 +125,8 @@ export function useHoldToCreate(opts: {
   off?: boolean;
   /** A mouse that moves before the hold draws the draft from the press to the pointer, in the pressed element's day. */
   draws?: boolean;
+  /** Held near the top or bottom of the screen, what the day is in scrolls, as on the phone's Today. */
+  edges?: boolean;
 }) {
   const { platform, layout } = useApp();
   const toast = useToast();
@@ -175,6 +177,14 @@ export function useHoldToCreate(opts: {
     // A mouse drawing the draft, from the day and minute it was pressed at, read once as the calendar may redraw under it.
     let drawing = false;
     let from: { date: LocalDate; minute: number } | null = null;
+    // Once held, where the day scrolls at the screen's edges, the draft keeps to the finger.
+    let edges: ReturnType<typeof edgeScroll> | null = null;
+    let last = { x: x0, y: y0 };
+    const follow = (x: number, y: number) => {
+      last = { x, y };
+      const next = held && live.current.move(held, x - x0, y - y0 + (edges?.scrolled() ?? 0), el);
+      if (next) setDraft((d) => d && (same(d.slot, next) ? d : { ...d, slot: next, moved: null, fresh: false }));
+    };
     const draw = (x: number, y: number) => {
       const r = el.getBoundingClientRect();
       const at = from && live.current.at(x - r.left, y - r.top, el);
@@ -196,6 +206,7 @@ export function useHoldToCreate(opts: {
       heldPointers.add(event.pointerId);
       setDraft({ slot: held, moved: slot.moved, name: '', open: false, fresh: true });
       setRing({ x: x0, y: y0, key: pressed });
+      if (live.current.edges) edges = edgeScroll(el, () => follow(last.x, last.y));
       void platform.haptic?.();
     };
     const on: Record<string, (ev: Event) => void> = {
@@ -218,8 +229,8 @@ export function useHoldToCreate(opts: {
           }
           if (!held) return;
         }
-        const next = live.current.move(held, m.clientX - x0, m.clientY - y0, el);
-        if (next) setDraft((d) => d && (same(d.slot, next) ? d : { ...d, slot: next, moved: null, fresh: false }));
+        edges?.follow(m.clientY);
+        follow(m.clientX, m.clientY);
       },
       pointerup: (ev) => {
         if (!own(ev)) return;
@@ -255,6 +266,7 @@ export function useHoldToCreate(opts: {
     };
     const stop = () => {
       clearTimeout(timer);
+      edges?.stop();
       heldPointers.delete(event.pointerId);
       pressing.current = null;
       for (const [k, f] of Object.entries(on)) window.removeEventListener(k, f);

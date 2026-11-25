@@ -1,4 +1,5 @@
 import { expect, test } from '../platform';
+import { skipPlanningOnToday, startPlanningOnToday } from '../seed';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, start, tab, TZ } from './journey';
 
 // A milestone passes its date, the project asks what to do, the date moves with Undo; then one project is finished
@@ -12,7 +13,7 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
   const goal = 'Keep the house in shape';
   const errors = await start(page, chicago('2026-11-02', '09:00')); // Monday.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
 
   await tab(page, phone, 'Goals');
   const fence = await addProject(page, phone, goal, 'Paint the garden fence', '2026-12-18');
@@ -94,7 +95,7 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
 
   // Weekly planning offers the restored project, and not the dropped one.
   await tab(page, phone, 'Today');
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await expect(page.getByRole('region', { name: 'Paint the garden fence' })).toBeVisible();
   await expect(page.getByText('Clear out the shed').filter({ visible: true })).toHaveCount(0);

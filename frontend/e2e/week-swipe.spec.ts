@@ -1,16 +1,17 @@
-// Swiping Week's day on phone from day to day, as Apple Maps pages between places: the day follows the finger, and
-// letting go settles on the day momentum points to, at most one day either side of the one the swipe began on.
-// A swipe whose speed decides it is sent as the touch pointer events a finger makes, all at once, each stamped with its
-// time, so its speed is exact however busy the page is: a phone stamps a finger's events as it moves, but CDP's touches
-// arrive a frame apart at best, and further apart while the page loads code, which made a quick flick read as a slow
-// drag. Where the browser's own handling matters, in Chromium the finger is real: CDP's Input.dispatchTouchEvent sends
-// touches the page sees as a person's, so a vertical drag scrolls the page as the phone would. Playwright's WebKit can't
-// move a finger, so there those are pointer events too. The iPhone Simulator test swipes the app itself.
+// Swiping the day on the phone's Today from day to day, as Apple Maps pages between places: the day follows the finger,
+// and letting go settles on the day momentum points to, at most one day either side of the one the swipe began on. A
+// swipe's speed is read from its touches' times, so a timed swipe is the touch pointer events a finger makes, each with
+// its time, in both browsers: Playwright's clock, which these tests install, stamps a real touch with the time it
+// reaches the page, whatever time CDP gives it, and a busy machine slows it down. Where the browser's own handling
+// matters, in a vertical drag the phone scrolls and a hold the app times, Chromium's finger is real: CDP's
+// Input.dispatchTouchEvent sends touches the page sees as a person's. Playwright's WebKit can't move a finger, so there
+// it's the pointer events. The iPhone Simulator test swipes the app itself.
 
 import { expect, test } from '@playwright/test';
 import type { CDPSession, Page } from '@playwright/test';
 import { openSeeded, settled } from './seed';
 import type { Seed } from './seed';
+import { todayRead } from './today';
 
 test.use({ timezoneId: 'America/Chicago', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -33,85 +34,75 @@ const records: Seed[] = [
 type Point = { x: number; y: number; t: number };
 
 /**
- * One finger, put down, moved and lifted as it happens: real touches in Chromium; in WebKit, the touch pointer events
- * they make.
+ * One finger, put down, moved and lifted. A touch given a time `t`, in ms after the finger went down, is the touch pointer
+ * event a finger makes, carrying that time, in both browsers. One sent now, with `t` left out, is a real touch in
+ * Chromium, and in WebKit the pointer event.
  */
 function finger(page: Page) {
   const chromium = page.context().browser()?.browserType().name() === 'chromium';
   let cdp: CDPSession | null = null;
   let last = { x: 0, y: 0 };
-  return async (type: 'down' | 'move' | 'up', p: { x: number; y: number } | null) => {
+  return async (type: 'down' | 'move' | 'up', p: { x: number; y: number } | null, t?: number) => {
     const to = p ?? last;
     last = to;
-    if (chromium) {
+    if (chromium && t === undefined) {
       if (type === 'down') cdp = await page.context().newCDPSession(page);
       const kind = ({ down: 'touchStart', move: 'touchMove', up: 'touchEnd' } as const)[type];
       await cdp!.send('Input.dispatchTouchEvent', { type: kind, touchPoints: type === 'up' ? [] : [{ x: to.x, y: to.y, id: 1 }] });
       return;
     }
+    // The page keeps the time the finger went down, which the events' times count from.
     await page.evaluate(
-      ({ type, x, y }) => {
+      ({ type, x, y, t }) => {
         const kind = { down: 'pointerdown', move: 'pointermove', up: 'pointerup' }[type]!;
+        const held = window as unknown as { fingerDown: number };
+        if (type === 'down') held.fingerDown = performance.now();
         const e = new PointerEvent(kind, { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: type === 'up' ? 0 : 1, clientX: x, clientY: y });
+        if (t !== null) Object.defineProperty(e, 'timeStamp', { value: held.fingerDown + t });
         (type === 'down' ? document.elementFromPoint(x, y)! : window).dispatchEvent(e);
       },
-      { type, x: to.x, y: to.y },
+      { type, x: to.x, y: to.y, t: t ?? null },
     );
   };
 }
 
-/**
- * A finger put down at the first point, moved through the rest and lifted `upAt` ms after it went down: the touch
- * pointer events it makes, sent together, each stamped `t` ms after the first. `watch` keeps each place the day is
- * drawn at from the moment it's let go, in window.drawn.
- */
-async function swipe(page: Page, points: readonly Point[], upAt: number, watch = false) {
-  await page.evaluate(
-    ({ points, upAt, watch }) => {
-      const down = performance.now();
-      const fire = (type: string, target: EventTarget, p: { x: number; y: number }, t: number) => {
-        const e = new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: p.x, clientY: p.y });
-        Object.defineProperty(e, 'timeStamp', { value: down + t });
-        target.dispatchEvent(e);
-      };
-      const [first, ...moves] = points;
-      fire('pointerdown', document.elementFromPoint(first!.x, first!.y)!, first!, first!.t);
-      for (const p of moves) fire('pointermove', window, p, p.t);
-      fire('pointerup', window, moves.at(-1) ?? first!, upAt);
-      if (!watch) return;
-      const track = document.querySelector<HTMLElement>('.wkdaycard .dptrack')!;
-      const drawn: string[] = [];
-      new MutationObserver(() => drawn.push(track.style.transform)).observe(track, { attributes: true, attributeFilter: ['style'] });
-      (window as unknown as { drawn: string[] }).drawn = drawn;
-    },
-    { points, upAt, watch },
-  );
+/** A finger put down at the first point, moved through the rest at their times, and lifted `upAt` ms after it went down. */
+async function swipe(page: Page, points: readonly Point[], upAt: number) {
+  const send = finger(page);
+  for (const [i, p] of points.entries()) await send(i ? 'move' : 'down', p, p.t);
+  await send('up', null, upAt);
 }
 
 /** From `from`, `steps` moves of (dx, dy) each, `every` ms apart. */
 const path = (from: { x: number; y: number }, steps: number, dx: number, dy: number, every: number): Point[] =>
   Array.from({ length: steps + 1 }, (_, i) => ({ x: from.x + dx * i, y: from.y + dy * i, t: every * i }));
 
-const day = (page: Page) => page.locator('.wkdaycard');
-const heading = (page: Page) => page.locator('h3.wkday');
+const day = (page: Page) => page.locator('.tdpager');
+/** The title over the day, which names the day shown: Today, Tomorrow, or its day of the week. */
+const heading = (page: Page) => page.locator('.tdhead h1');
 const strip = (page: Page) => page.getByRole('group', { name: 'Choose a day' });
+/**
+ * The day the strip marks, read from the strip itself: the day may keep its time of day by scrolling the page, which
+ * folds the strip away from screen readers.
+ */
+const marked = (page: Page) => page.locator('.sfdays [aria-pressed="true"]');
 
-/** A point on the part of the day that shows, `y` px down it: below the sticky week top and clear of the tab bar. */
+/** A point on the part of the day that shows, `y` px down it: below the strip's day row stuck over it and clear of the tab bar. */
 const onDay = (page: Page, y = 40) =>
   day(page).evaluate((el, y) => {
     const box = el.getBoundingClientRect();
-    const top = Math.max(box.top, document.querySelector('.weektop')!.getBoundingClientRect().bottom);
+    const top = Math.max(box.top, document.querySelector('.sfbg')!.getBoundingClientRect().bottom);
     return { x: box.left + box.width * 0.8, y: Math.min(top + y, innerHeight - 160) };
   }, y);
 
 /** The swipe has let go and its spring has settled. */
 const still = (page: Page) => expect(day(page)).not.toHaveAttribute('data-swiping');
 
-/** The minute at the top of what shows of the day, under the sticky week top, read from its rows as drops read them. */
+/** The minute at the top of what shows of the day, under the strip's day row, read from the drawn day as drops read it. */
 const timeAtTop = (page: Page) =>
   page.evaluate(() => {
-    const top = document.querySelector('.weektop')!.getBoundingClientRect().bottom;
-    const rows = [...document.querySelectorAll<HTMLElement>('.wkdaycard .dppane:not(.dpside) [data-drop-from]')];
+    const top = document.querySelector('.sfbg')!.getBoundingClientRect().bottom;
+    const rows = [...document.querySelectorAll<HTMLElement>('.tdpager .dppane:not(.dpside) [data-drop-from]')];
     const row = rows.find((r) => top < r.getBoundingClientRect().bottom)!;
     const box = row.getBoundingClientRect();
     const [from, to] = [Number(row.dataset.dropFrom), Number(row.dataset.dropTo)];
@@ -134,25 +125,25 @@ test.beforeEach(async ({ page }) => {
   await openSeeded(page, records);
   // Every screen's styles, which load after the first and can move the day, are in before anything is measured.
   await settled(page);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
-  await expect(heading(page)).toHaveText('Mon Nov 2');
-  // Today's heading links to Done once its own query has read what was finished, after the day first draws, and it
-  // grows taller as it does, moving the day down the page: anything measured waits for it.
-  await expect(page.getByRole('button', { name: /^Done on Mon Nov 2: / })).toBeVisible();
+  await todayRead(page, true);
+  await expect(heading(page)).toHaveText('Today');
+  // Today makes the first stretch's planning task by itself, and its row then comes in above the day, moving the day
+  // down the page. Until then, a point measured on the day can land elsewhere.
+  await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
 });
 test.afterEach(() => expect(errors).toEqual([]));
 
 test('a quick short flick moves one day, and the strip follows', async ({ page }) => {
   // 60px in 32ms: far short of halfway, but 1875 pt/s, well past the flick speed.
   await swipe(page, path(await onDay(page), 4, -15, 0, 8), 34);
-  await expect(heading(page)).toHaveText('Tue Nov 3');
-  await expect(strip(page).getByRole('button', { name: /^Tue Nov 3/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(heading(page)).toHaveText('Tomorrow');
+  await expect(marked(page)).toHaveAttribute('aria-label', /^Tue Nov 3/);
   await still(page);
-  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm/ })).toBeVisible();
+  await expect(page.getByRole('slider', { name: /^Draft the summary, 6pm to 7pm/ })).toBeVisible();
 
   // And back the other way.
   await swipe(page, path(await onDay(page), 4, 15, 0, 8), 34);
-  await expect(heading(page)).toHaveText('Mon Nov 2');
+  await expect(heading(page)).toHaveText('Today');
   await still(page);
 });
 
@@ -160,37 +151,38 @@ test('a slow small drag springs back to the day it started on', async ({ page })
   // 80px over 800ms, then held still before letting go: slow, and nowhere near halfway.
   await swipe(page, path(await onDay(page), 16, -5, 0, 50), 900);
   await still(page);
-  await expect(heading(page)).toHaveText('Mon Nov 2');
-  await expect(page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ })).toBeVisible();
+  await expect(heading(page)).toHaveText('Today');
+  await expect(page.getByRole('slider', { name: /^Paint the fence, 4pm to 5pm/ })).toBeVisible();
 });
 
 test('a long drag, flicked on at the end, moves exactly one day, drawing the next day beside it on the way', async ({ page }) => {
-  // Over 650px left, well past one day, by a real finger: however fast, it can only end one day on.
+  // Over 650px left, well past one day, the last of it fast.
   const points = path(await onDay(page), 26, -25, 0, 16);
   const send = finger(page);
-  for (const [i, p] of points.slice(0, 14).entries()) await send(i ? 'move' : 'down', p);
+  for (const [i, p] of points.slice(0, 14).entries()) await send(i ? 'move' : 'down', p, p.t);
   // Past halfway, with the finger still down: the next day is drawn beside this one, and the strip already says it.
   await expect(day(page).locator('.dpside[data-day="2026-11-03"]')).toContainText('Draft the summary');
-  await expect(strip(page).getByRole('button', { name: /^Tue Nov 3/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(heading(page)).toHaveText('Mon Nov 2');
-  for (const p of points.slice(14)) await send('move', p);
+  await expect(marked(page)).toHaveAttribute('aria-label', /^Tue Nov 3/);
+  await expect(heading(page)).toHaveText('Today');
+  for (const p of points.slice(14)) await send('move', p, p.t);
   // Far past one day, the day after next is never drawn, and the page never scrolls sideways.
   await expect(day(page).locator('.dppane')).toHaveCount(3);
   await expect(day(page).locator('.dppane[data-day="2026-11-04"]')).toHaveCount(0);
   expect(await page.evaluate(() => [...document.querySelectorAll('*')].filter((el) => el.scrollLeft > 0).length + scrollX)).toBe(0);
-  await send('up', null);
+  await send('up', null, points.at(-1)!.t + 2);
   await still(page);
-  await expect(heading(page)).toHaveText('Tue Nov 3');
-  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm/ })).toBeVisible();
+  await expect(heading(page)).toHaveText('Tomorrow');
+  await expect(page.getByRole('slider', { name: /^Draft the summary, 6pm to 7pm/ })).toBeVisible();
 });
 
 test('a vertical drag scrolls the day and keeps it', async ({ page }, info) => {
   const before = await scrolled(page);
+  // Sent now rather than at set times, so in Chromium it's a real finger, which the page leaves to the browser to scroll.
   const send = finger(page);
   for (const [i, p] of path(await onDay(page, 200), 10, 2, -25, 16).entries()) await send(i ? 'move' : 'down', p);
   await send('up', null);
   await still(page);
-  await expect(heading(page)).toHaveText('Mon Nov 2');
+  await expect(heading(page)).toHaveText('Today');
   // A real finger scrolls the page as the phone would; WebKit's pointer events here can't scroll it.
   if (info.project.name === 'desktop') await expect.poll(() => scrolled(page)).toBeGreaterThan(before + 100);
 });
@@ -198,73 +190,90 @@ test('a vertical drag scrolls the day and keeps it', async ({ page }, info) => {
 test('a held block dragged sideways moves, and a hold on empty time drafts there, with no swipe either time', async ({ page }) => {
   // Real time here, so the app's hold runs as it would.
   const send = finger(page);
-  const block = page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ });
+  const block = page.getByRole('slider', { name: /^Paint the fence, 4pm to 5pm/ });
   await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const box = (await block.boundingBox())!;
   const from = { x: box.x + box.width * 0.7, y: box.y + box.height / 2 };
-  // Held until it lifts, then dragged left and two rows down, onto the free time after it, much as a swipe would go.
+  // Held until it lifts, then dragged left and well over an hour down, onto the free time after it, much as a swipe
+  // would go.
   await send('down', from);
-  await expect(page.locator('.tlblock.lifted')).toBeVisible();
+  await expect(page.locator('.cev.lifted')).toBeVisible();
   for (let i = 1; i <= 6; i++) await send('move', { x: from.x - 30 * i, y: from.y + 20 * i });
   await send('up', null);
-  await expect(page.getByText(/^Moved Paint the fence to Mon Nov 2, /)).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ })).toHaveCount(0);
+  const moved = page.getByText(/^Paint the fence is now /);
+  await expect(moved).toBeVisible();
+  await expect(page.getByRole('slider', { name: /^Paint the fence, 4pm to 5pm/ })).toHaveCount(0);
   await still(page);
-  await expect(heading(page)).toHaveText('Mon Nov 2');
+  await expect(heading(page)).toHaveText('Today');
+  // The day drafts nothing while a block it has just dropped waits for its saved time to come back, which the toast can
+  // come before. The line saying how long the time until the next block is free reads the saved time.
+  const [, when] = /is now (\S+) to /.exec((await moved.textContent())!)!;
+  await expect(page.getByText(`Free until ${when}`)).toBeVisible();
 
-  // Held on the free time after it until a draft appears, then dragged sideways: Capture opens on the draft.
-  const free = page.locator('.dppane:not(.dpside) .tlfree').last();
-  await free.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-  const fb = (await free.boundingBox())!;
-  const start = { x: fb.x + fb.width * 0.7, y: fb.y + fb.height / 2 };
+  // Held on the free time after it, at 8:30pm, until a draft appears, then dragged sideways: Capture opens on the draft.
+  // The time is found on the drawn day as drops find it, and brought to the middle of the screen.
+  const start = await page.locator('.tdpager .dppane:not(.dpside) .day').evaluate((day: HTMLElement) => {
+    const [from, to] = [Number(day.dataset.dropFrom), Number(day.dataset.dropTo)];
+    const point = () => {
+      const box = day.getBoundingClientRect();
+      return { x: box.x + box.width * 0.7, y: box.y + ((20 * 60 + 30 - from) / (to - from)) * box.height };
+    };
+    document.querySelector('.pane')!.scrollBy(0, point().y - innerHeight / 2);
+    return point();
+  });
   await send('down', start);
   await expect(page.locator('.holddraft')).toBeVisible();
   for (let i = 1; i <= 6; i++) await send('move', { x: start.x - 30 * i, y: start.y });
   await send('up', null);
   await expect(page.getByRole('dialog', { name: 'Capture' })).toBeVisible();
-  await expect(heading(page)).toHaveText('Mon Nov 2');
+  await expect(heading(page)).toHaveText('Today');
 });
 
 test("swiped past Sunday, the day carries on into next week's Monday, as the week arrows do", async ({ page }) => {
-  await strip(page).getByRole('button', { name: /^Sun Nov 8/ }).click();
-  await expect(heading(page)).toHaveText('Sun Nov 8');
+  await strip(page).getByRole('button', { name: /^Sun Nov 8/ }).tap();
+  await expect(heading(page)).toHaveText('Sunday');
   await swipe(page, path(await onDay(page), 4, -15, 0, 8), 34);
-  await expect(page.getByRole('heading', { name: 'Next week' })).toBeVisible();
-  await expect(heading(page)).toHaveText('Mon Nov 9');
-  await expect(strip(page).getByRole('button', { name: /^Mon Nov 9/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: /^Sand the deck, 10am to 11am/ })).toBeVisible();
+  // The strip's week, which names itself for screen readers.
+  await expect(page.getByRole('region', { name: /^Next week, / })).toBeVisible();
+  await expect(heading(page)).toHaveText('Monday');
+  await expect(marked(page)).toHaveAttribute('aria-label', /^Mon Nov 9/);
+  await expect(page.getByRole('slider', { name: /^Sand the deck, 10am to 11am/ })).toBeVisible();
 
   // And back into this week's Sunday.
   await still(page);
   await swipe(page, path(await onDay(page), 4, 15, 0, 8), 34);
-  await expect(page.getByRole('heading', { name: 'This week' })).toBeVisible();
-  await expect(heading(page)).toHaveText('Sun Nov 8');
+  await expect(page.getByRole('region', { name: /^This week, / })).toBeVisible();
+  await expect(heading(page)).toHaveText('Sunday');
 });
 
 test('the time of day at the top of the day stays put from day to day', async ({ page }) => {
-  // Monday's 4pm block at the top of what shows, under the week's sticky top. Monday's morning has gone by, so its rows
-  // are drawn short; Tuesday's aren't, so the same scroll would show another time there.
-  const block = page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ });
-  await block.evaluate((el) => {
-    const top = document.querySelector('.weektop')!.getBoundingClientRect().bottom;
-    let s = el.parentElement;
-    while (s && !/auto|scroll/.test(getComputedStyle(s).overflowY)) s = s.parentElement;
-    (s ?? document.scrollingElement!).scrollTop += el.getBoundingClientRect().top - top + 10;
-  });
+  // Monday's afternoon at the top of what shows, under the strip's day row, folded: the page scrolled as far as it goes,
+  // since the day ends at 10pm. Monday's day opens at 1pm, with the hours before folded into a row; Tuesday's opens at
+  // 7am, so the same scroll would show its morning there.
+  await page.evaluate(() => document.querySelector('.pane')!.scrollTo(0, 1e6));
+  await expect.poll(() => page.evaluate(() => document.querySelector('.sfbg')!.getBoundingClientRect().height)).toBeCloseTo(56, 0);
   const before = await timeAtTop(page);
-  expect(before).toBeGreaterThan(16 * 60);
+  expect(before).toBeGreaterThan(13 * 60);
   expect(before).toBeLessThan(17 * 60);
   await swipe(page, path(await onDay(page, 200), 4, -15, 0, 8), 34);
-  await expect(heading(page)).toHaveText('Tue Nov 3');
+  await expect(heading(page)).toHaveText('Tomorrow');
   await still(page);
   expect(Math.abs((await timeAtTop(page)) - before)).toBeLessThan(5);
 });
 
 test('with reduced motion, the day changes as the finger lifts, with no spring', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await swipe(page, path(await onDay(page), 4, -15, 0, 8), 34, true);
-  await expect(heading(page)).toHaveText('Tue Nov 3');
+  // Every place the day is drawn at, from the finger going down. Watched from before then, since the lift goes along
+  // with the last move.
+  await day(page).locator('.dptrack').evaluate((track) => {
+    const seen: string[] = [];
+    new MutationObserver(() => seen.push((track as HTMLElement).style.transform)).observe(track, { attributes: true, attributeFilter: ['style'] });
+    (window as unknown as { seen: string[] }).seen = seen;
+  });
+  await swipe(page, path(await onDay(page), 4, -15, 0, 8), 34);
+  await expect(heading(page)).toHaveText('Tomorrow');
   await still(page);
-  // From the moment it was let go, the day is drawn only at rest: no spring between where the finger left it and the next day.
-  expect(await page.evaluate(() => (window as unknown as { drawn: string[] }).drawn.filter(Boolean))).toEqual([]);
+  // With no spring, the day is drawn no further along than the finger took it, 60px, and then at the next day.
+  const drawn = await page.evaluate(() => (window as unknown as { seen: string[] }).seen.filter(Boolean).map((t) => Math.abs(parseFloat(/translate3d\((-?[\d.]+)px/.exec(t)![1]!))));
+  expect(Math.max(0, ...drawn)).toBeLessThanOrEqual(61);
 });

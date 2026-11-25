@@ -40,11 +40,22 @@ function resetMessage(name: string, reverse: PlanChange): string {
 }
 
 /** The button and its confirm, for this week (offset 0) or next week (1). Nothing for other weeks or with nothing to reset. */
-export function ResetWeek(props: { data: WeekData; offset: number; className?: string }) {
+/** Whether this week or next has a plan to reset, so ResetWeek has something to offer. */
+export function resetShown(data: WeekData, offset: number, now: number) {
+  return (offset === 0 || offset === 1) && hasReset(weekReset(data.week, data.weekPlans.find((p) => p.week_start === data.week), data.picks, data.blocks, now));
+}
+
+/**
+ * Reset this week's or next week's plan, with a confirm and Undo. With `asking` given, there's no button: a menu item
+ * elsewhere opens the confirm, as on the phone's Today.
+ */
+export function ResetWeek(props: { data: WeekData; offset: number; className?: string; asking?: { open: boolean; set(open: boolean): void } }) {
   const { data, offset } = props;
   const { clock, layout } = useApp();
   const act = useWeekActions();
-  const [asking, setAsking] = useState(false);
+  const [askingHere, setAskingHere] = useState(false);
+  const asking = props.asking ? props.asking.open : askingHere;
+  const setAsking = props.asking ? props.asking.set : setAskingHere;
   const [step, setStep] = useStickyState<number>(`planning.step.${data.week}`, 0);
   const describedBy = useId();
   const button = useRef<HTMLButtonElement>(null);
@@ -78,9 +89,11 @@ export function ResetWeek(props: { data: WeekData; offset: number; className?: s
   };
   return (
     <>
-      <Button ref={button} variant="destructive" className={props.className} type="button" aria-haspopup="dialog" onClick={() => setAsking(true)}>
-        {label}
-      </Button>
+      {!props.asking && (
+        <Button ref={button} variant="destructive" className={props.className} type="button" aria-haspopup="dialog" onClick={() => setAsking(true)}>
+          {label}
+        </Button>
+      )}
       {asking && (
         <Sheet label={`${label}?`} describedBy={describedBy} onClose={() => setAsking(false)}>
           <h2>{label}?</h2>

@@ -107,6 +107,8 @@ interface GridLaneItem {
   planning?: boolean;
   /** A practice's session for that day, drawn teal as practices are. */
   practice?: boolean;
+  /** Its set time is taken: the warning icon leads, and alt says why. */
+  warn?: boolean;
   open: boolean;
   onToggle(): void;
   /** Dragging it onto a day places it there. */
@@ -334,6 +336,7 @@ export function WeekGrid(props: WeekGridProps) {
                       onPointerDown={a.onPointerDown}
                       onClick={a.onToggle}
                     >
+                      {a.warn && <Icon name="warning" size={16} />}
                       {a.title}
                     </button>
                   );

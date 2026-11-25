@@ -8,6 +8,8 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 7, text: "A practice's session and a planning block now open one popup, wherever you tap them." },
+  { id: 6, text: "Add widgets to your Home Screen to see what's now and next, and to capture a task in a tap." },
   { id: 5, text: 'Every task opens one popup where you can mark it done, set dates, schedule it or start it.' },
   { id: 4, text: 'Start now stops the block that was running and asks how it went.' },
   { id: 3, text: "Find where a task belongs by searching for it in the task's popup." },

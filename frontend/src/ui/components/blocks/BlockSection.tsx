@@ -13,13 +13,14 @@ import { createContext, useContext, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { halfOfPractice, isPaused, nextBlock, partlyLeft, workMinutes } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
-import { dayRange, formatMinutes, instantMs, localDate } from '../../../core/dates';
+import { dayRange, formatDayLong, formatMinutes, formatTimeOfDay, instantMs, localDate, weekday } from '../../../core/dates';
 import { planningWeekOf } from '../../../core/planning';
 import { blocksInRange } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
+import { practiceDays, practiceTime } from '../../../core/slots';
 import type { SlotContext } from '../../../core/slots';
-import type { Minutes } from '../../../core/types';
+import type { LocalDate, Minutes, Practice } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useQuery } from '../../app/store';
 import { Menu } from '../Menu';
@@ -30,6 +31,25 @@ import { CHOICES, Stepper, WORDS } from './MissedSheet';
 import { useBlockCommands } from './useBlockCommands';
 import { Button } from '../ds/Button';
 import { Icon } from '../ds/Icon';
+
+/**
+ * "Taken off, it waits in To schedule for another time today. Next Monday it's back at 4pm.", or with no set time that
+ * day, only the first sentence.
+ */
+function takenOffLine(date: LocalDate, today: boolean, p: Practice | undefined): string {
+  const day = weekday(date);
+  const name = formatDayLong(date).split(',')[0]!;
+  const when = today ? 'today' : `on ${name}`;
+  const time = p && p.per === 'day' && practiceDays(p).includes(day) ? practiceTime(p, day) : null;
+  return `Taken off, it waits in To schedule for another time ${when}.${time === null ? '' : ` Next ${name} it's back at ${formatTimeOfDay(time)}.`}`;
+}
+
+/** Focus on the first of the practice's schedule fields in the popup around the section, to change its set times. */
+function toSchedule(from: HTMLElement | null) {
+  const target = from?.closest('[role="dialog"]')?.querySelector<HTMLElement>('.schedfields input, .schedfields button, .schedfields select');
+  target?.scrollIntoView?.({ block: 'center' });
+  target?.focus();
+}
 
 /** Where Move…'s choices open: this far below the button. */
 const MENU_GAP = 8;
@@ -57,6 +77,8 @@ export function BlockSection(props: {
   const ref = useRef<HTMLElement>(null);
   const askId = useId();
   const task = useQuery((sql) => (block.task_id ? getRecord(sql, 'task', block.task_id) : Promise.resolve(undefined)), [block.task_id]).data;
+  // A practice's session says what taking it off does, and when it's back, from the practice's own time that day.
+  const owner = useQuery((sql) => (block.practice_id ? getRecord(sql, 'practice', block.practice_id) : Promise.resolve(undefined)), [block.practice_id]).data;
   /** The time left while Partly asks for it. */
   const [left, setLeft] = useState<Minutes | null>(null);
   /** Move…'s choices, open below it. */
@@ -193,9 +215,20 @@ export function BlockSection(props: {
           )}
           {props.onRemove && (
             <Button size="compact" type="button" onClick={props.onRemove}>
-              Remove from calendar
+              {practice ? 'Take off calendar' : 'Remove from calendar'}
             </Button>
           )}
+        </div>
+      )}
+      {practice && props.onRemove && (
+        <div className="stack8 small quiet">
+          <p>{takenOffLine(date, today, owner)}</p>
+          <div>
+            {/* The practice's popup has its schedule below this section. */}
+            <Button variant="link" className="small" type="button" onClick={() => toSchedule(ref.current)}>
+              Change its set times
+            </Button>
+          </div>
         </div>
       )}
       {moveAt && moves.length > 0 && <Menu label="Move to" entries={moves} at={moveAt} onChoose={moveTo} onClose={closeMoves} />}

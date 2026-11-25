@@ -78,7 +78,7 @@ test("Today: a session opens its popup from the calendar, the list and the Now c
   const later = timeline.getByRole(phone ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ });
   await openBlock(page, later, phone);
   await expectFrame(popup, 'Time block', phone);
-  await expect(popup.getByRole('region', { name: 'Time block' }).getByRole('button')).toHaveText(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
+  await expect(popup.getByRole('region', { name: 'Time block' }).getByRole('button')).toHaveText(['Start now', 'Mark done', 'Move…', 'Take off calendar', 'Change its set times']);
   await expect(popup.getByRole('heading', { name: 'Piano practice' })).toBeFocused();
   await shoot(page, popup, shot('today-calendar'));
   await popup.getByLabel('Goal').selectOption({ label: 'Keep fit' });

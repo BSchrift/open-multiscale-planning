@@ -43,7 +43,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await add.getByRole('slider', { name: 'Each session' }).fill('15');
   await add.getByLabel('Usual time').fill('07:30');
   await add.getByRole('button', { name: 'Add practice' }).click();
-  await expect(page.getByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
+  // Set to 7:30am every day, it lands at that time from tomorrow, today's having passed.
+  await expect(page.getByText('Practice added. Placed 6 sessions at their set times.')).toBeVisible();
 
   // Do the starter's one task now, from Today's Next up, and answer the block. Started on the hour: the clock has run on
   // since 9am while the steps above took real time, and a block starts on the minute but counts from the second it was
@@ -205,10 +206,11 @@ test('plans the next stretch from what the last one held', async ({ page }, info
     await page.getByRole('button', { name: /^All picked tasks/ }).click();
     await expect(page.getByRole('dialog', { name: 'All picked tasks' })).toContainText('Read about bread');
   } else {
-    // Monday's 7:30am has gone by, so today's session starts now, and Tuesday's is at the edited time.
+    // Monday's 7:30am had gone by when the app placed the week, so today's session waits and starts now, and the rest of
+    // the week is at the edited time.
     await page.getByRole('button', { name: /^Read about bread/ }).click();
     await expect(page.getByRole('group', { name: /^Read about bread, Mon Jan 4, 9am to 9:20am, Practice\./ })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Use suggested time, Tue Jan 5, 7:30am' })).toBeVisible();
+    await expect(page.getByRole('list', { name: /^At their set times/ }).getByText('Tue, Wed, Thu, Fri, Sat and Sun at 7:30am')).toBeVisible();
   }
   expect(errors).toEqual([]);
 });

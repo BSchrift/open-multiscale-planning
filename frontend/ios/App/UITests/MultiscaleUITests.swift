@@ -386,7 +386,8 @@ final class ShellUITests: XCTestCase {
         // The summary as VoiceOver reads it.
         exists(app.webText("Summary: 30 minutes on Monday, Tuesday and Friday, around 7 AM"))
         app.tapWeb("Save")
-        exists(app.webText("Saved Morning run: 30m on Mon, Tue and Fri, around 7am."))
+        // The sessions placed at 7am on the days now dropped come off, which the same toast goes on to say.
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Saved Morning run: 30m on Mon, Tue and Fri, around 7am.")).firstMatch)
         // Undo puts back every day.
         app.tapWeb("Undo")
         app.tapWeb(anyStartingWith: "Morning run", until: app.webText("Summary: 30 minutes every day, around 7 AM"))

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getRecord } from '../../../core/records';
+import { getRecord, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { Practice } from '../../../core/types';
 import { renderScreen } from '../../app/testing';
@@ -60,7 +60,8 @@ describe('the practice editor', () => {
     await userEvent.click(within(e.days()).getByRole('button', { name: 'Weekdays' }));
     expect(within(e.editor).getByText('30m every weekday, around 7am')).toBeVisible();
     await e.save();
-    expect(await screen.findByText('Saved Morning run: 30m every weekday, around 7am.')).toBeVisible();
+    // Monday's 7am has passed, so Tuesday to Friday land at it.
+    expect(await screen.findByText('Saved Morning run: 30m every weekday, around 7am. Placed 4 sessions at their set times.')).toBeVisible();
     expect(await e.read()).toMatchObject({ per: 'day', days: [0, 1, 2, 3, 4], target_min: 30, preferred_times: [420] });
   });
 
@@ -74,10 +75,12 @@ describe('the practice editor', () => {
     expect(within(rows).getByRole('button', { name: 'Use the usual time, 7 AM, on Friday' })).toHaveTextContent('Use 7am');
     expect(within(e.editor).getByText('30m on Mon and Tue around 7am, Fri around 9:30am')).toBeVisible();
     await e.save();
-    expect(await screen.findByText('Saved Morning run: 30m on Mon and Tue around 7am, Fri around 9:30am.')).toBeVisible();
+    expect(await screen.findByText('Saved Morning run: 30m on Mon and Tue around 7am, Fri around 9:30am. Placed 2 sessions at their set times.')).toBeVisible();
     expect(await e.read()).toMatchObject({ per: 'day', days: [0, 1, 4], day_times: FRI_930, preferred_times: [420] });
+    expect((await getRecord(e.t.db, 'time_block', 'session:pr1:2026-11-06'))?.start).toBe('2026-11-06T15:30:00Z');
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect(await e.read()).toMatchObject({ days: [0, 1, 2, 3, 4], day_times: null }));
+    expect((await getRecord(e.t.db, 'time_block', 'session:pr1:2026-11-06'))?.cancelled).toBe(true);
   });
 
   it("Use 7am puts a day back to the usual time, and the switch off leaves the days' times out until it's on again", async () => {
@@ -95,7 +98,7 @@ describe('the practice editor', () => {
     expect(within(rows()).getByLabelText('Friday')).toHaveValue('07:00');
     await userEvent.click(sw);
     await e.save();
-    await screen.findByText('Saved Morning run: 30m on Mon, Tue and Fri, around 7am.');
+    await screen.findByText('Saved Morning run: 30m on Mon, Tue and Fri, around 7am. Placed 2 sessions at their set times.');
     expect((await e.read())?.day_times).toBeNull();
   });
 
@@ -168,15 +171,22 @@ describe('the practice editor', () => {
     const e = await open({ preferred_times: [420, 600] });
     fireEvent.change(within(e.editor).getByLabelText('Usual time'), { target: { value: '06:30' } });
     await e.save();
-    await screen.findByText('Saved Morning run: 30m every day, around 6:30am.');
+    // 6:30am is outside the default hours, so each day lands at the time to try after it.
+    await screen.findByText('Saved Morning run: 30m every day, around 6:30am. Placed 6 sessions at their set times.');
+    expect((await getRecord(e.t.db, 'time_block', 'session:pr1:2026-11-03'))?.start).toBe('2026-11-03T16:00:00Z');
     expect((await e.read())?.preferred_times).toEqual([390, 600]);
   });
 
-  it('says a placed session on a day no longer in it stays', async () => {
+  it.each([
+    ['at its set time comes off with its day', '13:00', "Saved Morning run: 30m on Mon and Fri, around 7am. Took 1 session off the calendar.", true],
+    ['moved by hand stays, and says so', '15:00', "Saved Morning run: 30m on Mon and Fri, around 7am. Thursday's placed session stays.", undefined],
+  ])('a placed session on a day no longer in it %s', async (_, time, said, cancelled) => {
     const t = await renderScreen('goals', {
       seed: async (w) => {
         await run(w, { days: [0, 3, 4] });
-        await w.create('time_block', { practice_id: 'pr1', start: '2026-11-05T13:00:00Z', end: '2026-11-05T13:30:00Z', tz: 'America/Chicago' }, 'session:pr1:2026-11-05');
+        await w.create('time_block', { practice_id: 'pr1', start: `2026-11-05T${time}:00Z`, end: `2026-11-05T${time.slice(0, 2)}:30:00Z`, tz: 'America/Chicago' }, 'session:pr1:2026-11-05');
+        // Friday has its session, so only Thursday changes.
+        await w.create('time_block', { practice_id: 'pr1', start: '2026-11-06T13:00:00Z', end: '2026-11-06T13:30:00Z', tz: 'America/Chicago' }, 'session:pr1:2026-11-06');
       },
     });
     await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
@@ -184,8 +194,49 @@ describe('the practice editor', () => {
     const editor = await screen.findByRole('dialog', { name: 'Morning run' });
     await userEvent.click(within(editor).getByRole('checkbox', { name: 'Thursday' }));
     await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText("Saved Morning run: 30m on Mon and Fri, around 7am. Thursday's placed session stays.")).toBeVisible();
-    expect((await getRecord(t.db, 'time_block', 'session:pr1:2026-11-05'))?.deleted_at).toBeFalsy();
+    expect(await screen.findByText(said)).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'session:pr1:2026-11-05'))?.cancelled).toBe(cancelled);
+  });
+
+  it('a new set time moves the sessions at the old one, in the same toast, with Undo', async () => {
+    const t = await renderScreen('goals', {
+      seed: async (w) => {
+        await run(w, { days: [1, 2] });
+        for (const d of ['03', '04']) await w.create('time_block', { practice_id: 'pr1', start: `2026-11-${d}T13:00:00Z`, end: `2026-11-${d}T13:30:00Z`, tz: 'America/Chicago' }, `session:pr1:2026-11-${d}`);
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Morning run/ }));
+    const editor = await screen.findByRole('dialog', { name: 'Morning run' });
+    fireEvent.change(within(editor).getByLabelText('Usual time'), { target: { value: '07:30' } });
+    await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved Morning run: 30m on Tue and Wed, around 7:30am. Moved 2 sessions to 7:30am.')).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'session:pr1:2026-11-03'))?.start).toBe('2026-11-03T13:30:00Z');
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'session:pr1:2026-11-03'))?.start).toBe('2026-11-03T13:00:00Z'));
+  });
+
+  it('Pause takes its sessions still to come off, Resume puts them back, each with Undo', async () => {
+    const t = await renderScreen('goals', {
+      seed: async (w) => {
+        await run(w, { days: [1, 2] });
+        for (const d of ['03', '04']) await w.create('time_block', { practice_id: 'pr1', start: `2026-11-${d}T13:00:00Z`, end: `2026-11-${d}T13:30:00Z`, tz: 'America/Chicago' }, `session:pr1:2026-11-${d}`);
+      },
+    });
+    const live = async () => (await listRecords(t.db, 'time_block')).filter((b) => !b.cancelled).length;
+    await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Morning run/ }));
+    const popup = await screen.findByRole('dialog', { name: 'Morning run' });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Pause practice' }));
+    expect(await screen.findByText('Paused Morning run. Took 2 sessions off the calendar.')).toBeVisible();
+    expect(await live()).toBe(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await live()).toBe(2));
+    await userEvent.click(within(popup).getByRole('button', { name: 'Pause practice' }));
+    await screen.findByText('Paused Morning run. Took 2 sessions off the calendar.');
+    await userEvent.click(await within(popup).findByRole('button', { name: 'Resume practice' }));
+    expect(await screen.findByText('Resumed Morning run. 2 sessions are back on the calendar.')).toBeVisible();
+    expect(await live()).toBe(2);
   });
 
   it('on phone, the chips and fill-in buttons are in the popup, and Any time drops the time', async () => {
@@ -212,5 +263,22 @@ describe('Add practice', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Add practice' }));
     const added = (await t.db.all<{ data: string }>("SELECT data FROM records WHERE type = 'practice'")).map((r) => JSON.parse(r.data) as Practice);
     expect(added[0]).toMatchObject({ title: 'Stretching', objective_id: 'g1', per: 'week', sessions: 3, target_min: 90, preferred_times: [420], state: 'active' });
+    // A count waits to be placed.
+    expect(await screen.findByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
+  });
+
+  it('places one at set times on the days still ahead, with Undo', async () => {
+    const t = await renderScreen('goals', { seed: async (w) => void (await w.create('objective', { title: 'Run a 10k', state: 'active' }, 'g1')) });
+    await userEvent.click(await screen.findByRole('button', { name: /^Run a 10k/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add practice' }));
+    const form = screen.getByRole('form', { name: 'Add practice' });
+    await userEvent.type(within(form).getByLabelText('Name'), 'Stretching');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add practice' }));
+    // Monday's 7am has passed: Tuesday to Sunday.
+    expect(await screen.findByText('Practice added. Placed 6 sessions at their set times.')).toBeVisible();
+    expect((await listRecords(t.db, 'time_block')).filter((b) => !b.cancelled)).toHaveLength(6);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await listRecords(t.db, 'time_block')).filter((b) => !b.cancelled)).toHaveLength(0));
+    expect((await listRecords(t.db, 'practice')).filter((p) => !p.deleted_at)).toEqual([]);
   });
 });

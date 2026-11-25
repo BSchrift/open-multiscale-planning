@@ -38,13 +38,13 @@ async function run(w: Writer, fields: Partial<Practice> = {}) {
   await w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', state: 'active', preferred_times: [420], ...fields }, 'pr1');
 }
 
-/** Opens Morning run's editor: its row on desktop, its sheet on phone. */
+/** Opens Morning run's popup from its row, on desktop or phone. */
 async function open(fields: Partial<Practice> = {}, layout: 'desktop' | 'phone' = 'desktop') {
   const t = await renderScreen('goals', { layout, seed: (w) => run(w, fields) });
   await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
   const row = screen.getByRole('button', { name: /^Morning run/ });
   await userEvent.click(row);
-  const editor = layout === 'phone' ? screen.getByRole('dialog', { name: 'Edit practice' }) : screen.getByRole('group', { name: 'Edit Morning run' });
+  const editor = await screen.findByRole('dialog', { name: 'Morning run' });
   const days = () => within(editor).getByRole('group', { name: /^(Days|Preferred days)$/ });
   const day = (name: string) => within(days()).getByRole('checkbox', { name });
   const save = async () => userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
@@ -144,7 +144,7 @@ describe('the practice editor', () => {
     await e.save();
     expect(e.day('Monday')).toHaveFocus();
     expect(e.day('Monday')).toHaveAccessibleDescription('Choose at least one day.');
-    expect(screen.getByRole('group', { name: 'Edit Morning run' })).toBe(e.editor);
+    expect(screen.getByRole('dialog', { name: 'Morning run' })).toBe(e.editor);
     expect((await e.read())?.days).toEqual([0]);
   });
 
@@ -152,6 +152,7 @@ describe('the practice editor', () => {
     const e = await open({ per: 'week', target_min: 130, preferred_times: [420, 600] });
     expect(within(e.editor).getByRole('radio', { name: 'Times a week' })).toBeChecked();
     expect(within(e.editor).getByRole('slider', { name: 'Each session' })).toHaveAttribute('aria-valuetext', '45 minutes');
+    await userEvent.click(within(e.editor).getByRole('button', { name: 'Rename Morning run' }));
     const name = within(e.editor).getByLabelText('Name');
     await userEvent.clear(name);
     await userEvent.type(name, 'Long run');
@@ -180,14 +181,14 @@ describe('the practice editor', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
     await userEvent.click(screen.getByRole('button', { name: /^Morning run/ }));
-    const editor = screen.getByRole('group', { name: 'Edit Morning run' });
+    const editor = await screen.findByRole('dialog', { name: 'Morning run' });
     await userEvent.click(within(editor).getByRole('checkbox', { name: 'Thursday' }));
     await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText("Saved Morning run: 30m on Mon and Fri, around 7am. Thursday's placed session stays.")).toBeVisible();
     expect((await getRecord(t.db, 'time_block', 'session:pr1:2026-11-05'))?.deleted_at).toBeFalsy();
   });
 
-  it('on phone, the chips and fill-in buttons are in the sheet, and Any time drops the time', async () => {
+  it('on phone, the chips and fill-in buttons are in the popup, and Any time drops the time', async () => {
     const e = await open({}, 'phone');
     await userEvent.click(within(e.editor).getByRole('radio', { name: 'Any time' }));
     expect(within(e.editor).queryByLabelText('Usual time')).toBeNull();

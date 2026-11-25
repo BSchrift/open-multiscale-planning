@@ -1,6 +1,6 @@
 // Week on desktop: the header with week arrows, how the week's time is used, and the grid with To schedule above
-// it. Its cards drag onto a day, or open with suggested times. A task's block opens the task's popup, with the block's
-// section at its top; a practice's session or planning opens its details beside the grid. Editing adds a list of tasks
+// it. Its cards drag onto a day, or open with suggested times. A block opens its popup, its task's, practice's or
+// planning's, with the block's section at its top, while editing too. Editing adds a list of tasks
 // to place on the left, and the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning
 // from Choose another time waits on the grid with Place here above it, and the week arrows carry it to another week.
 
@@ -14,7 +14,8 @@ import { onceWhen } from '../../../core/schedule';
 import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
-import { BlockDetail } from '../../components/blocks/BlockDetail';
+import { opensPopup, popFor } from '../../components/blocks/BlockName';
+import type { PopFor } from '../../components/blocks/BlockName';
 import { BlockSection } from '../../components/blocks/BlockSection';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { PlanningSet } from '../../components/planning/PlanningRow';
@@ -36,7 +37,7 @@ import { PracticeAsk } from './parts';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
-import { TaskPopupFor } from '../task';
+import { BlockPopup } from '../practice';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 
@@ -49,9 +50,8 @@ export function DesktopWeek(props: WeekProps) {
   const nav = useNav();
   const act = useWeekActions();
   const planning = usePlanningActions();
-  const [openBlock, setOpenBlock] = useState<string | null>(null);
-  /** A task's block opened in the task's popup. */
-  const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
+  /** A block opened in its popup. */
+  const [pop, setPop] = useState<PopFor | null>(null);
   /** A block Move took from its popup, which takes focus once editing draws it, ready for the arrow keys. */
   const moving = useRef<string | null>(null);
   useEffect(() => {
@@ -193,8 +193,7 @@ export function DesktopWeek(props: WeekProps) {
   };
   const dragItem = (item: LaneItem) => ({ preview: (slot: Slot | null) => setDropAt(slot && { item, slot }), drop: (slot: Slot) => placeItem(item, slot), haptic: platform.haptic });
 
-  const isTask = (b: GridBlock) => isTaskBlock(b.kind);
-  const gridBlocks: GridBlock[] = plan ? model.blocks.map((b) => ({ ...b, fixed: true })) : model.blocks.map((b) => ({ ...b, popup: isTask(b) }));
+  const gridBlocks: GridBlock[] = plan ? model.blocks.map((b) => ({ ...b, fixed: true })) : model.blocks.map((b) => ({ ...b, popup: true }));
   if (plan && planAt) gridBlocks.push({ ...planAt, id: PLANNING, title: plan.title, kind: 'planning', draft: true });
   let ghosts: GridGhost[] = [];
   const item = model.unscheduled.find((x) => x.id === openItem);
@@ -215,7 +214,6 @@ export function DesktopWeek(props: WeekProps) {
     }));
   }
 
-  const opened = openBlock ? data.blocks.find((b) => b.id === openBlock) : undefined;
   const popRow = pop && data.blocks.find((b) => b.id === pop.block);
   const popPlaced = pop && model.blocks.find((b) => b.id === pop.block);
   // As on phone: from now on, this week or later, it can come off; this week, it moves, and Choose a time places it while
@@ -404,17 +402,6 @@ export function DesktopWeek(props: WeekProps) {
               />
             </div>
           )}
-          {opened && !editing && (
-            <div className="wkpanel">
-              <BlockDetail
-                block={opened}
-                onClose={() => {
-                  setOpenBlock(null);
-                  right.current?.querySelector<HTMLElement>(`[data-id="${opened.id}"]`)?.focus();
-                }}
-              />
-            </div>
-          )}
           <div className="card wkgrid">
             {offset >= 0 && !plan && (
               <section className="tosched stack8" aria-label="To schedule" data-unscheduled>
@@ -454,7 +441,7 @@ export function DesktopWeek(props: WeekProps) {
               editing={editing || !!plan}
               lockPast={editing || !!plan}
               // Hold to create: never while a block is open or being placed, or a card's suggested times are showing.
-              holdOff={!!plan || !!drafted || !!openBlock || !!openItem}
+              holdOff={!!plan || !!drafted || !!pop || !!openItem}
               lane={model.unscheduled.flatMap((x) =>
                 // The planning being placed is the block, not a card waiting above its days.
                 x.dates && x.id !== props.place
@@ -479,22 +466,20 @@ export function DesktopWeek(props: WeekProps) {
                 const b = model.blocks.find((x) => x.id === id);
                 if (b) void act.unschedule(id, b.title, data.week);
               }}
-              openId={openBlock}
               onRemove={(id) => {
                 const b = model.blocks.find((x) => x.id === id);
                 if (b) void act.remove(id, b.title);
               }}
               onOpen={(id) => {
-                const b = model.blocks.find((x) => x.id === id);
+                const row = data.blocks.find((x) => x.id === id);
                 if (id === 'draft' && drafted && draft) void place(drafted, draft);
                 else if (id === PLANNING) void placePlanning();
-                // A task's block opens its popup while editing too, as on phone.
-                else if (b?.task_id && isTask(b)) setPop({ block: id, task: b.task_id });
-                else if (!editing) setOpenBlock(openBlock === id ? null : id);
+                // While editing too, as on phone.
+                else if (row && opensPopup(row)) setPop(popFor(row));
               }}
             />
             {asking}
-            {pop && <TaskPopupFor id={pop.task} close={() => setPop(null)} block={popRow && <BlockSection block={popRow} {...popActions} />} />}
+            {pop && <BlockPopup pop={pop} close={() => setPop(null)} section={popRow && <BlockSection block={popRow} {...popActions} />} />}
             {!editing && (
               <div className="legend wklegend">
                 <span>

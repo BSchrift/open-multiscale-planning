@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, diffDays, formatDate, formatTime, instantMs, localDate, weekStart } from '../../../core/dates';
 import type { Slot } from '../../../core/slots';
 import { dayName } from '../../components/weekgrid';
+import type { KeptTime } from '../../components/week/DayPager';
 import { planningToPlace } from '../../components/planning/usePlanning';
 import type { PlanningPlace } from '../../components/planning/usePlanning';
 import type { LocalDate } from '../../../core/types';
@@ -45,8 +46,13 @@ export interface WeekProps {
   planningSet: TimeBlock | null;
   /** 'Planning: Sun Nov 8, 5pm', when this week's planning has a time still to come. */
   planningAt: string | null;
-  /** carry: planning being placed, at its time in the week going to. */
-  goWeek(week: LocalDate, carry?: Slot): void;
+  /**
+   * carry: planning being placed, at its time in the week going to. open: the day a swipe past the week's end reached,
+   * which phone opens on, with the time of day it kept.
+   */
+  goWeek(week: LocalDate, carry?: Slot, open?: OpenDay): void;
+  /** The day the last goWeek asked phone to open on. */
+  openDay: OpenDay | null;
   /**
    * A task to place, from Find a time or Place on calendar; a card from Today's Choose a time, a practice's session
    * included; or planning's task, from Choose another time.
@@ -60,6 +66,12 @@ export interface WeekProps {
   /** How many things were finished each day up to today, whose headings open Done on that day. */
   finished: Readonly<Record<LocalDate, number>>;
   openDone(date: LocalDate): void;
+}
+
+/** A day to open a week on, and the time of day to show there. */
+export interface OpenDay {
+  date: LocalDate;
+  time: KeptTime | null;
 }
 
 /** Planning from Choose another time, with where it waits in this week. */
@@ -92,6 +104,7 @@ export default function WeekScreen(props: ScreenProps) {
   const [place, setPlace] = useState<string | null>(props.params.place ?? null);
   // Where planning being placed waits, carried from week to week by the arrows.
   const [carry, setCarry] = useState<Slot | undefined>(plan?.at);
+  const [openDay, setOpenDay] = useState<OpenDay | null>(null);
   // A task is placed while editing this week. Placing planning isn't editing a week, which may not be planned yet.
   const [editing, setEditing] = useState((!!props.params.place && !plan) || props.params.edit === 'this');
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
@@ -137,11 +150,13 @@ export default function WeekScreen(props: ScreenProps) {
     gated: asks && weekGate(data.planning, clock) === 'gate',
     planningAt,
     planningSet: asks && weekGate(data.planning, clock) === 'set' ? (blockAhead(data.planning, clock) ?? null) : null,
-    goWeek: (to, slot) => {
+    goWeek: (to, slot, open) => {
       setWeek(weekStart(to));
       setEditing(false);
       if (slot) setCarry(slot);
+      setOpenDay(open ?? null);
     },
+    openDay,
     place: offset === 0 || planning ? place : null,
     planning,
     donePlacing: () => setPlace(null),

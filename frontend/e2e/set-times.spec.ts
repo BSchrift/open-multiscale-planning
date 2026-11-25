@@ -144,7 +144,7 @@ test('Today shows the session at its set time, and Take off calendar puts it in 
   // The popup stays, with the practice's fields; Cancel puts it away.
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(popup).toHaveCount(0);
-  // On phone, To schedule is in the sheet behind Today's row of what's waiting for a time.
+  // On phone, To schedule is in the sheet behind the count in Today's strip footer.
   const lane = info.project.name === 'phone' ? await waitingSheet(page) : today.getByRole('region', { name: 'To schedule' });
   const card = lane.getByRole('button', { name: /^Morning run, Practice, 30 minutes on Tuesday around 7 AM/ });
   await expect(card.getByText('30m · usually 7am')).toBeVisible();

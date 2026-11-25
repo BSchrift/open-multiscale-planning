@@ -3,7 +3,7 @@
 // repeats; an Inbox item has none until it has a home; and a goal's backlog has none, as Belongs to's note says. They
 // save with the rest of the popup, on Save.
 
-import { sameSchedule, scheduledDue, setOnceDates } from '../../../core/schedule';
+import { hasOneDate, sameSchedule, scheduledDue, setOnceDates } from '../../../core/schedule';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import { draftSchedule, scheduleError } from '../../components/oneoff/draft';
 import type { OneOffDraft } from '../../components/oneoff/draft';
@@ -38,7 +38,13 @@ export function datesFields(
   if (!moved && JSON.stringify(d) === JSON.stringify(opened)) return {};
   if (kind === 'one_off') {
     const schedule = draftSchedule(d);
-    return moved || !sameSchedule(schedule, task.schedule) ? { schedule, next_due: scheduledDue(schedule, task, lastDone, today) } : {};
+    // Its time of day, only while it has one day to be on.
+    const [h, m] = d.time.split(':').map(Number);
+    const time = d.time && hasOneDate(schedule) ? h! * 60 + m! : null;
+    return {
+      ...(moved || !sameSchedule(schedule, task.schedule) ? { schedule, next_due: scheduledDue(schedule, task, lastDone, today) } : {}),
+      ...(time !== (task.time ?? null) ? { time } : {}),
+    };
   }
   if (kind !== 'project') return {};
   const fields = d.from ? setOnceDates(d.from, d.ranged ? d.to || null : null) : { schedule: null, next_due: null };

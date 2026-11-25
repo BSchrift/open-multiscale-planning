@@ -631,14 +631,23 @@ export function PhoneWeek(props: WeekProps & { host: WeekHost }) {
           dragDay
         ) : (
           <div className="tdpaged">
-            {selDay < day0 && props.finished[selDay] !== undefined && (
-              <button className="attn tdrow" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
-                <span>
-                  <span className="strong">Done on {longDay(selDay)}</span> <span className="quiet">{finishedCount(props.finished[selDay])}</span>
-                </span>
-                <Icon name="chevron-right" size={16} className="chev" />
-              </button>
-            )}
+            {/* A day gone by opens Done on that day. Its count is a read of its own, which can come after the day has
+                drawn, so its place is held from the start and the day under it never moves when the count arrives. */}
+            {selDay < day0 &&
+              (props.finishedRead ? (
+                props.finished[selDay] !== undefined && (
+                  <button className="attn tdrow" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
+                    <span>
+                      <span className="strong">Done on {longDay(selDay)}</span> <span className="quiet">{finishedCount(props.finished[selDay])}</span>
+                    </span>
+                    <Icon name="chevron-right" size={16} className="chev" />
+                  </button>
+                )
+              ) : (
+                <div className="attn tdrow tdheld" aria-hidden="true">
+                  <span className="strong">Done on {longDay(selDay)}</span>
+                </div>
+              ))}
             {/* Swiped sideways, the day follows the finger to the day before or after, the week's ends included. */}
             <DayPager
               className="tdpager"

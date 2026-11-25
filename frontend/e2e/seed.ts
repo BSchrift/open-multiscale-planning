@@ -166,7 +166,8 @@ export async function syncNow(page: Page, timeout = 30_000) {
  * above the day, its Plan it, then Start planning.
  */
 export async function startPlanningOnToday(page: Page): Promise<void> {
-  const planIt = page.getByRole('button', { name: 'Plan this week', exact: true });
+  // On phone, the strip footer's Plan this week, or Plan next week once that's due, opens the way to start.
+  const planIt = page.getByRole('button', { name: /^Plan (this|next) week$/ });
   await expect(planIt.or(page.getByRole('button', { name: 'Start planning' })).first()).toBeVisible();
   if (await planIt.isVisible()) await planIt.click();
   await page.getByRole('button', { name: 'Start planning' }).first().click();

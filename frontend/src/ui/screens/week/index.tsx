@@ -64,6 +64,8 @@ export interface WeekProps {
   close(): void;
   /** How many things were finished each day up to today, whose headings open Done on that day. */
   finished: Readonly<Record<LocalDate, number>>;
+  /** Whether `finished` has been read yet: until then, what shows it keeps its place. */
+  finishedRead: boolean;
   openDone(date: LocalDate): void;
 }
 
@@ -179,6 +181,7 @@ export function useWeekScreen(props: ScreenProps, tab: 'week' | 'today', start?:
       if (plan?.flow) nav.openFlow('planning', { week: plan.flow });
     },
     finished: finished ?? {},
+    finishedRead: finished !== undefined,
     openDone: (date) => nav.go('done', { day: date }),
   };
 }

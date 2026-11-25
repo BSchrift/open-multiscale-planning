@@ -27,6 +27,10 @@ public struct Snapshot: Codable, Equatable, Sendable {
     public struct Day: Codable, Equatable, Sendable {
         public var date: String
         public var weekPlanned: Bool
+
+        public init(date: String, weekPlanned: Bool) {
+            (self.date, self.weekPlanned) = (date, weekPlanned)
+        }
     }
 
     public struct Space: Codable, Equatable, Sendable {

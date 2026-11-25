@@ -41,6 +41,8 @@
 [data-layout] .wkhint { margin-bottom: var(--space-2); }
 [data-layout] .wkbusy { display: flex; align-items: center; }
 [data-layout] .wkstats { width: 100%; margin-top: var(--space-3); }
+/* Reset's confirm: what goes and what stays, each a short list under its line. */
+[data-layout] .resetlist { margin: 0; padding-left: var(--space-6); }
 [data-layout] .wkgroup { margin-bottom: var(--space-1); }
 [data-layout] .wkrow { padding: 0; }
 [data-layout] .wkrange { width: 100%; }

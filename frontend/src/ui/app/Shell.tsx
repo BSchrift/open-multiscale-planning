@@ -8,16 +8,16 @@ import { getSettings } from '../../core/records';
 import { HowToUpdate } from '../components/HowToUpdate';
 import { ToastProvider, useToast } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
-import { MorePage } from './MorePage';
 import { FlowFrame, NavProvider, PaneShown, useNav, useOverlay } from './nav';
 import type { Route } from './nav';
 import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useKeyboardInset } from './keyboard';
 import { useReminders } from './reminders';
+import { useSetTimes } from './setTimes';
 import { useShareImport } from './shareImport';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
-import { preloadScreens, ScreenBoundary } from './screenLoad';
+import { lazyScreen, preloadScreens, ScreenBoundary } from './screenLoad';
 import { useApp, useQuery } from './store';
 import { useCaptureShortcut } from './captureShortcut';
 import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
@@ -39,6 +39,9 @@ declare global {
 }
 
 const WhatsNew = lazy(() => import('./WhatsNew').then((m) => ({ default: m.WhatsNew })));
+
+/** The phone's More tab, whose rows' lines read what their areas show. Loaded as Capture is, after the app draws. */
+export const MorePage = lazyScreen<object>(() => import('./MorePage').then((m) => ({ default: m.MorePage })));
 /** What's new shows in the iPhone app only, for now. */
 const showsWhatsNew = (platform: Platform) => platform.kind === 'ios' || (import.meta.env.DEV && window.multiscaleWhatsNew === true);
 
@@ -92,7 +95,11 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
       )}
       <PaneShown.Provider value={visible}>
         {route.area === 'more' ? (
-          <MorePage />
+          <ScreenBoundary>
+            <Suspense fallback={null}>
+              <MorePage />
+            </Suspense>
+          </ScreenBoundary>
         ) : (
           <AreaScreen area={route.area} params={route.params} presentation="page" close={nav.back} />
         )}
@@ -324,6 +331,7 @@ function Frame() {
   useShareImport();
   useKeyboardInset();
   useUpdatedToast();
+  useSetTimes();
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 
@@ -394,9 +402,15 @@ export function Shell(props: { initial?: Route }) {
   useEffect(() => {
     if (started) platform.updates?.ready();
   }, [started, platform]);
-  // The browser fetches each screen's code from the server, so fetch it all once the app has drawn: a screen first
-  // opened offline then still opens. The apps carry their code.
-  useEffect(() => (started && platform.kind === 'web' ? preloadScreens(Object.values(AREAS).map((a) => a.Screen)) : undefined), [started, platform]);
+  // Once the app has drawn, the code of what a tap opens at once, which isn't in the first load: Capture, a task's popup
+  // and the More tab. Then in the browser, which fetches each screen's code from the server, all the rest, so a screen
+  // first opened offline still opens. The apps carry their code.
+  useEffect(() => {
+    if (!started) return;
+    const first = [AREAS.capture.Screen, AREAS.task.Screen, MorePage];
+    const rest = Object.values(AREAS).map((a) => a.Screen).filter((s) => !first.includes(s));
+    return preloadScreens(platform.kind === 'web' ? [...first, ...rest] : first);
+  }, [started, platform]);
   // A new install starts at setup, and has seen every What's new line: they're for updates.
   const firstRun = !!settings.data && !settings.data.setup_done_at;
   useEffect(() => {

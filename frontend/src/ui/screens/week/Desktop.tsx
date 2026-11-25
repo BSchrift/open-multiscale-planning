@@ -457,6 +457,7 @@ export function DesktopWeek(props: WeekProps) {
                         alt: x.practice ? `${x.title}, Practice, ${laneWords(x)}, to schedule` : `${KIND_WORD[x.kind]}: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
                         planning: x.kind === 'planning',
                         practice: x.kind === 'practice',
+                        warn: !!x.why,
                         open: openItem === x.id,
                         onToggle: () => toggleItem(x.id),
                         ...(isThis ? { onPointerDown: (e: ReactPointerEvent<HTMLElement>) => dragCard(e, x, model.ctx, dragItem(x)) } : {}),

@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, settled as screensLoaded, touchDrag } from './seed';
-import { nowCard, phoneView, showNow, todayRead } from './today';
+import { phoneView, showNow, todayRead } from './today';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });

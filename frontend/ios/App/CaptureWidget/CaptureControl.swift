@@ -10,6 +10,9 @@ struct CaptureWidgets: WidgetBundle {
         #if MULTISCALE_APP_GROUP
         NowNextWidget()
         CaptureHomeWidget()
+        LockNowWidget()
+        LockInboxWidget()
+        TodayWidget()
         WeekWidget()
         #endif
     }

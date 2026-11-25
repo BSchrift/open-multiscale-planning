@@ -61,7 +61,7 @@ async function openOnPhone(page: Page) {
   await page.clock.install({ time: new Date(at(TUE, '14:00')) });
   await openSeeded(page, records);
   await page.getByRole('button', { name: '5 missed blocks to check in on' }).click();
-  await page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Review' }).click();
   return errors;
 }
 
@@ -184,7 +184,7 @@ test('on phone, a sheet from the bottom: tap a row, Partly for a selection, and 
   await touchDrag(page, two.locator('.missgrab'), { x: top.x + top.width / 2, y: top.y + 200 }, 0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: /2 missed blocks to check in on$/ }).click();
-  await page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('button', { name: 'Review' }).click();
+  await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Review' }).click();
   await expect(two).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, skipPlanningOnToday, touchDrag } from './seed';
 import type { Seed } from './seed';
 import { askOnBlock, nowCard, openBlock, phoneView, todayRead, waitingSheet } from './today';
 
@@ -239,12 +239,12 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
 test('an unplanned week opens on the prompt to plan; skipping leaves a banner and Next up, or on phone, Start something in the free time', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [fence]);
-  // On phone the prompt is a row, with today's calendar under it.
-  await expect(phone ? page.getByText("This week isn't planned yet") : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
+  // On phone the prompt is the strip's footer, with today's calendar under it.
+  await expect(phone ? page.getByText('Not planned yet') : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
   await expect(page.getByText('1 one off due.')).toHaveCount(0);
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
   if (phone) {
-    await expect(page.getByText("This week isn't planned yet")).toHaveCount(0);
+    await expect(page.getByText('Skipped planning this week.')).toBeVisible();
     await page.getByRole('button', { name: 'Start something' }).click();
   } else await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
   const next = page.getByRole('region', { name: 'Next up' });
@@ -313,7 +313,7 @@ test('the current-time line passes behind the block under way, its dot in front,
     const under = await line.evaluate((el, x) => !!document.elementFromPoint(x, el.getBoundingClientRect().top + 1)?.closest('.cev.raised'), card!.x + card!.width / 2);
     expect(under).toBe(true);
     await expect(timeline.getByRole('group', { name: 'Calendar zoom' })).toHaveCount(0);
-    await page.getByRole('button', { name: "Today's view" }).click();
+    await page.getByRole('button', { name: 'View and week' }).click();
     for (const name of ['Zoom out', 'Zoom in']) await expectTapTarget(page.getByRole('menuitem', { name }));
     await page.keyboard.press('Escape');
     await phoneView(page, 'Zoom in');
@@ -578,7 +578,7 @@ test("to schedule sits just above the day, or on phone in the waiting row's shee
     // and the sheet steps aside.
     await touchDrag(page, card, { x: d.x + d.width / 2, y: d.y + 144 + 2 });
     await expect(page.getByRole('slider', { name: /^Paint the fence, 3pm to 3:30pm/ })).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'Waiting for a time' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'To schedule' })).toHaveCount(0);
     expect(errors).toEqual([]);
     return;
   }
@@ -622,7 +622,7 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   const phone = info.project.name === 'phone';
   if (phone) {
     await todayRead(page, phone);
-    await expect(page.getByRole('button', { name: /waiting for a time/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
   } else {
     const lane = page.getByRole('region', { name: 'To schedule' });
     await expect(lane).toBeVisible();

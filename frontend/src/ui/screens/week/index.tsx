@@ -89,12 +89,24 @@ function weekTitle(offset: number, editing: boolean) {
 }
 
 export default function WeekScreen(props: ScreenProps) {
+  const shared = useWeekScreen(props, 'week');
+  if (!shared) return null;
+  // Keyed by week, so what's open on one week doesn't carry to the next.
+  return props.layout === 'phone' ? <PhoneWeek key={shared.data.week} {...shared} /> : <DesktopWeek key={shared.data.week} {...shared} />;
+}
+
+/**
+ * A week's state from a screen's params: the week shown, editing, and what's being placed. Week uses it, and so does
+ * the phone's Today, which draws a week's strip over its day; `tab` is the one whose second tap comes back to this
+ * week, and `start` the day to open on, which can be in next week.
+ */
+export function useWeekScreen(props: ScreenProps, tab: 'week' | 'today', start?: LocalDate): WeekProps | null {
   const { clock } = useApp();
   const nav = useNav();
   const current = weekStart(useToday());
   const [plan] = useState(() => planningToPlace(props.params));
   // Planning opens on the week of its best time, which can be next week's.
-  const [week, setWeek] = useState<LocalDate>(() => (plan?.at ? weekStart(plan.at.date) : current));
+  const [week, setWeek] = useState<LocalDate>(() => (plan?.at ? weekStart(plan.at.date) : start ? weekStart(start) : current));
   // Left on this week, the page follows it when the week turns over; a week chosen with the arrows stays.
   const [seen, setSeen] = useState(current);
   if (seen !== current) {
@@ -104,7 +116,7 @@ export default function WeekScreen(props: ScreenProps) {
   const [place, setPlace] = useState<string | null>(props.params.place ?? null);
   // Where planning being placed waits, carried from week to week by the arrows.
   const [carry, setCarry] = useState<Slot | undefined>(plan?.at);
-  const [openDay, setOpenDay] = useState<OpenDay | null>(null);
+  const [openDay, setOpenDay] = useState<OpenDay | null>(() => (start && !plan ? { date: start, time: null } : null));
   // A task is placed while editing this week. Placing planning isn't editing a week, which may not be planned yet.
   const [editing, setEditing] = useState((!!props.params.place && !plan) || props.params.edit === 'this');
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
@@ -114,14 +126,16 @@ export default function WeekScreen(props: ScreenProps) {
   // Tapping Week again comes back to this week.
   const signal = useRef(nav.topSignal);
   useEffect(() => {
-    if (signal.current !== nav.topSignal && nav.tab === 'week' && !place) {
+    if (signal.current !== nav.topSignal && nav.tab === tab && !place) {
       setWeek(current);
       setEditing(false);
+      setOpenDay(null);
     }
     signal.current = nav.topSignal;
-  }, [nav.topSignal, nav.tab, current, place]);
+  }, [nav.topSignal, nav.tab, current, place, tab]);
 
-  useDrawn('nav.week', !!data && !!model);
+  // Today says when it's drawn itself.
+  useDrawn('nav.week', tab === 'week' && !!data && !!model);
   if (!data || !model) return null;
   const offset = Math.round(diffDays(current, data.week) / 7);
   const ahead = blockAhead(data.planning, clock);
@@ -138,7 +152,7 @@ export default function WeekScreen(props: ScreenProps) {
       : null;
   // While planning is placed, nothing asks to plan this week over it.
   const asks = offset === 0 && !editing && !planning;
-  const shared: WeekProps = {
+  return {
     data,
     week,
     model,
@@ -167,7 +181,5 @@ export default function WeekScreen(props: ScreenProps) {
     finished: finished ?? {},
     openDone: (date) => nav.go('done', { day: date }),
   };
-  // Keyed by week, so what's open on one week doesn't carry to the next.
-  return props.layout === 'phone' ? <PhoneWeek key={data.week} {...shared} /> : <DesktopWeek key={data.week} {...shared} />;
 }
 

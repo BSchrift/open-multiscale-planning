@@ -166,14 +166,22 @@ export async function syncNow(page: Page, timeout = 30_000) {
  * above the day, its Plan it, then Start planning.
  */
 export async function startPlanningOnToday(page: Page): Promise<void> {
-  const planIt = page.getByRole('button', { name: 'Plan it' });
+  const planIt = page.getByRole('button', { name: 'Plan this week', exact: true });
   await expect(planIt.or(page.getByRole('button', { name: 'Start planning' })).first()).toBeVisible();
   if (await planIt.isVisible()) await planIt.click();
   await page.getByRole('button', { name: 'Start planning' }).first().click();
 }
 
-/** Today's prompt to plan this week, the row's Plan it on phone. */
-export const planPrompt = (page: Page): Locator => page.getByRole('button', { name: 'Plan it' }).or(page.getByRole('button', { name: 'Start planning' })).first();
+/** Skip planning this week from Today: on phone, in the sheet the strip footer's Plan this week opens. */
+export async function skipPlanningOnToday(page: Page): Promise<void> {
+  const planIt = page.getByRole('button', { name: 'Plan this week', exact: true });
+  await expect(planIt.or(page.getByRole('button', { name: /^Skip (for now|planning this week)$/ })).first()).toBeVisible();
+  if (await planIt.isVisible()) await planIt.click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+}
+
+/** Today's prompt to plan this week: on phone, the strip footer's Plan this week. */
+export const planPrompt = (page: Page): Locator => page.getByRole('button', { name: 'Plan this week', exact: true }).or(page.getByRole('button', { name: 'Start planning' })).first();
 
 /**
  * Start planning, then its toast's Undo, which keeps this week's times free: Start puts planning on the clock from now.

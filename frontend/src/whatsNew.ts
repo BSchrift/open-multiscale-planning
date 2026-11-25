@@ -8,6 +8,7 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 9, text: "On your phone, Today shows the week above your day: tap or swipe to see any day." },
   { id: 8, text: "Today opens on your day's calendar, and a tap on a block shows what you can do with it now." },
   { id: 7, text: "A practice's session and a planning block now open one popup, wherever you tap them." },
   { id: 6, text: "Add widgets to your Home Screen to see what's now and next, and to capture a task in a tap." },

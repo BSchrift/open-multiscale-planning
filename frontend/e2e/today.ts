@@ -33,21 +33,21 @@ export async function openBlock(page: Page, block: Locator, phone: boolean): Pro
 
 /** Picks from the phone's Today menu, which holds the day's zoom and its list. */
 export async function phoneView(page: Page, choice: 'Zoom in' | 'Zoom out' | 'Show as a list' | 'Show as a calendar'): Promise<void> {
-  await page.getByRole('button', { name: "Today's view" }).click();
+  await page.getByRole('button', { name: 'View and week' }).click();
   await page.getByRole('menuitem', { name: choice }).click();
 }
 
-/** The sheet behind the phone's row of what's waiting for a time: Needs a new time, To schedule and missed blocks. */
+/** The sheet behind the strip footer's count of what's waiting for a time: Needs a new time, the week's cards and missed blocks. */
 export async function waitingSheet(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: /waiting for a time|missed blocks? to check in on|^Connect Google Calendar$/ }).click();
-  const sheet = page.getByRole('dialog', { name: 'Waiting for a time' });
+  await page.getByRole('button', { name: /\d+ to schedule|missed blocks? to check in on|^Connect Google Calendar$/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'To schedule' });
   await expect(sheet).toBeVisible();
   return sheet;
 }
 
 /** Closes the waiting sheet once it's back from a card's sheet, which it's drawn again after, so a key isn't lost. */
 export async function closeWaiting(page: Page): Promise<void> {
-  const sheet = page.getByRole('dialog', { name: 'Waiting for a time' });
+  const sheet = page.getByRole('dialog', { name: 'To schedule' });
   await expect(sheet).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);

@@ -256,13 +256,13 @@ test('the links between areas reach their page and come back', async ({ page }, 
 
   if (phone) {
     // Today: work that needs a new time goes to the Week, ready to place, and Cancel comes back.
-    await page.getByRole('button', { name: /waiting for a time/ }).click();
-    await page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('button', { name: 'Place on calendar' }).first().click();
+    await page.getByRole('button', { name: /\d+ to schedule/ }).click();
+    await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Place on calendar' }).first().click();
     await expect(shown('Week')).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(shown('Today')).toBeVisible();
     // Back where it was left, sheet and all.
-    await page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Close' }).click();
   }
 
   // Week to that week's analytics, and back.

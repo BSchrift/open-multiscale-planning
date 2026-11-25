@@ -47,8 +47,10 @@ export function raiseOf(block: BlockRow, blocks: readonly BlockRow[], clock: Clo
   const cur = currentBlock(blocks, clock);
   if (cur?.id === block.id) return 'now';
   if (!block.result && block.task_kind !== 'planning' && instantMs(block.ended_at ?? block.end) <= now) return 'answer';
-  // Start early is for the time free before it; with a block under way, the next one offers Move like any other.
-  if (!cur && nextBlock(blocks, clock)?.id === block.id) return 'next';
+  // Start early is for the time free before it; with a block under way, the next one offers Move like any other, as
+  // does one on another day, drawn on the phone's Today from the strip.
+  const today = localDate(now, clock.zone());
+  if (!cur && localDate(block.start, clock.zone()) === today && nextBlock(blocks, clock)?.id === block.id) return 'next';
   return 'sel';
 }
 

@@ -141,3 +141,14 @@
 [data-layout='phone'] .tdsheet .card > :is(.maintrow, .qrow, .rowline):first-child { border-top: 0; }
 /* A card held in the waiting sheet lifts out of it, and the sheet steps aside so it can be let go on the day. */
 [data-layout='phone'] .sheet.aside, [data-layout='phone'] .scrim:has(+ .sheet.aside) { visibility: hidden; }
+
+/* The phone's Today with the week's strip over its day (week/Phone.tsx's host). The strip's three pieces meet with no
+   gap, so its day row can stick through the whole day. */
+[data-layout='phone'] .tdweek { display: flex; flex-direction: column; gap: var(--space-3); }
+[data-layout='phone'] .tdweek > .sffold,
+[data-layout='phone'] .tdweek > .sffoot { margin-top: calc(-1 * var(--space-3)); }
+[data-layout='phone'] .tdhead .tdtoday { margin-left: auto; align-self: center; }
+[data-layout='phone'] .tdhead .tdtoday + .tdmenu { margin-left: 0; }
+[data-layout='phone'] .tdpaged { display: flex; flex-direction: column; gap: var(--space-3); }
+/* Anything brought into view, by focus or a find, stops clear of the day row stuck at the top. */
+[data-layout='phone'] .pane:has(.sffold) { scroll-padding-top: 100px; }

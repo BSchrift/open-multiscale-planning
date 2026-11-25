@@ -475,15 +475,15 @@ final class ShellUITests: XCTestCase {
         // Work dropped on today lands no earlier than now and ends by 11pm, which the seeded app's morning clock leaves
         // room for at any hour.
         let app = launchApp(seed: "Seed to schedule")
-        // To schedule waits in the sheet behind Today's row of what's waiting for a time.
+        // To schedule waits in the sheet behind the strip footer's count of what's waiting for a time.
         // A button that opens a sheet, which iOS types as a pop-up button: matched by its label alone.
-        let waiting = app.webElement(startingWith: "1 waiting for a time")
+        let waiting = app.webElement(startingWith: "1 to schedule")
         onToday(waiting, in: app)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)
         // Its own label, since the block it becomes is a button too once it's under way.
         let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
-        app.tapWeb(anyStartingWith: "1 waiting for a time", until: card)
+        app.tapWeb(anyStartingWith: "1 to schedule", until: card)
 
         // Held past the lift, the sheet steps aside, and it's let go on the day once the drag has caught up. Wherever
         // it's let go, it lands no earlier than now.
@@ -681,8 +681,8 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(["30m", "35m", "40m", "45m", "50m", "55m"].contains(set), "the slider reads \(set)")
         app.tapWeb("Save")
 
-        // The rest of it waits for a new time, in the sheet behind Today's waiting row.
-        app.tapWeb(anyStartingWith: "1 waiting for a time")
+        // The rest of it waits for a new time, in the sheet behind the strip footer's count.
+        app.tapWeb(anyStartingWith: "1 to schedule")
         exists(app.webText("Partly done today, \(set) left"))
     }
 
@@ -699,6 +699,24 @@ final class ShellUITests: XCTestCase {
         // A second tap opens its popup, the task's own.
         ended.tap()
         exists(app.webButton("Delete task"))
+    }
+
+    func testTodaysWeekStripFoldsIntoASlimBarAsTheDayScrollsAndTheBarOpensItAgain() throws {
+        let app = launchApp(seed: "Seed today")
+        allowNotificationsIfAsked()
+        app.tapWeb("Yes, started", until: app.webButton("Mark done now"))
+        let strip = app.webElement("Choose a day")
+        exists(strip)
+        // A scroll up the day, by the margin left of it where nothing is held: the strip folds into the slim bar, which
+        // is then the one control left of it, and the scroll settles with it folded.
+        let slim = app.page.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH '. Show the week'")).firstMatch
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.75))
+        margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -320)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        exists(slim)
+        XCTAssertTrue(strip.waitForNonExistence(timeout: patience), "the seven days are still reachable with the strip folded")
+        // A tap on the bar opens the days again over the day.
+        slim.tap()
+        exists(strip)
     }
 
     func testABlocksNotificationActionAnswersItInToday() {

@@ -230,13 +230,13 @@ test('Skip, choose a new time later takes the block off the calendar into To sch
   await expect(timeline.getByRole('button', { name: /^Write the report, / })).toHaveCount(0);
   // Its time waits to be placed again, still in this week: above the day on desktop, and on phone behind the waiting
   // row, whose sheet opening would put the toast away.
-  if (phone) await expect(page.getByRole('button', { name: '1 waiting for a time' })).toBeVisible();
+  if (phone) await expect(page.getByRole('button', { name: '1 to schedule' })).toBeVisible();
   else await expect(page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: /^Write the report, Project, 1h 10m/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(times(now, phone, '1:50pm to 3pm')).toBeVisible();
   await named(now, phone, 'Write the report');
-  if (phone) await expect(page.getByRole('button', { name: /waiting for a time/ })).toHaveCount(0);
+  if (phone) await expect(page.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
   else await expect(page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: /^Write the report/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

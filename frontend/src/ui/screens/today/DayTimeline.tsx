@@ -46,7 +46,7 @@ import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from
 import { DraftCapture } from '../capture/DraftCapture';
 import { BlockPopup } from '../practice';
 import { DeleteTask } from '../task';
-import type { TodayData } from './data';
+import type { DayData } from './data';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 import { Segmented } from '../../components/ds/Controls';
@@ -73,6 +73,10 @@ export interface PhoneDay {
   setEarlierOpen(open: boolean): void;
   /** Start something in the free time you're in, which runs until `until`, or to the end of the day. */
   startSomething(until: string | null): void;
+  /** Choose another time for a block: on the phone's Today, it waits on the day, ready to drag or carry to another day. */
+  choose?(id: string): void;
+  /** A hold's draft is waiting on the day for Capture, so swiping to another day would take it away. */
+  onDrafting?(on: boolean): void;
 }
 
 /** Where a block's menu opens: on phone, this far below the block held; from the keys, this far in from its left. */
@@ -104,7 +108,7 @@ interface Item {
 
 const touchGap = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches[1]!.clientX, e.touches[0]!.clientY - e.touches[1]!.clientY);
 
-export function DayTimeline(props: { data: TodayData; events: readonly CalendarEvent[]; phoneDay?: PhoneDay }) {
+export function DayTimeline(props: { data: DayData; events: readonly CalendarEvent[]; phoneDay?: PhoneDay }) {
   const { data, events } = props;
   const { clock, layout, platform } = useApp();
   const zone = clock.zone();
@@ -159,19 +163,24 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const holdNew = useHoldToCreate({
     at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
     move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
-    earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
+    earliest: { date: today(clock), minutes: localMinutes(clock.now(), zone) },
     off: !!drag || !!pop,
     draws: true,
     edges: !!pd,
   });
   const held = holdNew.draft?.slot;
+  const drafting = !!holdNew.draft;
+  const onDrafting = pd?.onDrafting;
+  useEffect(() => onDrafting?.(drafting), [drafting, onDrafting]);
 
   // Minutes after today's midnight, kept within the day, so an event over midnight still draws.
   const minutesOf = (at: string, edge: number) => (localDate(at, zone) === data.date ? localMinutes(at, zone) : edge);
   const cur = currentBlock(data.blocks, clock);
   const nextUp = nextBlock(data.blocks, clock);
   /** On phone with nothing under way, the next block says so on itself, as the now line says the time free till then. */
-  const nextTagged = !!pd && !cur && !!nextUp && localDate(nextUp.start, zone) === data.date ? nextUp.id : null;
+  // Another day of the week, on the phone's Today, has no now: nothing under way, next or free till then.
+  const isToday = data.date === today(clock);
+  const nextTagged = !!pd && isToday && !cur && !!nextUp && localDate(nextUp.start, zone) === data.date ? nextUp.id : null;
   const records = {
     tasks: new Map(data.tasks.map((t) => [t.id, t])),
     projects: new Map(data.projects.map((p) => [p.id, p])),
@@ -265,7 +274,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const resizable = (b: BlockRow) => !b.result && !b.ended_at && instantMs(b.end) > clock.now() && whole(b);
   const movable = (b: BlockRow) => resizable(b) && instantMs(b.start) >= clock.now();
   const ctx = slotContext({ week: weekStart(data.date), availability: data.settings.availability, avoided: data.settings.avoided_slots, sources: data.sources, calendar: data.calendar, blocks: data.blocks, clock });
-  const floor = Math.max(DRAWN_DAY.from, Math.ceil(nowMin / GRID) * GRID);
+  // Nothing moves into time gone by: all of a past day, and today up to now.
+  const floor = data.date > today(clock) ? DRAWN_DAY.from : data.date < today(clock) ? DRAWN_DAY.to : Math.max(DRAWN_DAY.from, Math.ceil(nowMin / GRID) * GRID);
   const bounds = (s: Slot) => ({ from: floor, to: Math.max(DRAWN_DAY.to, s.end) });
   const slotOf = (i: Item): Slot => ({ date: data.date, start: i.from, end: i.to });
   const workOf = (i: Item) => ({ kind: i.kind === 'one_off' ? ('one_off' as const) : ('project' as const) });
@@ -378,7 +388,12 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const entries = actions.moveChoices(b, ctx);
     return entries.length ? [{ id: 'move', label: 'Move to', icon: 'calendar', submenu: entries }] : [];
   };
-  const chooseOnWeek = () => nav.go('week', { edit: 'this' });
+  const chooseOnWeek = (b?: BlockRow) => {
+    if (pd?.choose && b) {
+      setPop(null);
+      pd.choose(b.id);
+    } else nav.go('week', { edit: 'this' });
+  };
   // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Skip this session"
   // for a practice. None for a planning block, which has its own flow, nor for another calendar's event.
   const menuOf = (i: Item): MenuEntry[] | null => {
@@ -406,7 +421,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   };
   const act = (i: Item, id: string) => {
     const b = i.block!;
-    if (id.startsWith('move:')) return void actions.moveTo(b, id, ctx, chooseOnWeek);
+    if (id.startsWith('move:')) return void actions.moveTo(b, id, ctx, () => chooseOnWeek(b));
     switch (id) {
       case 'done':
         return void actions.done(b, nextBlock(data.blocks.filter((x) => x.id !== b.id), clock));
@@ -481,7 +496,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
 
   // On a day with nothing left to do, free time is drawn as such, dashed: the stretch you're in offers Start something,
   // and a later one adds a task there.
-  const emptyDay = !!pd && view === 'calendar' && !cur && !nextUp && (!data.planned || !data.blocks.some((b) => b.task_kind !== 'planning'));
+  const emptyDay = !!pd && isToday && view === 'calendar' && !cur && !nextUp && (!data.planned || !data.blocks.some((b) => b.task_kind !== 'planning'));
   const gaps: { start: number; end: number; now: boolean; until: string | null }[] = [];
   if (emptyDay && nowMin < to) {
     let at = Math.max(nowMin, from);
@@ -537,7 +552,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         ))}
         {/* Before the blocks, so it passes behind them and never strikes through the one under way. Only its dot is
             drawn in front. */}
-        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
+        {isToday && nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
         {nextTagged && nextUp && nowMin >= from && nowMin <= to && (
           <span className="nowfree" style={{ top: y(nowMin) }}>
             Free until {formatTime(nextUp.start, zone)}
@@ -813,7 +828,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         <BlockPopup
           pop={pop}
           close={() => setPop(null)}
-          section={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: chooseOnWeek }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+          section={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: () => chooseOnWeek(popBlock) }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
         />
       )}
       {menu && menuItem && (

@@ -256,8 +256,8 @@ test('week arrows have no limit, with This week to come back, and the step is ke
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await page.getByRole('button', { name: 'Save and exit' }).click();
   await expect(steps(page)).toHaveCount(0);
-  // On phone, Today's prompt is a row whose Plan it offers it.
-  if (await page.getByRole('button', { name: 'Plan it' }).isVisible()) await page.getByRole('button', { name: 'Plan it' }).click();
+  // On phone, Today's prompt is the strip footer's Plan this week, which offers it.
+  if (await page.getByRole('button', { name: 'Plan this week', exact: true }).isVisible()) await page.getByRole('button', { name: 'Plan this week', exact: true }).click();
   await page.getByRole('button', { name: /Start planning|Continue planning/ }).first().click();
   await expect(steps(page).locator('[aria-current="step"]')).toHaveText(/Pick/);
 });

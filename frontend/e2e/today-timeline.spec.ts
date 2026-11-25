@@ -130,7 +130,7 @@ test('zoom draws the calendar taller a step at a time and back, each button stop
   const height = async () => Math.round((await hour.boundingBox())!.height);
   if (phone) {
     // In Today's menu, which offers only the steps there are. The phone's day opens at 72pt an hour.
-    const menu = page.getByRole('button', { name: "Today's view" });
+    const menu = page.getByRole('button', { name: 'View and week' });
     expect(await height()).toBe(71);
     await phoneView(page, 'Zoom in');
     await expect.poll(height).toBe(95);
@@ -220,7 +220,8 @@ test('the block under way keeps its start and changes only its end, from its edg
   await settled(page);
   // Under way, it's a button on phone too, since it no longer moves.
   const b = page.getByRole('button', { name: /^Paint the fence, 1:30pm to 3pm, One off\. Now\./ });
-  await b.scrollIntoViewIfNeeded();
+  // Mid-screen on phone, clear of the edges where a drag scrolls the day on.
+  await b.evaluate((el, phone) => el.scrollIntoView({ block: phone ? 'center' : 'nearest' }), phone);
   if (phone) {
     // Half an hour at the phone's 72pt.
     const grip = b.locator('.rz');
@@ -401,9 +402,14 @@ async function pressOnDay(page: Page, time: string, phone: boolean) {
     ({ minutes, pointerType }) => {
       // Where the drawn day says the time is: desktop's from 7am, the phone's from where it opens.
       const day = document.querySelector<HTMLElement>('.day')!;
-      const box = day.getBoundingClientRect();
       const [from, to] = [Number(day.dataset.dropFrom), Number(day.dataset.dropTo)];
-      const at = { x: box.x + box.width * 0.6, y: box.y + ((minutes - from) / (to - from)) * box.height };
+      const point = () => {
+        const box = day.getBoundingClientRect();
+        return { x: box.x + box.width * 0.6, y: box.y + ((minutes - from) / (to - from)) * box.height };
+      };
+      // On phone, the time is brought to the middle of the screen, clear of the week's strip stuck over the day.
+      if (pointerType === 'touch') document.querySelector('.pane')!.scrollBy(0, point().y - innerHeight / 2);
+      const at = point();
       const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType, isPrimary: true, button: 0, buttons: 1, clientX: at.x, clientY: at.y };
       document.elementFromPoint(at.x, at.y)!.dispatchEvent(new PointerEvent('pointerdown', init));
       return at;
@@ -476,7 +482,7 @@ test("Capture on a draft is a search too: it starts on a new Inbox task, typing 
   // Waiting to be placed: above the day on desktop, and on phone behind Today's waiting row.
   const lane = page.getByRole('region', { name: 'To schedule' });
   const waiting = () =>
-    phone ? expect(page.getByRole('button', { name: /^\d+ waiting for a time$/ })).toBeVisible() : expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
+    phone ? expect(page.getByRole('button', { name: /^\d+ to schedule/ })).toBeVisible() : expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
   await waiting();
   await settled(page);
   const capture = page.getByRole('dialog', { name: 'Capture' });

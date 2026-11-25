@@ -133,8 +133,8 @@ test("what's waiting for a time is one row and one sheet; a card held there lift
     task('t4', 'Read the Q4 report', { estimate_min: 60 }),
     { type: 'week_pick', id: 'pick:2026-11-02:t4', fields: { week_start: '2026-11-02', task_id: 't4', minutes: 60 } },
   ]);
-  await page.getByRole('button', { name: '1 waiting for a time' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Waiting for a time' });
+  await page.getByRole('button', { name: '1 to schedule' }).click();
+  const sheet = page.getByRole('dialog', { name: 'To schedule' });
   const report = sheet.getByRole('button', { name: /^Read the Q4 report, Project/ });
   await expect(report).toBeVisible();
   // Held and dragged over the day at 7pm, where nothing is.
@@ -156,15 +156,16 @@ test("what's due is a chip above the day, opening its tick, Find a time and Chan
   await expect(sheet.getByRole('button', { name: /^Change date/ })).toBeVisible();
 });
 
-test("an unplanned week's prompt is a row with today's calendar below it; × is the saved skip, with Undo", async ({ page }) => {
+test("an unplanned week's prompt is the strip's footer over today's calendar; its sheet's Skip is the saved skip", async ({ page }) => {
   await open(page, '09:40', [settings, project, task('t1', 'Write chapter two')]);
-  await expect(page.getByText("This week isn't planned yet")).toBeVisible();
-  await page.getByRole('button', { name: 'Plan it' }).click();
-  await expect(page.getByRole('dialog', { name: 'Plan this week' }).getByRole('button', { name: 'Start planning' })).toBeVisible();
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Skip planning this week' }).click();
+  await expect(page.getByText('Not planned yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Plan this week' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Plan this week' });
+  await expect(sheet.getByText("This week isn't planned yet")).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Start planning' })).toBeVisible();
+  await sheet.getByRole('button', { name: 'Skip planning this week' }).click();
   await expect(page.getByText('Skipped planning this week.')).toBeVisible();
-  await expect(page.getByText("This week isn't planned yet")).toHaveCount(0);
+  await expect(sheet).toHaveCount(0);
   // Nothing on the day: the free time you're in offers Start something.
   await page.getByRole('button', { name: 'Start something' }).click();
   await expect(page.getByRole('dialog', { name: 'Start something' }).getByRole('button', { name: 'Start Write chapter two' })).toBeVisible();
@@ -174,10 +175,10 @@ test("the header's menu zooms the day and shows it as a list", async ({ page }) 
   await open(page, '14:10', day);
   const passport = page.getByRole('slider', { name: /^Renew passport/ });
   const before = (await passport.boundingBox())!.height;
-  await page.getByRole('button', { name: "Today's view" }).click();
+  await page.getByRole('button', { name: 'View and week' }).click();
   await page.getByRole('menuitem', { name: 'Zoom in' }).click();
   await expect.poll(async () => (await passport.boundingBox())!.height).toBeGreaterThan(before);
-  await page.getByRole('button', { name: "Today's view" }).click();
+  await page.getByRole('button', { name: 'View and week' }).click();
   await page.getByRole('menuitem', { name: 'Show as a list' }).click();
   await expect(page.getByRole('button', { name: /^Renew passport, 3:30pm to 4pm/ })).toHaveClass(/tlbtn/);
 });

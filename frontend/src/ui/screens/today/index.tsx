@@ -174,7 +174,7 @@ function Prompts(props: { data: TodayData; putAway: PutAway }) {
   return <>{usePrompts(props.data, props.putAway).prompt}</>;
 }
 
-export default function Screen(_props: ScreenProps) {
+export default function Screen(props: ScreenProps) {
   // Re-reads the time often enough for blocks to start and end on screen; the countdown ticks on its own.
   useNow(10_000);
   const { clock, layout } = useApp();
@@ -221,7 +221,7 @@ export default function Screen(_props: ScreenProps) {
   }
   if (welcome) return frame('Welcome back', <Welcome blocks={welcome.blocks} onReturned={() => setPicking(true)} />);
   const todaysPick = pick?.date === data.date ? pick.id : null;
-  if (layout === 'phone') return <PhoneToday data={data} unplanned={!data.planned} pick={todaysPick} putAway={putAway} />;
+  if (layout === 'phone') return <PhoneToday screen={props} data={data} unplanned={!data.planned} pick={todaysPick} putAway={putAway} />;
   if (weekGate(data.planning.this, clock) === 'gate') {
     return frame(
       'Plan your week',

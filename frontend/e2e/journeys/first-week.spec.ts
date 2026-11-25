@@ -1,5 +1,5 @@
 import { expect, test } from '../platform';
-import { startPlanningOnToday } from '../seed';
+import { skipPlanningOnToday, startPlanningOnToday } from '../seed';
 import { askOnBlock } from '../today';
 import { addMilestones, addProject, addTasks, chicago, firstRun, jumpTo, openProject, pane, processTo, slide, start, tab, TZ } from './journey';
 
@@ -13,9 +13,9 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   const errors = await start(page, chicago('2026-11-02', '07:30')); // Monday morning.
 
   await firstRun(page, 'Write a novel');
-  // A new install with nothing planned opens on the prompt to plan the week: on phone, a row above today's calendar.
-  await expect(phone ? page.getByText("This week isn't planned yet") : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  // A new install with nothing planned opens on the prompt to plan the week: on phone, the strip's footer over today.
+  await expect(phone ? page.getByText('Not planned yet') : page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
+  await skipPlanningOnToday(page);
 
   await tab(page, phone, 'Goals');
   await addProject(page, phone, 'Write a novel', 'Finish the first draft', '2026-12-18');
@@ -148,9 +148,9 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   // Needs a new time: give it one.
   // The queue's own Review: until Today reads the answer back, the alert in its place reviews the missed block.
   // On phone, behind Today's row of what's waiting for a time.
-  if (phone) await page.getByRole('button', { name: '1 waiting for a time' }).click();
+  if (phone) await page.getByRole('button', { name: '1 to schedule' }).click();
   else await page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' }).click();
-  const queue = phone ? page.getByRole('dialog', { name: 'Waiting for a time' }).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
+  const queue = phone ? page.getByRole('dialog', { name: 'To schedule' }).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Partly done today, 45m left')).toBeVisible();
   if (phone) {
     await queue.getByRole('button', { name: 'Place on calendar' }).click();

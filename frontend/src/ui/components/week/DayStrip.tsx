@@ -71,6 +71,8 @@ export function DayStrip(props: {
   hint?(date: LocalDate): DayHint;
   /** Names each day's suggested time on a line of its own, as Schedule does. */
   suggestions?: boolean;
+  /** What each day says under its shape, in place of its free time: the phone's Today says the hours planned. */
+  under?(date: LocalDate): { text: string; say: string };
   onPick(date: LocalDate): void;
 }) {
   const { week, ctx, draft } = props;
@@ -84,7 +86,8 @@ export function DayStrip(props: {
         const freeText = date < today ? '' : formatMinutes(free(date, ctx));
         const { suggested, noFit, waiting } = props.hint?.(date) ?? {};
         const time = suggested && formatTimeOfDay(suggested.start);
-        const say = (time ? `, suggested ${time}` : noFit ? ', no slot for this task' : '') + (waiting ? `, ${waiting} to schedule` : '');
+        const under = props.under?.(date);
+        const say = (under?.say ? `, ${under.say}` : '') + (time ? `, suggested ${time}` : noFit ? ', no slot for this task' : '') + (waiting ? `, ${waiting} to schedule` : '');
         return (
           <button
             key={date}
@@ -108,7 +111,7 @@ export function DayStrip(props: {
                 <span className="wsug">{time || (noFit ? 'No slot' : '')}</span>
               </>
             ) : (
-              <span className="wfree">{noFit ? 'No slot' : freeText}</span>
+              <span className="wfree">{noFit ? 'No slot' : under ? under.text : freeText}</span>
             )}
           </button>
         );

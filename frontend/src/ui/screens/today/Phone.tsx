@@ -5,11 +5,14 @@
 // just ended and asks how it went, else the next when it starts within the hour. A tap selects another block, and a
 // second tap or Details opens its popup. Tapping Today again goes back to where the day opens.
 
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { currentBlock, nextBlock, timeLeftMs } from '../../../core/blocks';
-import { formatDate, formatTime, formatWeekday, instantMs, localMinutes, thisWeek } from '../../../core/dates';
-import { blockAhead, coveredWeek, stretchRow, weekGate, weekRow } from '../../../core/planning';
+import { addDays, formatTime, instantMs, localMinutes, thisWeek } from '../../../core/dates';
+import type { LocalDate } from '../../../core/types';
+import type { ScreenProps } from '../../app/registry';
+import { blockAhead, coveredWeek, rowState, stretchRow, weekGate, weekRow } from '../../../core/planning';
 import { shiftRestOfToday } from '../../../core/queue';
+import { DRAWN_DAY, GRID, isOpen } from '../../../core/slots';
 import { notesForDay } from '../../../core/queries';
 import type { OneOffRow } from '../../../core/schedule';
 import { PaneShown, useNav } from '../../app/nav';
@@ -22,7 +25,7 @@ import { PlanningRow, PlanningSet } from '../../components/planning/PlanningRow'
 import { PlanningTimes } from '../../components/planning/PlanningTimes';
 import { StretchRow } from '../../components/planning/StretchRow';
 import { About } from '../../components/planning/About';
-import { usePlanningActions, usePlanningTimes } from '../../components/planning/usePlanning';
+import { usePlanningActions, usePlanningRequest, usePlanningTimes } from '../../components/planning/usePlanning';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import { useOneOffTick } from '../../components/oneoff';
 import { Button } from '../../components/ds/Button';
@@ -31,8 +34,14 @@ import { DoneLine } from '../done/DoneLine';
 import { TodaysNotes } from '../notes/NoteList';
 import { useCalendarCall } from '../settings/useCalendarCall';
 import { LaneCard, laneCount } from '../week/lane';
+import type { WeekData } from '../week/data';
+import { useWeekScreen } from '../week/index';
+import { PhoneWeek } from '../week/Phone';
+import type { HostWeek } from '../week/Phone';
+import { dayOfWeek } from './data';
 import type { TodayData } from './data';
 import { DayTimeline, PHONE_ZOOM, ZOOM } from './DayTimeline';
+import type { PhoneDay } from './DayTimeline';
 import { spoken } from './NowCard';
 import { OneOffRowItem, oneOffsToday } from './OneOffsToday';
 import { QueueRows } from './QueuePanel';
@@ -46,9 +55,6 @@ import { usePrompts } from './usePrompts';
 import type { PutAway } from './usePrompts';
 import { NextUp } from './Views';
 
-/** "Tue, Nov 24" */
-const shortDay = (date: string) => `${formatWeekday(date)}, ${formatDate(date)}`;
-
 /** The first control at or after an element, for focus once the control that was before it has gone. */
 export function firstControl(from: Element | null): HTMLElement | null {
   for (let el = from; el; el = el.nextElementSibling) {
@@ -58,7 +64,7 @@ export function firstControl(from: Element | null): HTMLElement | null {
   return null;
 }
 
-export function PhoneToday(props: { data: TodayData; unplanned: boolean; pick: string | null; putAway: PutAway }) {
+export function PhoneToday(props: { screen: ScreenProps; data: TodayData; unplanned: boolean; pick: string | null; putAway: PutAway }) {
   const { data, unplanned } = props;
   const { clock, sync } = useApp();
   const nav = useNav();
@@ -67,13 +73,15 @@ export function PhoneToday(props: { data: TodayData; unplanned: boolean; pick: s
   const shown = useContext(PaneShown);
   const { prompt, missed } = usePrompts(data, props.putAway, { onItself: true });
   const { call } = useCalendarCall();
-  const [panel, setPanel] = useState<'shift' | 'waiting' | 'start' | null>(null);
+  const [panel, setPanel] = useState<{ kind: 'shift' | 'start' | 'plan' } | { kind: 'waiting'; day: LocalDate; add(): void } | null>(null);
   const [startUntil, setStartUntil] = useState<string | null>(null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
   const [ph, setPh] = useState(PHONE_ZOOM);
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number; from: HTMLElement } | null>(null);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number; from: HTMLElement; week: HostWeek } | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
+  // Another day's selected block, which goes with its day.
+  const [otherPicked, setOtherPicked] = useState<{ date: LocalDate; id: string } | null>(null);
   const [earlierOpen, setEarlierOpen] = useState(false);
 
   const cur = currentBlock(data.blocks, clock);
@@ -107,6 +115,10 @@ export function PhoneToday(props: { data: TodayData; unplanned: boolean; pick: s
     setEarlierOpen(false);
   };
   useEffect(() => reopen.current(), [day]);
+  // Planning started from the footer's sheet covers Today; the sheet's done once it has.
+  useEffect(() => {
+    if (nav.flow) setPanel((p) => (p?.kind === 'plan' ? null : p));
+  }, [nav.flow]);
   const signal = useRef(nav.topSignal);
   useEffect(() => {
     if (signal.current !== nav.topSignal && shown !== false && nav.tab === 'today') reopen.current();
@@ -116,8 +128,8 @@ export function PhoneToday(props: { data: TodayData; unplanned: boolean; pick: s
   const shift = shiftRestOfToday(data.blocks, data.events, data.settings.availability, clock);
   const clash = shift && `${shift.conflict.block.title} conflicts with ${'event' in shift.conflict ? shift.conflict.event.title : shift.conflict.running.title}.`;
 
-  // One planning row at a time, as Today has always had them: this week's set time, else next week's row, else a
-  // stretch's. An unplanned week's prompt is a row too, with the day below it.
+  // One planning row at a time, as Today has always had them: this week's set time, else a stretch's. Planning this
+  // week before it's planned, or next week once that's due, is the strip's footer.
   const gate = weekGate(data.planning.this, clock) === 'gate';
   const set = weekGate(data.planning.this, clock) === 'set' ? blockAhead(data.planning.this, clock) : undefined;
   const stretchPlan = data.planning.stretch;
@@ -126,137 +138,261 @@ export function PhoneToday(props: { data: TodayData; unplanned: boolean; pick: s
   const stretchShown = !set && !nextRow && !!stretchPlan && stretchRow(stretchPlan, clock);
   const onGone = (after: Element | null) => land(() => firstControl(after));
   const skipped = !!data.planning.this.plan?.planning_skipped_at;
+  // Skipped, it stays, as a way back to planning, unless next week's planning is already due.
+  const planThis = unplanned && (gate || (skipped && !nextRow));
+  const plan = planThis ? ('this' as const) : nextRow ? ('next' as const) : null;
+  const nextTitle = rowState(data.planning.next, clock) === 'stopped' ? 'Finish planning next week' : 'Plan next week';
+  // The weekly reminder's Choose a time opens next week's planning, whose row then asks when.
+  const request = usePlanningRequest();
+  useEffect(() => {
+    if (request && request === data.planning.next.week && plan === 'next') setPanel({ kind: 'plan' });
+  }, [request, data.planning.next.week, plan]);
 
   // Connecting needs a sign-in. Skipped, it asks again the next week.
   const week = thisWeek(clock);
   const connect = !!sync && data.signedIn && !data.connected && skippedCalendar !== week;
-  const lane = useToSchedule(data.date);
-  const waiting = data.queue.length + (lane?.items.length ?? 0);
-  const waitingLabel = [waiting ? `${waiting} waiting for a time` : '', missed ? `${missed.count} missed ${missed.count === 1 ? 'block' : 'blocks'} to check in on` : ''].filter(Boolean).join(', ') || (connect ? 'Connect Google Calendar' : '');
 
   // The evening of a planned day: nothing left on it, so what got done leads. An unplanned day offers free time instead.
   const evening = !unplanned && !cur && !next && data.blocks.some((b) => b.task_kind !== 'planning');
+  // Once nothing's left to answer either and the day's open time is over, Today opens on tomorrow, and Today comes back.
+  const [start] = useState(() => {
+    const now = localMinutes(clock.now(), clock.zone());
+    const openLeft = Array.from({ length: (DRAWN_DAY.to - DRAWN_DAY.from) / GRID }, (_, k) => DRAWN_DAY.from + k * GRID).some((m) => m + GRID > now && isOpen(data.settings.availability, data.date, m, 'project'));
+    return evening && !chosen && !openLeft ? addDays(data.date, 1) : undefined;
+  });
+  const weekProps = useWeekScreen(props.screen, 'today', start);
 
   const zoomIn = ZOOM.find((z) => z > ph);
   const zoomOut = [...ZOOM].reverse().find((z) => z < ph);
-  const menu: MenuEntry[] = [
+  const viewMenu: MenuEntry[] = [
     ...(view === 'calendar' && zoomIn ? [{ id: 'in', label: 'Zoom in', icon: 'zoom-in' as const }] : []),
     ...(view === 'calendar' && zoomOut ? [{ id: 'out', label: 'Zoom out', icon: 'zoom-out' as const }] : []),
     view === 'calendar' ? { id: 'list', label: 'Show as a list', icon: 'list' } : { id: 'calendar', label: 'Show as a calendar', icon: 'calendar' },
   ];
-  const choose = (id: string) => {
+  const choose = (id: string, w: HostWeek) => {
     if (id === 'in' && zoomIn) setPh(zoomIn);
     if (id === 'out' && zoomOut) setPh(zoomOut);
     if (id === 'list' || id === 'calendar') setView(id);
+    if (id.startsWith('week.')) w.choose(id);
   };
+  const phoneDay = (w: HostWeek, current: boolean) => ({
+    view,
+    ph,
+    setPh,
+    choose: w.move,
+    ...(current ? { onDrafting: w.drafting } : {}),
+  });
 
+  // Until the week's read: Today's own data is in, so only the strip and the day wait.
+  if (!weekProps) return <div className="today tdphone" aria-busy="true" />;
   return (
-    // Busy until it has read the week's work waiting for a time, whose row then joins the ones above the day.
-    <div className="stack today tdphone" aria-busy={!lane}>
-      <div className="tdhead">
-        <h1>Today</h1>
-        <span className="tddate">{shortDay(data.date)}</span>
-        <Button
-          variant="icon"
-          icon="more"
-          label="Today's view"
-          aria-haspopup="menu"
-          aria-expanded={!!menuAt}
-          className="tdmenu"
-          type="button"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setMenuAt({ x: r.right - 220, y: r.bottom + 8, from: e.currentTarget });
-          }}
-        />
-      </div>
-      <SelectedHeading block={selectedBlock} blocks={data.blocks} />
-      {shift && (
-        <div className="warn shiftwarn" role="status">
-          <div className="grow100">
-            <div className="strong">Scheduling conflict</div>
-            <div>{clash}</div>
-          </div>
-          <Button type="button" aria-expanded={panel === 'shift'} onClick={() => setPanel(panel === 'shift' ? null : 'shift')}>
-            Shift rest of today
-          </Button>
-        </div>
+    <PhoneWeek
+      key={weekProps.data.week}
+      {...weekProps}
+      host={{
+        className: 'today tdphone',
+        busy: false,
+        head: (w) => (
+          <>
+            <div className="tdhead">
+              <h1>{w.heading.name}</h1>
+              <span className="tddate">{w.heading.date}</span>
+              {(w.day !== data.date || w.offset !== 0) && (
+                <Button className="tdtoday" type="button" onClick={w.goToday}>
+                  Today
+                </Button>
+              )}
+              <Button
+                variant="icon"
+                icon="more"
+                label="View and week"
+                aria-haspopup="menu"
+                aria-expanded={!!menuAt}
+                className="tdmenu"
+                type="button"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setMenuAt({ x: r.right - 240, y: r.bottom + 8, from: e.currentTarget, week: w });
+                }}
+              />
+            </div>
+            {w.day === data.date && <SelectedHeading block={selectedBlock} blocks={data.blocks} />}
+          </>
+        ),
+        above: evening && <DoneLine />,
+        rows: (
+          <>
+            {shift && (
+              <div className="warn shiftwarn" role="status">
+                <div className="grow100">
+                  <div className="strong">Scheduling conflict</div>
+                  <div>{clash}</div>
+                </div>
+                <Button type="button" aria-expanded={panel?.kind === 'shift'} onClick={() => setPanel(panel?.kind === 'shift' ? null : { kind: 'shift' })}>
+                  Shift rest of today
+                </Button>
+              </div>
+            )}
+            {panel?.kind === 'shift' && shift && <ShiftPanel plan={shift} connected={data.connected} onClose={() => setPanel(null)} />}
+            {set && <PlanningSet week={data.planning.this.week} block={set} />}
+            {stretchShown && <StretchRow stretch={stretchPlan.stretch} first={stretchPlan.first} onGone={onGone} />}
+            <DueRow data={data} />
+          </>
+        ),
+        foot: (w) =>
+          w.offset >= 0 && (
+            <TodayFoot
+              data={data}
+              day={w.day}
+              plan={w.offset === 0 && plan ? (plan === 'this' ? 'Plan this week' : nextTitle) : null}
+              missed={missed}
+              connect={connect}
+              onPlan={() => setPanel({ kind: 'plan' })}
+              onWaiting={() => setPanel({ kind: 'waiting', day: w.day, add: w.add })}
+            />
+          ),
+        day: (date, current, weekData, w) =>
+          date === data.date ? (
+            <DayTimeline
+              data={data}
+              events={data.events}
+              phoneDay={{
+                ...phoneDay(w, current),
+                selected,
+                select: setPicked,
+                open,
+                earlierOpen,
+                setEarlierOpen,
+                startSomething: (until) => {
+                  setStartUntil(until);
+                  setPanel({ kind: 'start' });
+                },
+              }}
+            />
+          ) : (
+            weekData && (
+              <OtherDay
+                date={date}
+                week={weekData}
+                phoneDay={{
+                  ...phoneDay(w, current),
+                  selected: otherPicked && otherPicked.date === date ? otherPicked.id : null,
+                  select: (id: string | null) => setOtherPicked(id ? { date, id } : null),
+                  open: null,
+                  earlierOpen: false,
+                  setEarlierOpen: () => undefined,
+                  startSomething: () => undefined,
+                }}
+              />
+            )
+          ),
+        extra: (
+          <>
+            {panel?.kind === 'waiting' && (
+              <WaitingSheet
+                data={data}
+                day={panel.day}
+                missed={missed}
+                connect={connect ? { go: () => void call(sync!.connectCalendar), skip: () => setSkippedCalendar(week) } : null}
+                onAdd={() => {
+                  panel.add();
+                  setPanel(null);
+                }}
+                onClose={() => setPanel(null)}
+              />
+            )}
+            {panel?.kind === 'plan' && plan === 'this' && <PlanSheet week={week} skipped={!gate} onClose={() => setPanel(null)} />}
+            {panel?.kind === 'plan' && plan === 'next' && (
+              <Sheet label={nextTitle} onClose={() => setPanel(null)} className="tdsheet">
+                <div className="between">
+                  <h2>{nextTitle}</h2>
+                  <Button variant="icon" icon="close" label="Close" type="button" onClick={() => setPanel(null)} />
+                </div>
+                {stretchPlan && !stretchPlan.first && stretchRow(stretchPlan, clock) ? (
+                  <BothRows week={data.planning.next} stretch={stretchPlan.stretch} first={stretchPlan.first} onGone={() => setPanel(null)} />
+                ) : (
+                  <PlanningRow planning={data.planning.next} onGone={() => setPanel(null)} />
+                )}
+              </Sheet>
+            )}
+            {panel?.kind === 'start' && (
+              <Sheet label="Start something" onClose={() => setPanel(null)} tall className="tdsheet">
+                <div className="between">
+                  <div>
+                    <h2>{startUntil ? `Free until ${formatTime(startUntil, clock.zone())}` : 'Free for the rest of the day'}</h2>
+                    {startUntil && <div className="small quiet">{minutesWords(Math.max(1, Math.round((instantMs(startUntil) - clock.now()) / 60_000)))} from now</div>}
+                  </div>
+                  <Button variant="icon" icon="close" label="Close" type="button" onClick={() => setPanel(null)} />
+                </div>
+                <NextUp data={data} pick={props.pick} onStarted={() => setPanel(null)} />
+                <p className="small quiet">Start puts it on the calendar from now, with Undo.</p>
+              </Sheet>
+            )}
+            {menuAt && (
+              <Menu
+                label="View and week"
+                entries={menuAt.week.menu.length ? [...viewMenu, 'separator', ...menuAt.week.menu] : viewMenu}
+                at={menuAt}
+                onClose={() => {
+                  menuAt.from.focus({ preventScroll: true });
+                  setMenuAt(null);
+                }}
+                onChoose={(id) => {
+                  setMenuAt(null);
+                  choose(id, menuAt.week);
+                }}
+              />
+            )}
+            {prompt}
+          </>
+        ),
+      }}
+    />
+  );
+}
+
+/** Another day of the week, drawn as today is, from its week's data. Only today has a now, so nothing's under way. */
+function OtherDay(props: { date: LocalDate; week: WeekData; phoneDay: PhoneDay }) {
+  const { clock } = useApp();
+  const zone = clock.zone();
+  const data = useMemo(() => dayOfWeek(props.week, props.date, zone), [props.week, props.date, zone]);
+  return <DayTimeline data={data} events={data.events} phoneDay={props.phoneDay} />;
+}
+
+/**
+ * The strip footer's actions: planning this week before it's planned, or next week once that's due, then what's waiting
+ * for a time on the day shown and before it, which opens one sheet.
+ */
+function TodayFoot(props: {
+  data: TodayData;
+  day: LocalDate;
+  /** Plan this week, Plan next week or Finish planning next week, when one's due. */
+  plan: string | null;
+  missed: { title: string; count: number } | null;
+  connect: boolean;
+  onPlan(): void;
+  onWaiting(): void;
+}) {
+  const { data, missed } = props;
+  const lane = useToSchedule(props.day);
+  const waiting = data.queue.length + (lane?.items.length ?? 0);
+  const label =
+    [waiting ? `${waiting} to schedule` : '', missed ? `${missed.count} missed ${missed.count === 1 ? 'block' : 'blocks'} to check in on` : ''].filter(Boolean).join(', ') ||
+    (props.connect ? 'Connect Google Calendar' : '');
+  return (
+    <>
+      {props.plan && (
+        <Button type="button" aria-haspopup="dialog" onClick={props.onPlan}>
+          {props.plan}
+        </Button>
       )}
-      {panel === 'shift' && shift && <ShiftPanel plan={shift} connected={data.connected} onClose={() => setPanel(null)} />}
-      {/* Skipped, it stays, as a way back to planning, unless next week's planning is already due. */}
-      {unplanned && (gate || (skipped && !nextRow)) && <PlanRow week={week} skipped={!gate} />}
-      {set && <PlanningSet week={data.planning.this.week} block={set} />}
-      {nextRow && stretchPlan && !stretchPlan.first && stretchRow(stretchPlan, clock) ? (
-        <BothRows week={data.planning.next} stretch={stretchPlan.stretch} first={stretchPlan.first} onGone={onGone} />
-      ) : (
-        nextRow && <PlanningRow planning={data.planning.next} onGone={onGone} />
-      )}
-      {stretchShown && <StretchRow stretch={stretchPlan.stretch} first={stretchPlan.first} onGone={onGone} />}
-      {waitingLabel && (
-        <button className="attn tdrow" type="button" aria-haspopup="dialog" onClick={() => setPanel('waiting')}>
-          <span className="strong">{waitingLabel}</span>
-          <Icon name="chevron-right" size={16} className="chev" />
+      {label && (
+        <button className="link sfwait" type="button" aria-haspopup="dialog" onClick={props.onWaiting}>
+          {label}
+          <Icon name="chevron-right" size={16} />
         </button>
       )}
-      {evening && <DoneLine />}
-      <DueRow data={data} />
-      <DayTimeline
-        data={data}
-        events={data.events}
-        phoneDay={{
-          view,
-          ph,
-          setPh,
-          selected,
-          select: setPicked,
-          open,
-          earlierOpen,
-          setEarlierOpen,
-          startSomething: (until) => {
-            setStartUntil(until);
-            setPanel('start');
-          },
-        }}
-      />
-      {panel === 'waiting' && (
-        <WaitingSheet
-          data={data}
-          lane={lane}
-          missed={missed}
-          connect={connect ? { go: () => void call(sync!.connectCalendar), skip: () => setSkippedCalendar(week) } : null}
-          onClose={() => setPanel(null)}
-        />
-      )}
-      {panel === 'start' && (
-        <Sheet label="Start something" onClose={() => setPanel(null)} tall className="tdsheet">
-          <div className="between">
-            <div>
-              <h2>{startUntil ? `Free until ${formatTime(startUntil, clock.zone())}` : 'Free for the rest of the day'}</h2>
-              {startUntil && <div className="small quiet">{minutesWords(Math.max(1, Math.round((instantMs(startUntil) - clock.now()) / 60_000)))} from now</div>}
-            </div>
-            <Button variant="icon" icon="close" label="Close" type="button" onClick={() => setPanel(null)} />
-          </div>
-          <NextUp data={data} pick={props.pick} onStarted={() => setPanel(null)} />
-          <p className="small quiet">Start puts it on the calendar from now, with Undo.</p>
-        </Sheet>
-      )}
-      {menuAt && (
-        <Menu
-          label="Today's view"
-          entries={menu}
-          at={menuAt}
-          onClose={() => {
-            menuAt.from.focus({ preventScroll: true });
-            setMenuAt(null);
-          }}
-          onChoose={(id) => {
-            setMenuAt(null);
-            choose(id);
-          }}
-        />
-      )}
-      {prompt}
-    </div>
+    </>
   );
 }
 
@@ -281,63 +417,66 @@ function SelectedHeading(props: { block: TodayData['blocks'][number] | undefined
 }
 
 /**
- * An unplanned week's prompt, as a row with the day below: Plan it opens Start planning and Choose a time, and × skips,
- * saved as Skip for now is. Skipped, it stays without the ×.
+ * Planning this week, from the strip's footer before it's planned: Start planning, Choose a time, and Skip, saved as
+ * Skip for now is. Skipped, the footer still offers it, without Skip.
  */
-function PlanRow(props: { week: string; skipped: boolean }) {
-  const { week } = props;
+function PlanSheet(props: { week: string; skipped: boolean; onClose(): void }) {
+  const { week, onClose } = props;
   const planning = usePlanningTimes(week);
   const act = usePlanningActions();
-  const [open, setOpen] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const minutes = planning?.estimate.minutes;
   return (
-    <div className="attn tdplan">
-      <div className="grow">
-        <div className="strong">{props.skipped ? "This week isn't planned" : "This week isn't planned yet"}</div>
-        {minutes !== undefined && (
-          <div className="small quiet">
-            <About minutes={minutes} after=" to plan" />
-          </div>
-        )}
-      </div>
-      <Button type="button" aria-haspopup="dialog" onClick={() => setOpen(true)}>
-        Plan it
-      </Button>
-      {!props.skipped && <Button variant="icon" icon="close" label="Skip planning this week" type="button" disabled={act.pending} onClick={() => void act.skip(week)} />}
-      {open && (
-        <Sheet label="Plan this week" onClose={() => setOpen(false)}>
-          <h2>Plan this week</h2>
+    <Sheet label="Plan this week" onClose={onClose} className="tdsheet">
+      <div className="between">
+        <div>
+          <h2>{props.skipped ? "This week isn't planned" : "This week isn't planned yet"}</h2>
           {minutes !== undefined && (
-            <p className="small quiet">
-              <About minutes={minutes} after="." />
-            </p>
+            <div className="small quiet">
+              <About minutes={minutes} after=" to plan" />
+            </div>
           )}
-          <Button variant="primary" type="button" disabled={minutes === undefined} onClick={() => minutes !== undefined && void act.start(week, minutes)}>
-            Start planning
-          </Button>
-          <Button type="button" aria-label="Choose a time to plan this week" onClick={() => setChoosing(true)}>
-            Choose a time
-          </Button>
-          {choosing && <PlanningTimes for={week} name="this week" onClose={() => setChoosing(false)} />}
-        </Sheet>
+        </div>
+        <Button variant="icon" icon="close" label="Close" type="button" onClick={onClose} />
+      </div>
+      <Button variant="primary" type="button" disabled={minutes === undefined} onClick={() => minutes !== undefined && void act.start(week, minutes)}>
+        Start planning
+      </Button>
+      <Button type="button" aria-label="Choose a time to plan this week" onClick={() => setChoosing(true)}>
+        Choose a time
+      </Button>
+      {!props.skipped && (
+        <Button
+          type="button"
+          disabled={act.pending}
+          onClick={() => {
+            onClose();
+            void act.skip(week);
+          }}
+        >
+          Skip planning this week
+        </Button>
       )}
-    </div>
+      {choosing && <PlanningTimes for={week} name="this week" onClose={() => setChoosing(false)} />}
+    </Sheet>
   );
 }
 
 /**
- * What's waiting for a time, in one sheet: missed blocks from earlier days to check in on, work that needs a new time,
- * this week's work for today with no time yet, and connecting Google Calendar.
+ * What's waiting for a time, in one sheet from the strip's footer: missed blocks from earlier days to check in on, work
+ * that needs a new time, the week's work for the day shown with no time yet, and connecting Google Calendar.
  */
 function WaitingSheet(props: {
   data: TodayData;
-  lane: ReturnType<typeof useToSchedule>;
+  day: LocalDate;
   missed: { title: string; count: number; review(): void } | null;
   connect: { go(): void; skip(): void } | null;
+  onAdd(): void;
   onClose(): void;
 }) {
-  const { data, lane, missed, connect, onClose } = props;
+  const { data, missed, connect, onClose } = props;
+  const lane = useToSchedule(props.day);
+  const { clock } = useApp();
   const nav = useNav();
   const act = useWeekActions();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -347,9 +486,12 @@ function WaitingSheet(props: {
   const item = lane?.items.find((x) => x.id === openId);
   return (
     <>
-    <Sheet label="Waiting for a time" onClose={onClose} tall className={`tdsheet${aside ? ' aside' : ''}`}>
+    <Sheet label="To schedule" onClose={onClose} tall className={`tdsheet${aside ? ' aside' : ''}`}>
       <div className="between">
-        <h2>Waiting for a time</h2>
+        <div>
+          <h2>To schedule</h2>
+          {lane && lane.items.length > 0 && <div className="small quiet">{laneCount(lane.items)}</div>}
+        </div>
         <Button variant="icon" icon="close" label="Close" type="button" onClick={onClose} />
       </div>
       {missed && (
@@ -375,10 +517,8 @@ function WaitingSheet(props: {
         </section>
       )}
       {lane && lane.items.length > 0 && (
-        <section className="stack8" aria-label="To schedule today">
-          <h3 className="tdsh">
-            To schedule today <span className="quiet">{laneCount(lane.items)}</span>
-          </h3>
+        <section className="stack8" aria-label="Waiting for a day">
+          <h3 className="tdsh">Waiting for a day</h3>
           <div className="lanerow">
             {lane.items.map((x) => (
               <LaneCard
@@ -404,13 +544,20 @@ function WaitingSheet(props: {
             ))}
           </div>
           <p className="small quiet">Hold a card, then drag it onto the day, or tap it for suggested times.</p>
-          <div>
-            <Button type="button" onClick={() => nav.openFlow('planning', { week: lane.week, step: 'schedule' })}>
-              Schedule one at a time
-            </Button>
-          </div>
         </section>
       )}
+      <div className="row">
+        {lane && lane.items.length > 0 && (
+          <Button type="button" onClick={() => nav.openFlow('planning', { week: lane.week, step: 'schedule' })}>
+            Schedule one at a time
+          </Button>
+        )}
+        {lane && lane.week === thisWeek(clock) && (
+          <Button type="button" onClick={props.onAdd}>
+            Add a task
+          </Button>
+        )}
+      </div>
       {connect && (
         <div className="attn tdrow">
           <div className="grow">

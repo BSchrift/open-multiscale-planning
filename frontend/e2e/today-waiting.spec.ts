@@ -89,7 +89,7 @@ test('Needs a new time places a row at its best time in one tap with Undo, delet
     notDone('b3', october(28, '10:00')),
   ]);
   // On phone, behind Today's row of what's waiting for a time.
-  if (phone) await expect(page.getByRole('button', { name: '2 waiting for a time' })).toBeVisible();
+  if (phone) await expect(page.getByRole('button', { name: '2 to schedule' })).toBeVisible();
   else await page.getByRole('status').filter({ hasText: "2 tasks that didn't get done." }).getByRole('button', { name: 'Review' }).click();
   const queue = phone ? (await waitingSheet(page)).getByRole('region', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Not done today')).toBeVisible();

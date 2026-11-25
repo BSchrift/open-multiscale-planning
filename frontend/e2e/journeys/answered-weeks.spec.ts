@@ -1,6 +1,6 @@
 import { expect, test } from '../platform';
 import type { Page } from '@playwright/test';
-import { startPlanningThenUndo } from '../seed';
+import { skipPlanningOnToday, startPlanningThenUndo } from '../seed';
 import { addProject, chicago, firstRun, jumpTo, pane, slide, start, tab, TZ } from './journey';
 
 // Five weeks of planning and answering blocks, where Monday evenings never hold and Tuesday evenings always do.
@@ -51,7 +51,7 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
   const phone = info.project.name === 'phone';
   const errors = await start(page, chicago(MONDAYS[0]!, '08:00'));
   await firstRun(page, 'Write a novel');
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
   await tab(page, phone, 'Goals');
   const project = await addProject(page, phone, 'Write a novel', 'Finish the first draft', '2027-03-26');
   await project.getByRole('button', { name: phone ? '+ Task' : 'Add task', exact: true }).click();

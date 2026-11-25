@@ -1,5 +1,5 @@
 import { expect, test } from '../platform';
-import { startPlanningThenUndo } from '../seed';
+import { skipPlanningOnToday, startPlanningThenUndo } from '../seed';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
@@ -15,7 +15,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const goal = 'Learn to bake bread';
   const errors = await start(page, chicago('2026-12-07', '09:00')); // Monday, in the last quarter of 2026.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
 
   // The first plan is for this stretch, from today to the quarter's end.
   await tab(page, phone, 'Plan');

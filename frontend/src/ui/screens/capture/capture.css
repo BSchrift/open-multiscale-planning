@@ -11,12 +11,20 @@
   max-width: 300px;
 }
 
-/* Add details opens as one column: Time, then Send to and Milestone side by side, then the description. */
+/* Time, under the name, before the details: in the details' type, the width of the sheet. */
+[data-layout='desktop'] .captime {
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+/* Add details opens as one column: Send to and Milestone side by side, then the description. On a draft, Time first. */
 [data-layout='desktop'] .capdetails {
   flex-direction: column;
   flex-wrap: nowrap;
 }
 
+[data-layout='desktop'] .captime .estslider,
 [data-layout='desktop'] .capdetails .estslider {
   flex: none;
   max-width: none;

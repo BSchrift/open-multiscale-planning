@@ -464,18 +464,17 @@ test('desktop: a click outside the card closes Process, as Exit does, and what w
   expect(errors).toEqual([]);
 });
 
-test('Add details sends a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
+test('Time under the name and Add details send a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
   const capture = await openCapture(page, phone);
   await capture.getByRole('textbox', { name: 'Capture to Inbox' }).fill('Return the books');
-  await capture.getByRole('button', { name: 'Add details' }).click();
-  await capture.getByLabel('Send to').selectOption({ label: 'One offs' });
-  const field = capture.getByRole('textbox', { name: 'Capture to One offs' });
-  await expect(field).toHaveValue('Return the books');
-  if (!phone) await expect(capture.getByText('Saves to One offs')).toBeVisible();
+  // Time shows before Add details, one Tab from the name on desktop.
   const slider = capture.getByRole('slider', { name: 'Time' });
-  await slider.focus();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'No estimate');
+  if (phone) await slider.focus();
+  else await page.keyboard.press('Tab');
+  await expect(slider).toBeFocused();
   // Five minutes a step, each checked before the next.
   for (let m = 5; m < 60; m += 5) {
     await page.keyboard.press('ArrowRight');
@@ -483,6 +482,13 @@ test('Add details sends a task with its time straight to One offs, past the Inbo
   }
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', '1h');
+  await capture.getByRole('button', { name: 'Add details' }).click();
+  await expect(capture.getByRole('slider', { name: 'Time' })).toHaveCount(1);
+  await capture.getByLabel('Send to').selectOption({ label: 'One offs' });
+  const field = capture.getByRole('textbox', { name: 'Capture to One offs' });
+  await expect(field).toHaveValue('Return the books');
+  await expect(slider).toHaveAttribute('aria-valuetext', '1h');
+  if (!phone) await expect(capture.getByText('Saves to One offs')).toBeVisible();
   if (phone) await capture.getByRole('button', { name: 'Save' }).click();
   else await field.press('Enter');
   await expect(phone ? toast(page) : capture.getByRole('status')).toContainText('Saved to One offs');

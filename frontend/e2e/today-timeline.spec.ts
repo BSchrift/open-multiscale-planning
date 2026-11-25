@@ -510,6 +510,8 @@ test("Capture on a draft is a search too: it starts on a new Inbox task, typing 
   await expect(list.getByRole('option').first()).toHaveAccessibleName('New Inbox task');
   await expect(list.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
   await expect(list.getByRole('option', { name: 'Write the report, Project · 1h, Fits' })).toBeVisible();
+  // The drafted time already gives the length, so Time waits in Add details.
+  await expect(capture.getByRole('slider', { name: 'Time' })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(capture).toHaveCount(0);
   await expect(draft).toHaveCount(0);

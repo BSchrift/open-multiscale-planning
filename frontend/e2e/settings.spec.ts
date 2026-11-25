@@ -129,12 +129,13 @@ test('edits settings in place', async ({ page }, info) => {
   if (phone) await expectTargets(p.locator('button, select, input:not([type=checkbox]), label.taskrow'));
   await page.screenshot({ path: info.outputPath('settings.png'), fullPage: true });
 
-  // The cadence changes on the Plan page, and back returns here.
+  // The cadence changes on the Plan page, and back returns here. On phone, Plan is a tab of its own, so back returns to
+  // More, which shows Settings as it was left.
   const cadence = p.getByRole('region', { name: 'Planning cadence' });
   await expect(cadence.getByText('Calendar quarters')).toBeVisible();
   await cadence.getByRole('button', { name: 'Change planning cadence' }).click();
   await expect(pane(page, 'Plan')).toBeVisible();
-  await page.getByRole('button', { name: 'Back to Settings' }).click();
+  await page.getByRole('button', { name: phone ? 'Back to More' : 'Back to Settings' }).click();
   await expect(pane(page, 'Settings')).toBeVisible();
 
   // Everything above was saved.

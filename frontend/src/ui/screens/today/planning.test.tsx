@@ -40,7 +40,11 @@ function open(options: HarnessOptions & { seed?(w: Writer): Promise<unknown> } =
   });
 }
 
-const row = () => screen.findByRole('region', { name: 'Plan next week' });
+// On phone, next week's planning is the strip's footer, whose Plan next week opens the row in a sheet.
+const row = async (layout: Layout = 'desktop') => {
+  if (layout === 'phone') await userEvent.click(await screen.findByRole('button', { name: 'Plan next week' }));
+  return screen.findByRole('region', { name: 'Plan next week' });
+};
 const blocksOf = async (t: { db: Parameters<typeof listRecords>[0] }, id: string) =>
   (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === id && !b.cancelled);
 
@@ -63,13 +67,13 @@ describe("next week's planning row", () => {
 
   it.each(['desktop', 'phone'] as Layout[])('on %s, one tap schedules the best time, with Undo, and the row goes', async (layout) => {
     const t = await open({ layout });
-    const r = await row();
+    const r = await row(layout);
     await userEvent.click(within(r).getByRole('button', { name: 'Schedule planning for Friday, Nov 6 at 5pm' }));
     expect(await screen.findByText('Planning scheduled for Fri 5pm.')).toBeVisible();
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Plan next week' })).toBeNull());
     expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-06', '17:00'), end: at('2026-11-06', '17:30') }]);
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(await row()).toBeVisible();
+    expect(await row(layout)).toBeVisible();
     expect((await blocksOf(t, NEXT_ID)).filter((b) => !b.deleted_at)).toEqual([]);
   });
 
@@ -121,9 +125,9 @@ describe("next week's planning row", () => {
     expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-07', '09:00'), end: at('2026-11-07', '09:50') }]);
   });
 
-  it.each(['desktop', 'phone'] as Layout[])('on %s, Choose another time opens Week with the block waiting at its best time, at the length chosen, to place by hand', async (layout) => {
+  it.each(['desktop', 'phone'] as Layout[])('on %s, Choose another time opens its week with the block waiting at its best time, at the length chosen, to place by hand', async (layout) => {
     const t = await open({ layout });
-    await userEvent.click(within(await row()).getByRole('button', { name: 'Choose a time to plan next week' }));
+    await userEvent.click(within(await row(layout)).getByRole('button', { name: 'Choose a time to plan next week' }));
     const sheet = await screen.findByRole('dialog', { name: 'When will you plan next week?' });
     // No day and time fields: the calendar is where another time is chosen, beside what's busy.
     expect(within(sheet).queryByLabelText('Day')).toBeNull();
@@ -131,11 +135,12 @@ describe("next week's planning row", () => {
     await userEvent.click(within(sheet).getByRole('button', { name: 'Change length' }));
     fireEvent.change(within(sheet).getByRole('slider', { name: 'Length' }), { target: { value: '45' } });
     await userEvent.click(within(sheet).getByRole('button', { name: 'Choose another time' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'When will you plan next week?' })).toBeNull();
     const route = t.nav().route;
-    expect(route).toMatchObject({ area: 'week', params: { place: NEXT_ID } });
+    // Week on desktop; on phone Week is Today's, which places it over its day (weekOnToday.test.tsx).
+    expect(route).toMatchObject({ area: layout === 'phone' ? 'today' : 'week', params: { place: NEXT_ID } });
     expect(planningToPlace(route.params)).toEqual({ for: NEXT, minutes: 45, at: { date: '2026-11-06', start: 17 * 60, end: 17 * 60 + 45 } });
-    // Nothing is placed until Place here on Week.
+    // Nothing is placed until Place here.
     expect(await blocksOf(t, NEXT_ID)).toEqual([]);
   });
 
@@ -151,11 +156,34 @@ describe('the prompt to plan this week', () => {
   const MONDAY = at(THIS, '09:00');
   const unplanned = (options: HarnessOptions = {}) => renderScreen('today', { now: MONDAY, zone: ZONE, ...options, seed: inbox });
 
-  it('says how long planning takes, and offers Start planning, Choose a time and Skip for now, stacked on phone', async () => {
-    await unplanned({ layout: 'phone' });
-    expect(await screen.findByRole('heading', { name: 'Plan your week' })).toBeVisible();
-    expect(screen.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
-    for (const name of ['Start planning', 'Choose a time to plan this week', 'Skip for now']) expect(screen.getByRole('button', { name })).toBeVisible();
+  it("on phone is the strip's footer over today's calendar: Plan this week offers Start planning, Choose a time and Skip, the same saved skip, with Undo", async () => {
+    const t = await unplanned({ layout: 'phone' });
+    expect(await screen.findByText('Not planned yet')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Plan your week' })).toBeNull();
+    expect(screen.getByRole('region', { name: "Today's timeline" })).toBeVisible();
+    const plan = async () => {
+      await userEvent.click(screen.getByRole('button', { name: 'Plan this week' }));
+      return screen.findByRole('dialog', { name: 'Plan this week' });
+    };
+    let sheet = await plan();
+    expect(within(sheet).getByText("This week isn't planned yet")).toBeVisible();
+    expect(within(sheet).getByText('About 30m to plan')).toBeVisible();
+    for (const name of ['Start planning', 'Choose a time to plan this week']) expect(within(sheet).getByRole('button', { name })).toBeVisible();
+    const skip = async () => {
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Skip planning this week' }));
+      expect(await screen.findByText('Skipped planning this week.')).toBeVisible();
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect((await getRecord(t.db, 'week_plan', weekPlanId(THIS)))?.planning_skipped_at).toBe(MONDAY);
+    };
+    await skip();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'week_plan', weekPlanId(THIS)))?.planning_skipped_at).toBeNull());
+    sheet = await plan();
+    await skip();
+    // Skipped, the footer still offers it, as a way back to planning, without Skip.
+    sheet = await plan();
+    expect(within(sheet).getByText("This week isn't planned")).toBeVisible();
+    expect(within(sheet).queryByRole('button', { name: 'Skip planning this week' })).toBeNull();
   });
 
   it('on desktop keeps to one line, with × as Skip for now, whose toast has Undo; the skip is saved for every device', async () => {

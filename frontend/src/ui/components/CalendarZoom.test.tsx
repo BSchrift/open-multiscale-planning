@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ZoomButtons } from './CalendarZoom';
-import { clampZoom, hourHeight, hourLabelStep, ZOOM } from './zoom';
+import { hourHeight, hourLabelStep, ZOOM } from './zoom';
 
 afterEach(cleanup);
 
@@ -14,12 +14,6 @@ describe("a calendar's zoom", () => {
     // Week's is 26px, or 40 while editing: each to a whole pixel.
     expect(ZOOM.map((z) => hourHeight(26, z))).toEqual([26, 42, 62, 83]);
     expect(ZOOM.map((z) => hourHeight(40, z))).toEqual([40, 64, 96, 128]);
-  });
-
-  it('keeps a pinch within its first and last steps', () => {
-    expect(clampZoom(0.5)).toBe(1);
-    expect(clampZoom(2)).toBe(2);
-    expect(clampZoom(5)).toBe(3.2);
   });
 
   it('labels every other hour until an hour is drawn 48px tall, then every hour', () => {

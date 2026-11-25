@@ -10,8 +10,11 @@
 /* Phone: the sticky header is ground, so the week's figures and the chosen day read as the cards under it. */
 [data-layout='phone'] .week .weektop { border-bottom: 0; background: var(--ground); }
 [data-layout='phone'] :is(.wksum, .wkdaycard) { padding: var(--space-3); }
-/* Two fingers on the day zoom its hours, not the page; one still scrolls. */
+/* Two fingers on the day zoom its hours, not the page; one scrolls it, or swipes sideways to the next day. */
 [data-layout='phone'] .wkdaycard { touch-action: pan-y; }
+/* Swiped, each day carries the card's side padding, so the days either side slide in with a gap between them. */
+[data-layout='phone'] .wkdaycard.dpager { padding-inline: 0; }
+[data-layout='phone'] .wkdaycard .dppane { padding-inline: var(--space-3); }
 /* Keeps each day 44pt wide on 375pt phones. */
 [data-layout='phone'] .wksum .wstrip { margin-inline: calc(-1 * var(--space-1)); }
 [data-layout='phone'] .wkdaycard > .daywrap { padding-block: 0; }
@@ -42,6 +45,8 @@
 [data-layout] .wkhint { margin-bottom: var(--space-2); }
 [data-layout] .wkbusy { display: flex; align-items: center; }
 [data-layout] .wkstats { width: 100%; margin-top: var(--space-3); }
+/* Reset's confirm: what goes and what stays, each a short list under its line. */
+[data-layout] .resetlist { margin: 0; padding-left: var(--space-6); }
 [data-layout] .wkgroup { margin-bottom: var(--space-1); }
 [data-layout] .wkrow { padding: 0; }
 [data-layout] .wkrange { width: 100%; }
@@ -63,6 +68,9 @@
 [data-layout] .lanecard.k-practice { border-left: 4px double var(--practice); }
 [data-layout] .lanecard.k-maint { border-left: 4px dotted var(--oneoff); }
 [data-layout] .lanecard.on { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* A set day's session whose set time is taken: the warning icon in its tone, the words as quiet as any card's line. */
+[data-layout] .lanewarn { display: inline-flex; align-items: center; gap: var(--space-1); }
+[data-layout] .lanewarn svg { flex: none; color: var(--warn); }
 [data-layout] .lanet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-layout] .collane .oochip { touch-action: none; user-select: none; -webkit-user-select: none; }
 /* A set day's practice session, waiting above its own day. */

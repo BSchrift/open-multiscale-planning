@@ -5,9 +5,6 @@
 /** The steps, from the usual hour, the furthest out, to 3.2 times it: Today's 30, 48, 72 and 96px. */
 export const ZOOM = [1, 1.6, 2.4, 3.2];
 
-/** A level kept within the first and last steps, as a pinch leaves it. */
-export const clampZoom = (zoom: number) => Math.max(ZOOM[0]!, Math.min(ZOOM[ZOOM.length - 1]!, zoom));
-
 /** An hour's height at a level, to a whole pixel, so the hour lines stay sharp. */
 export const hourHeight = (usual: number, zoom: number) => Math.round(usual * zoom);
 

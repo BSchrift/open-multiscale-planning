@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, diffDays, formatDate, formatTime, instantMs, localDate, weekStart } from '../../../core/dates';
 import type { Slot } from '../../../core/slots';
 import { dayName } from '../../components/weekgrid';
+import type { KeptTime } from '../../components/week/DayPager';
 import { planningToPlace } from '../../components/planning/usePlanning';
 import type { PlanningPlace } from '../../components/planning/usePlanning';
 import type { LocalDate } from '../../../core/types';
@@ -22,7 +23,6 @@ import { loadWeek, weekModel } from './data';
 import type { WeekData, WeekModel } from './data';
 import { DesktopWeek } from './Desktop';
 import { ZOOM } from '../../components/zoom';
-import { PhoneWeek } from './Phone';
 import './week.css';
 
 /** What both layouts get: the week, its figures, and how to move between weeks and modes. */
@@ -46,8 +46,13 @@ export interface WeekProps {
   planningSet: TimeBlock | null;
   /** 'Planning: Sun Nov 8, 5pm', when this week's planning has a time still to come. */
   planningAt: string | null;
-  /** carry: planning being placed, at its time in the week going to. */
-  goWeek(week: LocalDate, carry?: Slot): void;
+  /**
+   * carry: planning being placed, at its time in the week going to. open: the day a swipe past the week's end reached,
+   * which phone opens on, with the time of day it kept.
+   */
+  goWeek(week: LocalDate, carry?: Slot, open?: OpenDay): void;
+  /** The day the last goWeek asked phone to open on. */
+  openDay: OpenDay | null;
   /**
    * A task to place, from Find a time or Place on calendar; a card from Today's Choose a time, a practice's session
    * included; or planning's task, from Choose another time.
@@ -60,7 +65,15 @@ export interface WeekProps {
   close(): void;
   /** How many things were finished each day up to today, whose headings open Done on that day. */
   finished: Readonly<Record<LocalDate, number>>;
+  /** Whether `finished` has been read yet: until then, what shows it keeps its place. */
+  finishedRead: boolean;
   openDone(date: LocalDate): void;
+}
+
+/** A day to open a week on, and the time of day to show there. */
+export interface OpenDay {
+  date: LocalDate;
+  time: KeptTime | null;
 }
 
 /** Planning from Choose another time, with where it waits in this week. */
@@ -78,12 +91,27 @@ function weekTitle(offset: number, editing: boolean) {
 }
 
 export default function WeekScreen(props: ScreenProps) {
+  const shared = useWeekScreen(props, 'week');
+  // The desktop grid's zoom, here rather than in the grid, so it carries from week to week. Phone pinches its day instead.
+  const [zoom, setZoom] = useState(ZOOM[0]!);
+  if (!shared) return null;
+  // Keyed by week, so what's open on one week doesn't carry to the next. On phone, Week is Today's (areaOn), so this is
+  // never reached there.
+  return props.layout === 'phone' ? null : <DesktopWeek key={shared.data.week} {...shared} zoom={zoom} onZoom={setZoom} />;
+}
+
+/**
+ * A week's state from a screen's params: the week shown, editing, and what's being placed. Week uses it, and so does
+ * the phone's Today, which draws a week's strip over its day; `tab` is the one whose second tap comes back to this
+ * week, and `start` the day to open on, which can be in next week.
+ */
+export function useWeekScreen(props: ScreenProps, tab: 'week' | 'today', start?: LocalDate): WeekProps | null {
   const { clock } = useApp();
   const nav = useNav();
   const current = weekStart(useToday());
   const [plan] = useState(() => planningToPlace(props.params));
   // Planning opens on the week of its best time, which can be next week's.
-  const [week, setWeek] = useState<LocalDate>(() => (plan?.at ? weekStart(plan.at.date) : current));
+  const [week, setWeek] = useState<LocalDate>(() => (plan?.at ? weekStart(plan.at.date) : start ? weekStart(start) : current));
   // Left on this week, the page follows it when the week turns over; a week chosen with the arrows stays.
   const [seen, setSeen] = useState(current);
   if (seen !== current) {
@@ -93,10 +121,9 @@ export default function WeekScreen(props: ScreenProps) {
   const [place, setPlace] = useState<string | null>(props.params.place ?? null);
   // Where planning being placed waits, carried from week to week by the arrows.
   const [carry, setCarry] = useState<Slot | undefined>(plan?.at);
+  const [openDay, setOpenDay] = useState<OpenDay | null>(() => (start && !plan ? { date: start, time: null } : null));
   // A task is placed while editing this week. Placing planning isn't editing a week, which may not be planned yet.
   const [editing, setEditing] = useState((!!props.params.place && !plan) || props.params.edit === 'this');
-  // The desktop grid's zoom, here rather than in the grid, so it carries from week to week. Phone pinches its day instead.
-  const [zoom, setZoom] = useState(ZOOM[0]!);
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
   const finished = useQuery((sql, c) => loadDoneWeek(sql, c, week), [week]).data;
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
@@ -104,14 +131,16 @@ export default function WeekScreen(props: ScreenProps) {
   // Tapping Week again comes back to this week.
   const signal = useRef(nav.topSignal);
   useEffect(() => {
-    if (signal.current !== nav.topSignal && nav.tab === 'week' && !place) {
+    if (signal.current !== nav.topSignal && nav.tab === tab && !place) {
       setWeek(current);
       setEditing(false);
+      setOpenDay(null);
     }
     signal.current = nav.topSignal;
-  }, [nav.topSignal, nav.tab, current, place]);
+  }, [nav.topSignal, nav.tab, current, place, tab]);
 
-  useDrawn('nav.week', !!data && !!model);
+  // Today says when it's drawn itself.
+  useDrawn('nav.week', tab === 'week' && !!data && !!model);
   if (!data || !model) return null;
   const offset = Math.round(diffDays(current, data.week) / 7);
   const ahead = blockAhead(data.planning, clock);
@@ -128,7 +157,7 @@ export default function WeekScreen(props: ScreenProps) {
       : null;
   // While planning is placed, nothing asks to plan this week over it.
   const asks = offset === 0 && !editing && !planning;
-  const shared: WeekProps = {
+  return {
     data,
     week,
     model,
@@ -140,11 +169,13 @@ export default function WeekScreen(props: ScreenProps) {
     gated: asks && weekGate(data.planning, clock) === 'gate',
     planningAt,
     planningSet: asks && weekGate(data.planning, clock) === 'set' ? (blockAhead(data.planning, clock) ?? null) : null,
-    goWeek: (to, slot) => {
+    goWeek: (to, slot, open) => {
       setWeek(weekStart(to));
       setEditing(false);
       if (slot) setCarry(slot);
+      setOpenDay(open ?? null);
     },
+    openDay,
     place: offset === 0 || planning ? place : null,
     planning,
     donePlacing: () => setPlace(null),
@@ -153,9 +184,8 @@ export default function WeekScreen(props: ScreenProps) {
       if (plan?.flow) nav.openFlow('planning', { week: plan.flow });
     },
     finished: finished ?? {},
+    finishedRead: finished !== undefined,
     openDone: (date) => nav.go('done', { day: date }),
   };
-  // Keyed by week, so what's open on one week doesn't carry to the next.
-  return props.layout === 'phone' ? <PhoneWeek key={data.week} {...shared} /> : <DesktopWeek key={data.week} {...shared} zoom={zoom} onZoom={setZoom} />;
 }
 

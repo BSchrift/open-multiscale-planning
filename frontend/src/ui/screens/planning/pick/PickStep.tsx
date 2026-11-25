@@ -12,7 +12,8 @@ import type { Writer } from '../../../../core/records';
 import { withStatusLine } from '../../../../core/status';
 import { closeTask, scheduledWork, tickOneOff } from '../../../../core/tasks';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import type { Fields, LocalDate, Milestone, Minutes, Objective } from '../../../../core/types';
+import type { Fields, LocalDate, Milestone, Minutes, Objective, Task } from '../../../../core/types';
+import { placedMessage, placeSetTimes } from '../../../../core/setTimes';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
 import { useToast } from '../../../components/Toast';
@@ -142,15 +143,19 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     });
   const finish = (w: Writer, t: PickTask['c']['task']) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock));
   // A new record, and with it, for a task in this week, its pick; Undo deletes both.
+  /** Adds a record, picked for the week or not. A one off at a time of day lands then too, which its message says. */
   const create = async <T extends 'task' | 'milestone' | 'project'>(type: T, fields: Fields<T>, pick: Minutes | null, message: string, stay = false) => {
     const id = newId(clock);
+    let placed = '';
     const reverse = await taskWrite.run(async (w) => {
       await w.create(type, fields, id);
       const picked = pick === null ? { writes: [] } : await pickChange(w, week, id, pick, clock);
-      return { writes: [...picked.writes, { type, id, fields: { deleted_at: nowInstant(clock) } }] };
+      const timed = type === 'task' ? await placeSetTimes(w, clock, { ...(fields as Fields<'task'>), id } as Task) : { writes: [], placed: [] };
+      placed = timed.placed.length ? ` ${placedMessage(timed.placed, clock)}` : '';
+      return { writes: [...timed.writes, ...picked.writes, { type, id, fields: { deleted_at: nowInstant(clock) } }] };
     });
     if (!reverse) return undefined;
-    undoable(reverse, message, { ...(pick === null ? {} : { spoken: `${fitWords(use.used + pick)}.` }), ...(stay ? { stay } : {}) });
+    undoable(reverse, `${message}${placed}`, { ...(pick === null ? {} : { spoken: `${fitWords(use.used + pick)}.` }), ...(stay ? { stay } : {}) });
     return id;
   };
   const inThisWeek = (minutes: Minutes, inWeek: boolean) => (inWeek ? `, ${formatMinutes(minutes)} in this week` : '');

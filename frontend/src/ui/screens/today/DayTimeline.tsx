@@ -9,10 +9,10 @@
 // a right-click, or Shift-F10 or the menu key on desktop, and on phone a hold let go without moving. The Mac app has
 // macOS draw it.
 
-import { useEffect, useId, useRef, useState } from 'react';
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { HTMLAttributes, KeyboardEvent, ReactNode, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
 import { currentBlock, isPaused, nextBlock } from '../../../core/blocks';
-import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
+import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, today, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
@@ -40,23 +40,69 @@ import type { MenuChoice, MenuEntry } from '../../components/Menu';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
 import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
+import { edgeScroll, swallowClick } from '../../components/weekgrid/drop';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from '../../components/weekgrid/holdCreate';
 import { DraftCapture } from '../capture/DraftCapture';
 import { BlockPopup } from '../practice';
 import { DeleteTask } from '../task';
-import type { TodayData } from './data';
+import type { DayData } from './data';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 import { ZoomButtons } from '../../components/CalendarZoom';
-import { clampZoom, hourHeight, hourLabelStep, ZOOM } from '../../components/zoom';
+import { hourHeight, hourLabelStep, ZOOM as LEVELS } from '../../components/zoom';
 import { Segmented } from '../../components/ds/Controls';
+import { minutesWords, Raised, Settling } from './Raised';
+import { earlierRow, raiseOf, toAnswer } from './selection';
 
+/** Phone's zoom: big enough for a block's name and time on two lines, as the day opens at the right hour. */
+export const PHONE_ZOOM = 72;
 /** An hour's height at the first zoom. */
 const HOUR_PX = 30;
+/** An hour's height at each of the zoom buttons' steps: 30, 48, 72 and 96px. */
+export const ZOOM = LEVELS.map((z) => hourHeight(HOUR_PX, z));
+/**
+ * What the phone's Today hands its day: the header's view and zoom, the block raised out of its lane and how a tap
+ * changes it, where today opens with the hours before it folded into the Earlier row, and Start something.
+ */
+export interface PhoneDay {
+  view: 'calendar' | 'list';
+  ph: number;
+  setPh(ph: number): void;
+  /** The block raised as a card; select(null) hands the selection back to the one Today picks. */
+  selected: string | null;
+  /**
+   * Whether the selected block was tapped. Until it is, the block Today selected (in progress, just ended or next) is
+   * drawn within its own times and lane, raised and a little wider, so the hours beside it show; only a tap grows it
+   * into the card with its actions.
+   */
+  tapped: boolean;
+  select(id: string | null): void;
+  /** The minute today opens at, or null for the whole day. */
+  open: number | null;
+  earlierOpen: boolean;
+  setEarlierOpen(open: boolean): void;
+  /** Start something in the free time you're in, which runs until `until`, or to the end of the day. */
+  startSomething(until: string | null): void;
+  /** Choose another time for a block: on the phone's Today, it waits on the day, ready to drag or carry to another day. */
+  choose?(id: string): void;
+  /** A hold's draft is waiting on the day for Capture, so swiping to another day would take it away. */
+  onDrafting?(on: boolean): void;
+  /** A block's Length slider and what its time means, for its popup's section, as Week's popup had them. */
+  length?(id: string): ReactNode;
+  /** Pinching the day (usePinchZoom), in place of the steps between the zoom buttons' sizes. */
+  pinch?: Pick<HTMLAttributes<HTMLDivElement>, 'onTouchStart' | 'onTouchMove' | 'onTouchEnd' | 'onTouchCancel'>;
+}
+
 /** Where a block's menu opens: on phone, this far below the block held; from the keys, this far in from its left. */
 const MENU_GAP = 8;
 const MENU_INSET = 24;
 const DAY_FROM = 7 * 60;
 const DAY_TO = 22 * 60;
+/** How far the raised card stands out past its block's time, above and below. */
+const RAISE_PX = 6;
+/** A block in its lane shorter than this has no room for a button on its line, so the button is a chip. */
+const MINI_PX = 32;
 
 const same = (a: Slot, b: Slot) => a.start === b.start && a.end === b.end;
 const range = (s: Slot) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;
@@ -79,14 +125,21 @@ interface Item {
 
 const touchGap = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches[1]!.clientX, e.touches[0]!.clientY - e.touches[1]!.clientY);
 
-export function DayTimeline(props: { data: TodayData; events: readonly CalendarEvent[] }) {
+export function DayTimeline(props: { data: DayData; events: readonly CalendarEvent[]; phoneDay?: PhoneDay }) {
   const { data, events } = props;
   const { clock, layout, platform } = useApp();
   const zone = clock.zone();
   const phone = layout === 'phone';
-  const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
-  const [zoom, setZoom] = useState(ZOOM[0]!);
-  const ph = hourHeight(HOUR_PX, zoom);
+  const pd = phone ? props.phoneDay : undefined;
+  const [stickyView, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
+  const [localPh, setLocalPh] = useState(ZOOM[0]!);
+  const view = pd?.view ?? stickyView;
+  const ph = pd?.ph ?? localPh;
+  const setPh = pd?.setPh ?? setLocalPh;
+  /** The card that was raised, settling back into its lane, and each card's last height for it. */
+  const [settling, setSettling] = useState<string | null>(null);
+  const heights = useRef(new Map<string, number>());
+  const raisedId = useRef<string | null>(null);
   const pinch = useRef<{ gap: number; ph: number } | null>(null);
   const toast = useToast();
   // Its ask, when a drag or Move to lands a block on another: keep both, replace it, or leave it.
@@ -127,15 +180,24 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const holdNew = useHoldToCreate({
     at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
     move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
-    earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
+    earliest: { date: today(clock), minutes: localMinutes(clock.now(), zone) },
     off: !!drag || !!pop,
     draws: true,
+    edges: !!pd,
   });
   const held = holdNew.draft?.slot;
+  const drafting = !!holdNew.draft;
+  const onDrafting = pd?.onDrafting;
+  useEffect(() => onDrafting?.(drafting), [drafting, onDrafting]);
 
   // Minutes after today's midnight, kept within the day, so an event over midnight still draws.
   const minutesOf = (at: string, edge: number) => (localDate(at, zone) === data.date ? localMinutes(at, zone) : edge);
   const cur = currentBlock(data.blocks, clock);
+  const nextUp = nextBlock(data.blocks, clock);
+  /** On phone with nothing under way, the next block says so on itself, as the now line says the time free till then. */
+  // Another day of the week, on the phone's Today, has no now: nothing under way, next or free till then.
+  const isToday = data.date === today(clock);
+  const nextTagged = !!pd && isToday && !cur && !!nextUp && localDate(nextUp.start, zone) === data.date ? nextUp.id : null;
   const records = {
     tasks: new Map(data.tasks.map((t) => [t.id, t])),
     projects: new Map(data.projects.map((p) => [p.id, p])),
@@ -182,7 +244,15 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   ].sort((a, b) => a.from - b.from || (a.block ? 1 : 0) - (b.block ? 1 : 0) || (laneOf.get(a.id)?.col ?? 0) - (laneOf.get(b.id)?.col ?? 0));
 
   const drawn = held ? [...items, { from: held.start, to: held.end }] : items;
-  const from = Math.min(DAY_FROM, ...drawn.map((i) => Math.floor(i.from / 60) * 60));
+  const drawnFrom = Math.min(DAY_FROM, ...drawn.map((i) => Math.floor(i.from / 60) * 60));
+  // On phone, today opens an hour before its selected block, else now, its earlier hours folded into one row that says
+  // what they hold, with how many still ask for an answer, until it's opened.
+  const answering = new Set(pd ? toAnswer(data.blocks, data.away, clock).map((b) => b.id) : []);
+  const earlier =
+    pd && pd.open !== null && view === 'calendar' && data.date === today(clock)
+      ? earlierRow(data.blocks, { from: drawnFrom, open: pd.open, zone, date: data.date, answer: answering })
+      : null;
+  const from = earlier && !pd!.earlierOpen ? earlier.to : drawnFrom;
   const to = Math.max(DAY_TO, ...drawn.map((i) => Math.ceil(i.to / 60) * 60));
   const y = (m: number) => ((m - from) * ph) / 60;
   const nowMin = localMinutes(clock.now(), zone);
@@ -207,6 +277,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const openItem = (i: Item) => {
     if (i.block) setPop(popFor(i.block));
   };
+  // On phone the first tap selects a block, raising it as a card, and a second opens its popup.
+  const tap = (i: Item) => (pd && (pd.selected !== i.id || inLane(i)) ? pd.select(i.id) : openItem(i));
+  const [moveMenu, setMoveMenu] = useState<{ id: string; at: { x: number; y: number }; from: HTMLElement } | null>(null);
   const popBlock = pop && data.blocks.find((b) => b.id === pop.block);
   // One not yet started can come off the calendar, as Have you started's Skip takes it.
   const removable = (b: BlockRow) => !b.started_at && !b.result && !b.ended_at && instantMs(b.end) > clock.now();
@@ -218,7 +291,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const resizable = (b: BlockRow) => !b.result && !b.ended_at && instantMs(b.end) > clock.now() && whole(b);
   const movable = (b: BlockRow) => resizable(b) && instantMs(b.start) >= clock.now();
   const ctx = slotContext({ week: weekStart(data.date), availability: data.settings.availability, avoided: data.settings.avoided_slots, sources: data.sources, calendar: data.calendar, blocks: data.blocks, clock });
-  const floor = Math.max(DRAWN_DAY.from, Math.ceil(nowMin / GRID) * GRID);
+  // Nothing moves into time gone by: all of a past day, and today up to now.
+  const floor = data.date > today(clock) ? DRAWN_DAY.from : data.date < today(clock) ? DRAWN_DAY.to : Math.max(DRAWN_DAY.from, Math.ceil(nowMin / GRID) * GRID);
   const bounds = (s: Slot) => ({ from: floor, to: Math.max(DRAWN_DAY.to, s.end) });
   const slotOf = (i: Item): Slot => ({ date: data.date, start: i.from, end: i.to });
   const workOf = (i: Item) => ({ kind: i.kind === 'one_off' ? ('one_off' as const) : ('project' as const) });
@@ -256,19 +330,39 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const ghost = start === null ? null : { date: data.date, start, end: start + len };
     const perPx = 60 / ph;
     let last = slot;
+    let moved = 0;
+    // On the phone's Today, held near the top or bottom of the screen, the day scrolls, and the block keeps to the
+    // finger.
+    const follow = () => {
+      last = dragResult(slot, mode, 0, (moved + (edges?.scrolled() ?? 0)) * perPx, ghost ? [ghost] : [], bounds(slot));
+      setDrag({ id: i.id, slot: last, ghost, held: true });
+    };
+    const edges = pd ? edgeScroll(el, follow) : null;
+    // Pressed on the raised card, the block moves under the finger, so the click that comes with letting go lands on
+    // the block: it's swallowed there too, or it would open the block.
+    const under = () => {
+      if (el.classList.contains('raised')) swallowClick(el.closest('.day')?.querySelector(`[data-block="${i.id}"]`) ?? el);
+    };
     // A click, or a tap let go without dragging, opens the block by its own click.
     holdToDrag(e, {
       lift: () => setDrag({ id: i.id, slot, ghost, held: true }),
-      drag: (_dx, dy) => {
-        last = dragResult(slot, mode, 0, dy * perPx, ghost ? [ghost] : [], bounds(slot));
-        setDrag({ id: i.id, slot: last, ghost, held: true });
+      drag: (_dx, dy, ev) => {
+        moved = dy;
+        edges?.follow(ev.clientY);
+        follow();
       },
       drop: () => {
+        edges?.stop();
+        under();
         if (same(last, slot)) return setDrag(null);
         setDrag({ id: i.id, slot: last, ghost: null });
         void save(i, slot, last);
       },
-      cancel: () => setDrag(null),
+      cancel: () => {
+        edges?.stop();
+        under();
+        setDrag(null);
+      },
       ...(phone && mode === 'move' ? { held: () => void openMenu(i, below(el), el) } : {}),
       ...(platform.haptic ? { haptic: platform.haptic } : {}),
     });
@@ -290,7 +384,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     // On phone that's a slider, with no click of its own for a keyboard, so Enter and Space open it as a tap does.
     if ((e.key === 'Enter' || e.key === ' ') && phone && move) {
       e.preventDefault();
-      return openItem(i);
+      return tap(i);
     }
     const delta = ({ ArrowUp: -GRID, ArrowDown: GRID } as Record<string, number>)[e.key];
     if (!delta || !(move || e.shiftKey)) return;
@@ -311,8 +405,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const entries = actions.moveChoices(b, ctx);
     return entries.length ? [{ id: 'move', label: 'Move to', icon: 'calendar', submenu: entries }] : [];
   };
-  const chooseOnWeek = () => nav.go('week', { edit: 'this' });
-  // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Skip this session"
+  const chooseOnWeek = (b?: BlockRow) => {
+    if (pd?.choose && b) {
+      setPop(null);
+      pd.choose(b.id);
+    } else nav.go('week', { edit: 'this' });
+  };
+  // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Take off calendar"
   // for a practice. None for a planning block, which has its own flow, nor for another calendar's event.
   const menuOf = (i: Item): MenuEntry[] | null => {
     const b = i.block;
@@ -321,7 +420,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const words = WORDS[practice ? 'practice' : 'task'];
     const done: MenuChoice = { id: 'done', label: words.done, icon: 'done', tone: 'ok' };
     const open: MenuChoice = { id: 'open', label: 'Open', icon: 'notes' };
-    const remove: MenuChoice[] = !removable(b) ? [] : [practice ? { id: 'remove', label: 'Skip this session', icon: 'bin', tone: 'danger' } : { id: 'remove', label: 'Remove from calendar', icon: 'close' }];
+    const remove: MenuChoice[] = !removable(b) ? [] : [practice ? { id: 'remove', label: 'Take off calendar', icon: 'close' } : { id: 'remove', label: 'Remove from calendar', icon: 'close' }];
     const del: MenuChoice[] = practice ? [] : [{ id: 'delete', label: 'Delete task…', icon: 'bin', tone: 'danger' }];
     const after = (rest: MenuChoice[]): MenuEntry[] => (rest.length ? ['separator', ...rest] : []);
     switch (stageOf(b, clock.now())) {
@@ -339,7 +438,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   };
   const act = (i: Item, id: string) => {
     const b = i.block!;
-    if (id.startsWith('move:')) return void actions.moveTo(b, id, ctx, chooseOnWeek);
+    if (id.startsWith('move:')) return void actions.moveTo(b, id, ctx, () => chooseOnWeek(b));
     switch (id) {
       case 'done':
         return void actions.done(b, nextBlock(data.blocks.filter((x) => x.id !== b.id), clock));
@@ -379,6 +478,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     setMenu(null);
   };
   const menuItem = menu && items.find((i) => i.id === menu.id);
+  const menuItemOf = (id: string) => items.find((i) => i.id === id && i.block);
   const menuKeys = (i: Item) => (e: KeyboardEvent) => {
     if (!phone && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) {
       const r = e.currentTarget.getBoundingClientRect();
@@ -391,10 +491,12 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   // What a block says it does: one still to come moves, and the one under way only changes its end. A short block has
   // no edge or handle to drag, since on desktop it would take most of the block, and a press there would change the
   // length instead of moving it.
+  // On the phone's Today a first tap selects it, raising it with what it can do now, and a second opens it.
+  const tapWords = pd ? 'Tap to select it, and again to open it.' : 'Tap to open it.';
   const help: Record<string, string> = phone
     ? {
-        move: 'Tap to open it. Hold it, then drag to move it, or hold its handle and drag to change its length.',
-        'move-short': 'Tap to open it. Hold it, then drag to move it.',
+        move: `${tapWords} Hold it, then drag to move it, or hold its handle and drag to change its length.`,
+        'move-short': `${tapWords} Hold it, then drag to move it.`,
         end: 'Hold its handle and drag to change its length.',
       }
     : {
@@ -409,19 +511,50 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     return key && full in help ? `${helpId}-${full}` : undefined;
   };
 
+  // On a day with nothing left to do, free time is drawn as such, dashed: the stretch you're in offers Start something,
+  // and a later one adds a task there.
+  const emptyDay = !!pd && isToday && view === 'calendar' && !cur && !nextUp && (!data.planned || !data.blocks.some((b) => b.task_kind !== 'planning'));
+  const gaps: { start: number; end: number; now: boolean; until: string | null }[] = [];
+  if (emptyDay && nowMin < to) {
+    let at = Math.max(nowMin, from);
+    const busy = items.filter((i) => !i.block).sort((a, b) => a.from - b.from);
+    for (const e of [...busy, null]) {
+      const end = e ? e.from : to;
+      if (end - at >= (gaps.length || at > nowMin ? 30 : 15)) gaps.push({ start: at, end, now: !gaps.length && at === Math.max(nowMin, from), until: e?.start ?? null });
+      if (e) at = Math.max(at, e.to);
+    }
+  }
+  // A block selected by Today rather than a tap keeps to its own times and lane.
+  const inLane = (i: Item) => !!pd && !pd.tapped && pd.selected === i.id && !!i.block;
+  // The card that was raised settles back into its lane as the next one grows, from where it was drawn.
+  const shownRaised = pd && view === 'calendar' ? pd.selected : null;
+  const raisedInLane = !!shownRaised && items.some((i) => i.id === shownRaised && inLane(i));
+  const wasInLane = useRef(false);
+  const settledInLane = useRef(false);
+  useLayoutEffect(() => {
+    const was = raisedId.current;
+    raisedId.current = shownRaised;
+    if (was && was !== shownRaised) {
+      settledInLane.current = wasInLane.current;
+      setSettling(was);
+    }
+    wasInLane.current = raisedInLane;
+  }, [shownRaised, raisedInLane]);
+
   const calendar = (
     <div
       className="daywrap"
-      onTouchStart={(e) => {
-        if (e.touches.length === 2) pinch.current = { gap: touchGap(e), ph };
-      }}
-      onTouchMove={(e) => {
-        // To a whole pixel of the hour, so the buttons step on from what's drawn.
-        if (pinch.current && e.touches.length === 2) setZoom(clampZoom(Math.round((pinch.current.ph * touchGap(e)) / pinch.current.gap) / HOUR_PX));
-      }}
-      onTouchEnd={() => {
-        pinch.current = null;
-      }}
+      {...(pd?.pinch ?? {
+        onTouchStart: (e: TouchEvent) => {
+          if (e.touches.length === 2) pinch.current = { gap: touchGap(e), ph };
+        },
+        onTouchMove: (e: TouchEvent) => {
+          if (pinch.current && e.touches.length === 2) setPh(Math.max(ZOOM[0]!, Math.min(ZOOM[ZOOM.length - 1]!, Math.round((pinch.current.ph * touchGap(e)) / pinch.current.gap))));
+        },
+        onTouchEnd: () => {
+          pinch.current = null;
+        },
+      })}
     >
       {/* No arrow keys on phone, where VoiceOver's swipes move a block as a slider. */}
       {Object.entries(help).map(([key, text]) => (
@@ -437,6 +570,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         data-drop-from={from}
         data-drop-to={to}
         onPointerDown={(e) => !(e.target as Element).closest('.cev') && holdNew.press(e)}
+        // A tap on empty time hands the selection back to the block Today picks.
+        onClick={(e: ReactMouseEvent) => pd && !(e.target as Element).closest('.cev, .tdgap') && pd.select(null)}
       >
         {hours.map((h) => (
           <span key={h} className="dayhr" style={{ top: y(h * 60) }} aria-hidden="true">
@@ -445,9 +580,39 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         ))}
         {/* Before the blocks, so it passes behind them and never strikes through the one under way. Only its dot is
             drawn in front. */}
-        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
+        {isToday && nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
+        {nextTagged && nextUp && nowMin >= from && nowMin <= to && (
+          <span className="nowfree" style={{ top: y(nowMin) }}>
+            Free until {formatTime(nextUp.start, zone)}
+          </span>
+        )}
+        {gaps.map((g) =>
+          g.now ? (
+            <div key={g.start} className="tdgap now blk k-info" style={{ top: y(g.start), height: y(g.end) - y(g.start) - 1 }}>
+              <span>{g.until ? `Free until ${formatTimeOfDay(g.end)}` : 'Free for the rest of the day'}</span>
+              <Button size="compact" type="button" onClick={() => pd!.startSomething(g.until)}>
+                Start something
+              </Button>
+            </div>
+          ) : (
+            <button
+              key={g.start}
+              className="tdgap blk k-info"
+              type="button"
+              style={{ top: y(g.start), height: y(g.end) - y(g.start) - 1 }}
+              aria-label={`Free, ${formatTimeOfDay(g.start)} to ${formatTimeOfDay(g.end)}. Add a task then`}
+              onClick={() => holdNew.create(data.date, g.start)}
+            >
+              <span>Free, {minutesWords(g.end - g.start)}</span>
+              <Icon name="plus" size={16} />
+            </button>
+          ),
+        )}
         {items.map((i) => {
-          const height = Math.max(13, y(i.to) - y(i.from) - 1);
+          // Folded into the Earlier row, or drawn from where the day opens.
+          if (i.to <= from) return null;
+          const top = Math.max(i.from, from);
+          const height = Math.max(13, y(i.to) - y(top) - 1);
           const compact = height < 24 ? ' compact' : '';
           const apart = overlaps(i);
           const lane = laneOf.get(i.id);
@@ -461,18 +626,18 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               group={lane.group}
               shown={shape.shown}
               className="cev cevmore"
-              style={{ top: y(lane.group.start), height: Math.max(44, y(lane.group.end) - y(lane.group.start)), left: 'auto', right: shape.right, width: MORE_PX }}
+              style={{ top: y(Math.max(lane.group.start, from)), height: Math.max(44, y(lane.group.end) - y(Math.max(lane.group.start, from))), left: 'auto', right: shape.right, width: MORE_PX }}
               onOpen={(x) => openItem(items.find((o) => o.id === x.id)!)}
             />
           );
           const style = {
-            top: y(i.from),
+            top: y(top),
             height,
             ...(lane && shape
               ? columnStyle(lane.col, shape.shown, '4px', hiding ? `(${shape.right} + ${MORE_INSET})` : shape.right)
               : { left: apart && !i.block ? '62%' : '4px', right: apart && i.block ? '40%' : '4px' }),
           };
-          const time = !phone && height >= 24 && <span className="time">{i.time}</span>;
+          const time = (pd ? height >= SECOND_LINE[layout] : !phone && height >= 24) && <span className="time">{i.time}</span>;
           if (!i.block) {
             return (
               <div key={i.id} className={`cev ${blockClass('event', 'planned', { short: !!compact })}${compact}`} title={i.time} style={style}>
@@ -513,10 +678,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               data-block={i.block.id}
               title={i.time}
               style={style}
-              aria-label={alt(i)}
+              aria-label={pd?.selected === i.id && !inLane(i) ? `${alt(i)} Selected.` : alt(i)}
               aria-describedby={helpOf(move, resize, !!compact)}
               // The release after a drag also clicks the block; press() stops that click before it gets here.
-              onClick={() => openItem(i)}
+              onClick={() => tap(i)}
               onPointerDown={move ? press(i, 'move') : phone && menuOf(i) ? hold(i) : undefined}
               onKeyDown={menuKeys(i)}
               onContextMenu={(e) => {
@@ -528,6 +693,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               <span className="cevt">
                 <BlockMarks state={state} short={!!compact} look={look} />
                 <OutcomeTag result={i.block.result} />
+                {nextTagged === i.id && pd?.selected !== i.id && <span className="nexttag">Next</span>}
                 <span className="blktitle">{phone && lifted ? `${i.time}, ${i.title}` : i.title}</span>
               </span>
               {said}
@@ -539,7 +705,45 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               )}
             </Tag>
           );
-          return more ? [drawn, more] : drawn;
+          // The selected block, raised as a card just after it, so its buttons follow it for screen readers.
+          const b = i.block;
+          // Kept while its block is held and dragged, out of sight, so the press stays with it.
+          const lanes = inLane(i);
+          const raised = pd && view === 'calendar' && pd.selected === i.id && (
+            <Raised
+              inLane={lanes}
+              short={lanes && height < MINI_PX}
+              onSelect={() => pd.select(i.id)}
+              key={`raised${i.id}`}
+              away={drag?.id === i.id}
+              block={b}
+              raise={raiseOf(b, data.blocks, clock)}
+              kind={i.kind!}
+              look={look}
+              state={state}
+              cls={blockClass(look, state)}
+              style={lanes ? { top: y(top), height } : { top: y(top) - RAISE_PX, minHeight: height + 2 * RAISE_PX }}
+              actions={actions}
+              next={nextUp}
+              onMove={move && actions.moveChoices(b, ctx).length > 0 ? (from) => setMoveMenu({ id: i.id, at: below(from), from }) : undefined}
+              onDetails={() => openItem(i)}
+              onHold={move ? press(i, 'move') : menuOf(i) ? hold(i) : undefined}
+              onHeight={(px) => heights.current.set(i.id, px)}
+            />
+          );
+          const settle = settling === i.id && pd?.selected !== i.id && (
+            <Settling key={`settle${i.id}`} id={i.id} cls={blockClass(look, state)} style={{ top: y(top) - (settledInLane.current ? 0 : RAISE_PX) }} height={heights.current.get(i.id) ?? height + 2 * RAISE_PX} onDone={() => setSettling(null)} />
+          );
+          // Always in a fragment keyed as the block is, so a block that moves past another, or is selected, keeps its
+          // element, and with it its focus.
+          return (
+            <Fragment key={i.id}>
+              {drawn}
+              {raised}
+              {settle}
+              {more}
+            </Fragment>
+          );
         })}
         {held && <DraftBlock hold={holdNew} top={y(held.start)} height={y(held.end) - y(held.start) - 1} beside={items.some((i) => i.from < held.end && held.start < i.to)} />}
         <HoldRing ring={holdNew.ring} />
@@ -607,15 +811,30 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   });
 
   return (
-    <div className={phone ? 'card' : 'tl card'} role="region" aria-label="Today's timeline">
-      <div className="between tlhead">
-        <h3>Timeline</h3>
-        <div className="row">
-          {/* Beside Calendar and List, out of the calendar, so they never cover a block. */}
-          {view === 'calendar' && <ZoomButtons zoom={zoom} onZoom={setZoom} />}
-          <Segmented label="Timeline view" options={[['calendar', 'Calendar'], ['list', 'List']]} value={view} onChange={setView} />
+    <div className={pd ? 'tdday' : phone ? 'card' : 'tl card'} role="region" aria-label="Today's timeline">
+      {/* On phone the view and zoom are in Today's header menu. */}
+      {!pd && (
+        <div className="between tlhead">
+          <h3>Timeline</h3>
+          <div className="row">
+            {/* Beside Calendar and List, out of the calendar, so they never cover a block. */}
+            {view === 'calendar' && <ZoomButtons zoom={ph / HOUR_PX} onZoom={(z) => setPh(hourHeight(HOUR_PX, z))} />}
+            <Segmented label="Timeline view" options={[['calendar', 'Calendar'], ['list', 'List']]} value={view} onChange={setView} />
+          </div>
         </div>
-      </div>
+      )}
+      {earlier && (
+        <button
+          className={`earlier${pd!.earlierOpen ? ' open' : ''}`}
+          type="button"
+          aria-expanded={pd!.earlierOpen}
+          aria-label={earlier.label.replaceAll(' · ', ', ')}
+          onClick={() => pd!.setEarlierOpen(!pd!.earlierOpen)}
+        >
+          <span>{earlier.label}</span>
+          <Icon name="chevron-down" size={16} />
+        </button>
+      )}
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
       {actions.asking}
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
@@ -630,7 +849,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         <BlockPopup
           pop={pop}
           close={() => setPop(null)}
-          section={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: chooseOnWeek }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+          section={
+            popBlock && (
+              <BlockSection block={popBlock} move={{ ctx, choose: () => chooseOnWeek(popBlock) }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})}>
+                {pd?.length?.(popBlock.id)}
+              </BlockSection>
+            )
+          }
         />
       )}
       {menu && menuItem && (
@@ -642,6 +867,22 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           onChoose={(id) => {
             closeMenu();
             act(menuItem, id);
+          }}
+        />
+      )}
+      {moveMenu && menuItemOf(moveMenu.id) && (
+        <Menu
+          label={`Move ${menuItemOf(moveMenu.id)!.title}`}
+          entries={actions.moveChoices(menuItemOf(moveMenu.id)!.block!, ctx)}
+          at={moveMenu.at}
+          onClose={() => {
+            moveMenu.from.focus({ preventScroll: true });
+            setMoveMenu(null);
+          }}
+          onChoose={(id) => {
+            const i = menuItemOf(moveMenu.id)!;
+            setMoveMenu(null);
+            act(i, id);
           }}
         />
       )}

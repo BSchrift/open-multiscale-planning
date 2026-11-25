@@ -72,18 +72,34 @@ describe("a practice's popup", () => {
   for (const layout of ['desktop', 'phone'] as const) {
     it(`opens from a session on Today's calendar in the task popup's frame, with the block's section, then the practice's fields (${layout})`, async () => {
       await open('today', later, layout);
-      await userEvent.click(await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ }));
+      const session = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Piano practice, 4pm to 4:30pm/ });
+      await userEvent.click(session);
+      // On phone the first tap selects it, and the second opens it.
+      if (layout === 'phone') await userEvent.click(session);
       const popup = await popupOf('Piano practice');
       expect(popup).toHaveAttribute('aria-modal', 'true');
       await waitFor(() => expect(within(popup).getByRole('heading', { name: 'Piano practice' })).toHaveFocus());
       expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
-      expect(buttonsIn(sectionOf(popup))).toEqual(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
+      expect(buttonsIn(sectionOf(popup))).toEqual(['Start now', 'Mark done', 'Move…', 'Take off calendar', 'Change its set times']);
       expect(within(sectionOf(popup)).getByText('Mon Nov 2, 4pm to 4:30pm')).toBeVisible();
       expect(within(popup).getByLabelText('Goal')).toHaveDisplayValue('Play music');
       expect(bar(popup)).toEqual(['End practice', 'Cancel', 'Save']);
       expect(within(popup).queryByRole('button', { name: 'Close' }) === null).toBe(layout === 'phone');
     });
   }
+
+  it('Take off calendar says first what it does and for how long, and Change its set times goes to the schedule', async () => {
+    const t = await open('today', later);
+    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 4pm to 4:30pm/ }));
+    const popup = await popupOf('Piano practice');
+    const section = sectionOf(popup);
+    expect(within(section).getByText("Taken off, it waits in To schedule for another time today. Next Monday it's back at 4pm.")).toBeVisible();
+    await userEvent.click(within(section).getByRole('button', { name: 'Change its set times' }));
+    expect(popup.querySelector('.schedfields')).toContainElement(document.activeElement as HTMLElement);
+    await userEvent.click(within(section).getByRole('button', { name: 'Take off calendar' }));
+    expect(await screen.findByText("Took Piano practice off Mon 4pm. It's in To schedule.")).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'bp'))?.cancelled).toBe(true));
+  });
 
   it("opens the same from Today's list, rather than in place", async () => {
     await open('today', later);
@@ -103,7 +119,7 @@ describe("a practice's popup", () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, Wed Nov 4, 7am to 7:30am/ }));
     let popup = await popupOf('Piano practice');
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
-    expect(buttonsIn(sectionOf(popup))).toEqual(['Move…', 'Remove from calendar']);
+    expect(buttonsIn(sectionOf(popup))).toEqual(['Move…', 'Take off calendar', 'Change its set times']);
     await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
@@ -114,21 +130,24 @@ describe("a practice's popup", () => {
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
   });
 
-  it("opens the same from Week on phone, where the block's section has its length", async () => {
+  it("opens the same from another day on phone's Today, where the block's section has its length", async () => {
     await open(
-      'week',
+      'today',
       async (w) => {
         await piano(w);
         await session(w, 'bw', '07:00', '07:30', WED);
       },
       'phone',
     );
-    await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button')[2]!);
-    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 7am to 7:30am/ }));
+    await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' }, { timeout: 5000 })).getAllByRole('button')[2]!);
+    // A first tap selects it, and a second opens it.
+    const block = await screen.findByRole('slider', { name: /^Piano practice, 7am to 7:30am/ });
+    await userEvent.click(block);
+    await userEvent.click(block);
     const popup = await popupOf('Piano practice');
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
     expect(within(sectionOf(popup)).getByRole('slider', { name: 'Length' })).toHaveAttribute('aria-valuetext', '30m');
-    expect(buttonsIn(sectionOf(popup))).toEqual(['Move…', 'Remove from calendar']);
+    expect(buttonsIn(sectionOf(popup))).toEqual(['Move…', 'Take off calendar', 'Change its set times']);
   });
 
   it('opens from its name on the Now card, with the session under way', async () => {
@@ -173,7 +192,7 @@ describe("a practice's popup", () => {
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.state).toBe('active'));
   });
 
-  it("opens from its name in the prompt that logs a session, whose section asks how it went in a practice's words", async () => {
+  it("opens from a session that ended, which asks on itself on phone, and its section asks how it went in a practice's words", async () => {
     const t = await open(
       'today',
       async (w) => {
@@ -182,8 +201,13 @@ describe("a practice's popup", () => {
       },
       'phone',
     );
-    const prompt = await screen.findByRole('dialog', { name: 'Block finished' });
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Piano practice' }));
+    // Selected as Today opens, within its own times until a tap grows it with its three answers; a second tap on it
+    // opens its popup.
+    const ended = await screen.findByRole('button', { name: /^Piano practice, 1pm to 1:30pm, Practice\./ });
+    expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
+    await userEvent.click(ended);
+    await waitFor(() => expect(ended).toHaveAccessibleName(/ Selected\.$/));
+    await userEvent.click(ended);
     const popup = await popupOf('Piano practice');
     expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
     const asks = within(popup).getByRole('group', { name: 'How did it go?' });

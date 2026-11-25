@@ -17,6 +17,7 @@ export type AreaId =
   | 'process'
   | 'capture'
   | 'task'
+  | 'practice'
   | 'planning'
   | 'plan'
   | 'goals'
@@ -54,6 +55,9 @@ export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<Screen
   capture: { label: 'Capture', Screen: CaptureScreen },
   // A task's popup, opened over whatever showed the task. Loaded with the app too, so a tap opens it at once.
   task: { label: 'Task', Screen: TaskScreen },
+  // A practice's session or a planning block, opened over whatever named it, such as the Now card. Its code isn't in
+  // the app's first load: the calendars that draw it load it with them.
+  practice: { label: 'Practice', Screen: lazyScreen(() => import('../screens/practice')) },
   planning: { label: 'Plan your week', Screen: lazyScreen(() => import('../screens/planning')) },
   plan: { label: 'Plan', Screen: lazyScreen(() => import('../screens/plan')) },
   goals: { label: 'Goals', Screen: lazyScreen(() => import('../screens/goals')) },

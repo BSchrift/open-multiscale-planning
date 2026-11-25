@@ -503,12 +503,13 @@ describe('Week on desktop', () => {
     await waitFor(async () => expect((await block('b1')(t))?.start).toBe(at('18:15', TUE)));
   });
 
-  it("while editing, a click or Enter on a task's block opens its popup too, and a practice's session opens its details", async () => {
+  it("while editing, a click or Enter on a task's block opens its popup too, as a practice's session opens its own", async () => {
     await open({ seed: planned });
     await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, Wed Nov 4/ }));
-    expect(await within(screen.getByRole('region', { name: 'Piano practice' })).findByText('Piano practice')).toBeVisible();
-    expect(screen.queryByRole('dialog')).toBeNull();
-    await userEvent.click(within(screen.getByRole('region', { name: 'Piano practice' })).getByRole('button', { name: 'Close' }));
+    const practice = await screen.findByRole('dialog', { name: 'Piano practice' });
+    expect(within(practice).getByRole('region', { name: 'Time block' })).toBeVisible();
+    await userEvent.click(within(practice).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     await userEvent.click(screen.getByRole('button', { name: "Edit this week's plan" }));
     screen.getByRole('group', { name: /^Draft the summary/ }).focus();
@@ -1034,13 +1035,15 @@ describe('Week on phone', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'block_outcome', outcomeId('b3')))?.deleted_at).toBeTruthy());
   });
 
-  it("a practice's session still opens its own sheet", async () => {
+  it("a practice's session opens its popup, with its block's Move… and length", async () => {
     await phone();
     await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button')[2]!);
     await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 7am to 7:30am/ }));
-    const sheet = await screen.findByRole('dialog', { name: 'Piano practice' });
-    expect(within(sheet).queryByRole('button', { name: 'Delete task' })).toBeNull();
-    expect(within(sheet).getByRole('button', { name: 'Move' })).toBeVisible();
+    const popup = await screen.findByRole('dialog', { name: 'Piano practice' });
+    expect(within(popup).queryByRole('button', { name: 'Delete task' })).toBeNull();
+    const section = within(popup).getByRole('region', { name: 'Time block' });
+    expect(within(section).getByRole('button', { name: 'Move…' })).toBeVisible();
+    expect(within(section).getByRole('slider', { name: 'Length' })).toBeVisible();
   });
 
   it("the day's blocks gone by are struck through only when done; Partly and Not done say so in words instead", async () => {
@@ -1338,7 +1341,7 @@ describe('Week on phone', () => {
       expect(new Set(els.map((e) => e.style.left)).size).toBe(els.length);
     };
 
-    it('sit side by side in one row with its time once, each named with what it overlaps and opening its own sheet', async () => {
+    it('sit side by side in one row with its time once, each named with what it overlaps and opening its popup', async () => {
       await phone({ seed: (w) => together(w) });
       await friday();
       const plan = await screen.findByRole('button', { name: 'Plan the week of Nov 9, 5:30pm to 6:45pm, Planning. Overlaps Plan meals for the week.' });
@@ -1352,9 +1355,9 @@ describe('Week on phone', () => {
       expect(screen.getAllByText(/^Free, /).map((e) => e.textContent)).toEqual(['Free, 7am to 9am', 'Free, 5pm to 5:30pm', 'Free, 7pm to 10pm']);
 
       await userEvent.click(meals);
-      const sheet = await screen.findByRole('dialog', { name: 'Plan meals for the week' });
-      expect(within(sheet).getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
-      await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+      const popup = await screen.findByRole('dialog', { name: 'Plan meals for the week' });
+      expect(within(popup).getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
+      await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
       await userEvent.click(plan);
       expect(within(await screen.findByRole('dialog', { name: 'Plan the week of Nov 9' })).getByText('Fri Nov 6, 5:30pm to 6:45pm')).toBeVisible();
     });
@@ -1708,7 +1711,7 @@ describe('hold to create on Week', () => {
       await pass(400);
       expect(draft()).toBeNull();
 
-      // Piano practice's session, opened in place.
+      // Piano practice's session, opened in its popup.
       await userEvent.click(screen.getByRole('button', { name: /^Piano practice, Wed Nov 4, 7am to 7:30am/ }));
       press(column('2026-11-05'), gridY(16 * 60), 'desktop');
       await pass(450);

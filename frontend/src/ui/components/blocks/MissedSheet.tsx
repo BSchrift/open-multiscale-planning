@@ -16,6 +16,7 @@ import type { Minutes } from '../../../core/types';
 import { useApp, useQuery } from '../../app/store';
 import { EST_STEPS } from '../EstimateSlider';
 import { useFocusLanding } from '../useFocusLanding';
+import { BlockName } from './BlockName';
 import { PromptFrame } from './BlockPrompts';
 import { formatRange } from './describe';
 import { useBlockActions } from './useBlockActions';
@@ -374,7 +375,9 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
               ) : (
                 <>
                   <div className="misstext grow">
-                    <div className="missname">{nameOf(b)}</div>
+                    <div className="missname">
+                      <BlockName block={{ ...b, title: nameOf(b) }} />
+                    </div>
                     <div className="small quiet">
                       {day(b)} {formatRange(b.start, b.end, zone)}
                       {practice(b)}

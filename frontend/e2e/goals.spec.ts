@@ -218,7 +218,7 @@ test('edits a practice with no goal and links it to one', async ({ page }, info)
   await openGoals(page);
   await page.getByRole('button', { name: phone ? 'Practices with no goal' : 'Practices with no goal 1 practice', exact: true }).click();
   await page.getByRole('button', { name: /^Stretch/ }).click();
-  const scope = phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
+  const scope = page.getByRole('dialog', { name: 'Stretch' });
   await expect(scope.getByRole('slider', { name: 'Each session' })).toBeVisible();
   await scope.getByLabel('Goal', { exact: true }).selectOption('Run a 10k');
   // Nothing changes until Save.
@@ -243,7 +243,7 @@ test('builds Mon, Tue and Fri with Friday at 9:30, which reopens as kept, with c
   const open = async () => {
     await page.getByRole('button', { name: /^Practices with no goal/ }).click();
     await page.getByRole('button', { name: /^Stretch/ }).click();
-    return phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
+    return page.getByRole('dialog', { name: 'Stretch' });
   };
   let editor = await open();
   // Arrow keys move between the radios of each group, as native radios do.
@@ -288,7 +288,7 @@ test('builds Mon, Tue and Fri with Friday at 9:30, which reopens as kept, with c
 
   // Reopened, it reads as it was saved.
   await page.getByRole('button', { name: /^Stretch/ }).click();
-  editor = phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
+  editor = page.getByRole('dialog', { name: 'Stretch' });
   await expect(editor.getByRole('group', { name: 'Days' }).getByRole('checkbox', { checked: true })).toHaveCount(3);
   await expect(editor.getByRole('switch', { name: 'Different time on some days' })).toBeChecked();
   await expect(editor.getByRole('group', { name: 'Time on each day' }).getByLabel('Friday', { exact: true })).toHaveValue('09:30');

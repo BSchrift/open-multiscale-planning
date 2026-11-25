@@ -204,3 +204,6 @@ redraws them on Linux, as CI runs; other systems skip the comparison.
   - a looping animation, such as the spinner, which has a period rather than a duration;
   - a size between two text styles that follows the window, such as the clock's `clamp()`.
 - `e2e/reference.spec.ts`: the reference page's screenshots, in both themes at both sizes.
+- `styles/widgetTokens.test.ts`: the iPhone widgets' copy of the roles they draw with
+  (`frontend/ios/App/MultiscaleWidgets/Sources/WidgetUI/Tokens.swift`) and of the font, which a widget can't read from
+  CSS, against `tokens.css` and the web app's own font files. Change a role here and the widgets' copy in the same PR.

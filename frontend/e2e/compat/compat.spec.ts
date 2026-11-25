@@ -235,7 +235,7 @@ test.describe('one device', () => {
   async function relaunch(page: Page, name: Bundle, errors: string[], days = 0): Promise<Page> {
     // A bundle without OPFS saves 200ms after the last change, so a tab closed sooner loses it (platform/web.ts). Both
     // bundles here keep their data on OPFS, so neither waits for the copy for a bundle from before OPFS, which comes
-    // after 2 seconds of quiet (platform/opfs.worker.ts).
+    // once 2 seconds pass without a change (platform/opfs.worker.ts).
     await page.waitForTimeout(600);
     const context = page.context();
     await page.close();
@@ -513,15 +513,15 @@ test.describe('one device', () => {
     await openSeeded(page, [...week, ...irregular]);
     const lane = () => pane(page, 'Week').getByRole('region', { name: 'To schedule' });
     const card = (title: string, line: string) => lane().getByRole('button', { name: `${title}, Practice, ${line}, to schedule` });
-    // The count waits above the week; of the set days, Thursday is skipped, so only Friday's waits, above its day.
-    const expectUpdate = async (title: string) => {
+    // The count waits above the week. Of the set days, Thursday is skipped, and Friday's own 9:30 is its set time, so
+    // the update has placed it there and nothing of the run waits.
+    const expectUpdate = async () => {
       await go(page, 'Week');
       await expect(card('Climbing', '3 more this week, 30m each')).toBeVisible();
-      await expect(pane(page, 'Week').getByRole('button', { name: /, Practice, 30 minutes on Thursday/ })).toHaveCount(0);
-      await pane(page, 'Week').getByRole('button', { name: `${title}, Practice, 30 minutes on Friday around 9:30 AM, to schedule` }).click();
-      await expect(pane(page, 'Week').getByRole('button', { name: 'Fri 9:30am to 10am' })).toBeVisible();
+      await expect(pane(page, 'Week').getByRole('button', { name: /, Practice, 30 minutes on (Thursday|Friday)/ })).toHaveCount(0);
+      expect(await readRecord(page, 'time_block', 'session:pr2:2026-11-06')).toMatchObject({ start: at(6, '09:30'), end: at(6, '10:00') });
     };
-    await expectUpdate('Morning run');
+    await expectUpdate();
     await everyScreen(page);
 
     // It fails its trial. The bundle before plans them as it understands them, which depends on how old it is, so this
@@ -533,7 +533,13 @@ test.describe('one device', () => {
     await go(page, 'Goals');
     await pane(page, 'Goals').getByRole('button', { name: /^Practices with no goal/ }).click();
     await pane(page, 'Goals').getByRole('button', { name: /^Morning run/ }).click();
-    await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Morning jog');
+    // An editor shows its Name field at once; the practice's popup, once the bundle before has it, shows the name as a
+    // button that turns into the field.
+    const name = page.getByRole('textbox', { name: 'Name', exact: true });
+    const rename = page.getByRole('button', { name: 'Rename Morning run' });
+    await expect(name.or(rename)).toBeVisible();
+    if (await rename.isVisible()) await rename.click();
+    await name.fill('Morning jog');
     // Editors that save on Save, once the bundle before has them.
     const save = page.getByRole('button', { name: 'Save', exact: true });
     if (await save.isVisible()) await save.click();
@@ -541,8 +547,45 @@ test.describe('one device', () => {
 
     // Updated again, the days' own times, the count and the skip are all still there.
     page = await relaunch(page, 'new', errors);
-    await expectUpdate('Morning jog');
+    await expectUpdate();
+    expect(await readRecord(page, 'practice', 'pr2')).toMatchObject({ title: 'Morning jog', day_times: [null, null, null, null, 570, null, null] });
     await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('the update places a practice at its set times; the bundle before shows them, takes one off and moves one, and the update leaves both', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    // An evening run on Wednesday, Thursday and Saturday at 6pm: today's is still ahead.
+    const run: Seed = { type: 'practice', id: 'run', fields: { title: 'Evening run', target_min: 30, per: 'day', days: [2, 3, 5], preferred_times: [1080], state: 'active' } };
+    await openSeeded(page, [...week, run]);
+    await expect(page.getByText('Placed 3 practice sessions at their set times this week.')).toBeVisible();
+    const session = (date: string) => readRecord(page, 'time_block', `session:run:${date}`);
+    expect(await session('2026-11-04')).toMatchObject({ start: at(4, '18:00'), end: at(4, '18:30') });
+
+    // The bundle before shows them as placed, and takes today's off with its Skip this session.
+    page = await relaunch(page, 'old', errors);
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByText('Evening run').first()).toBeVisible();
+    await go(page, 'Today');
+    const today = pane(page, 'Today');
+    await today.getByRole('button', { name: /^Evening run, 6pm to 6:30pm/ }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^(Skip this session|Take off calendar)$/ }).click();
+    await expect.poll(async () => (await session('2026-11-04'))?.cancelled).toBe(true);
+    // And moves Thursday's to Friday, keeping the day it's for in its id, as its Week does.
+    await seed(page, [{ type: 'time_block', id: 'session:run:2026-11-05', fields: { start: at(6, '07:00'), end: at(6, '07:30') } }]);
+    await everyScreen(page);
+
+    // Updated again, it places nothing: today's stays off, Thursday's stays on Friday, and it says nothing.
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Week');
+    await page.waitForTimeout(1000);
+    await expect(page.getByText(/^Placed \d+ practice sessions/)).toHaveCount(0);
+    expect((await session('2026-11-04'))?.cancelled).toBe(true);
+    expect(await session('2026-11-05')).toMatchObject({ start: at(6, '07:00'), end: at(6, '07:30') });
+    expect(await session('2026-11-06')).toBeUndefined();
+    expect(await session('2026-11-07')).toMatchObject({ start: at(7, '18:00') });
     expect(errors).toEqual([]);
   });
 

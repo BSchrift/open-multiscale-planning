@@ -30,6 +30,9 @@
 		A1B2C3D4E5F6000000000504 /* WidgetProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000503 /* WidgetProvider.swift */; };
 		A1B2C3D4E5F6000000000507 /* WidgetCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000506 /* WidgetCore */; };
 		A1B2C3D4E5F6000000000509 /* WidgetCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000508 /* WidgetCore */; };
+		A1B2C3D4E5F6000000000511 /* WidgetUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000000000510 /* WidgetUI */; };
+		A1B2C3D4E5F6000000000513 /* DayWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000512 /* DayWidgets.swift */; };
+		A1B2C3D4E5F6000000000602 /* LockTodayWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000601 /* LockTodayWidgets.swift */; };
 		A1B2C3D4E5F600000000050C /* WidgetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000050B /* WidgetUITests.swift */; };
 		A1B2C3D4E5F60000000003F2 /* OfflineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */; };
 /* End PBXBuildFile section */
@@ -86,6 +89,8 @@
 		A1B2C3D4E5F600000000000D /* MultiscaleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MultiscaleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000201 /* OpenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCapture.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000501 /* WidgetsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetsPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000512 /* DayWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayWidgets.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000601 /* LockTodayWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockTodayWidgets.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000503 /* WidgetProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetProvider.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000050B /* WidgetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetUITests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineUITests.swift; sourceTree = "<group>"; };
@@ -106,6 +111,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4E5F6000000000509 /* WidgetCore in Frameworks */,
+				A1B2C3D4E5F6000000000511 /* WidgetUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -181,6 +187,8 @@
 			children = (
 				A1B2C3D4E5F6000000000008 /* CaptureControl.swift */,
 				A1B2C3D4E5F6000000000503 /* WidgetProvider.swift */,
+				A1B2C3D4E5F6000000000512 /* DayWidgets.swift */,
+				A1B2C3D4E5F6000000000601 /* LockTodayWidgets.swift */,
 				A1B2C3D4E5F6000000000009 /* Info.plist */,
 			);
 			path = CaptureWidget;
@@ -252,6 +260,7 @@
 			name = MultiscaleCapture;
 			packageProductDependencies = (
 				A1B2C3D4E5F6000000000508 /* WidgetCore */,
+				A1B2C3D4E5F6000000000510 /* WidgetUI */,
 			);
 			productName = MultiscaleCapture;
 			productReference = A1B2C3D4E5F600000000000C /* MultiscaleCapture.appex */;
@@ -382,6 +391,8 @@
 			files = (
 				A1B2C3D4E5F6000000000045 /* CaptureControl.swift in Sources */,
 				A1B2C3D4E5F6000000000504 /* WidgetProvider.swift in Sources */,
+				A1B2C3D4E5F6000000000513 /* DayWidgets.swift in Sources */,
+				A1B2C3D4E5F6000000000602 /* LockTodayWidgets.swift in Sources */,
 				A1B2C3D4E5F6000000000203 /* OpenCapture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -795,6 +806,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */;
 			productName = WidgetCore;
+		};
+		A1B2C3D4E5F6000000000510 /* WidgetUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6000000000505 /* XCLocalSwiftPackageReference "MultiscaleWidgets" */;
+			productName = WidgetUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

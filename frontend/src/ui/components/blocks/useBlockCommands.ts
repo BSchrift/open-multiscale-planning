@@ -124,7 +124,7 @@ export function useBlockCommands(say?: Say) {
       return [
         ...(next ? [{ id: 'move:next', label: `Next free time, ${formatTimeOfDay(next.start)}`, icon: 'clock' as const }] : []),
         ...(day ? [{ id: 'move:tomorrow', label: `${dayOf(day.date)}, ${formatTimeOfDay(day.start)}`, icon: 'calendar' as const }] : []),
-        // A practice's session comes off with Skip this session.
+        // A practice's session comes off with Take off calendar.
         ...(block.task_id ? [{ id: 'move:back', label: 'Back to To schedule', icon: 'inbox' as const }] : []),
         ...(stage === 'later' ? (['separator', { id: 'move:choose', label: 'Choose a time…', icon: 'week' }] as const) : []),
       ];

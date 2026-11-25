@@ -6,6 +6,15 @@ import WidgetKit
 struct CaptureWidgets: WidgetBundle {
     var body: some Widget {
         CaptureControl()
+        // Only in a build with the App Group, where the app writes what they draw: without one they'd have nothing.
+        #if MULTISCALE_APP_GROUP
+        NowNextWidget()
+        CaptureHomeWidget()
+        LockNowWidget()
+        LockInboxWidget()
+        TodayWidget()
+        WeekWidget()
+        #endif
     }
 }
 

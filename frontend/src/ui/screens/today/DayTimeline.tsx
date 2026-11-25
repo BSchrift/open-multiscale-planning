@@ -2,8 +2,9 @@
 // by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so, and
 // blocks at the same time sit side by side.
 // On the calendar, blocks still to start drag and resize as on Week, once held, so a click stays a click and a swipe
-// still scrolls, and the one under way changes its end. A click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
-// session or a planning block in its details. A press held on empty time drafts an hour there and opens Capture on it.
+// still scrolls, and the one under way changes its end. A click or tap on a block, on the calendar or the list, opens
+// its popup with the block's own section at its top: its task's, or its practice's or planning's (BlockPopup). A press
+// held on empty time drafts an hour there and opens Capture on it.
 // A task's block or a practice's session also has a quick menu of what can be done to it now, the popup's own actions:
 // a right-click, or Shift-F10 or the menu key on desktop, and on phone a hold let go without moving. The Mac app has
 // macOS draw it.
@@ -23,7 +24,8 @@ import { useNav } from '../../app/nav';
 import { requestPrompt } from '../../app/reminders';
 import { requestShowBlock, useShowBlockRequest } from '../../app/showBlock';
 import { useApp, useMutation, useStickyState } from '../../app/store';
-import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
+import { popFor } from '../../components/blocks/BlockName';
+import type { PopFor } from '../../components/blocks/BlockName';
 import { BlockSection } from '../../components/blocks/BlockSection';
 import { WORDS } from '../../components/blocks/MissedSheet';
 import { stageOf, useBlockCommands } from '../../components/blocks/useBlockCommands';
@@ -33,7 +35,6 @@ import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
-import { useOpenTask } from '../../components/task/TaskName';
 import { Menu, nativeMenu } from '../../components/Menu';
 import type { MenuChoice, MenuEntry } from '../../components/Menu';
 import { useToast } from '../../components/Toast';
@@ -42,7 +43,8 @@ import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNot
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from '../../components/weekgrid/holdCreate';
 import { DraftCapture } from '../capture/DraftCapture';
-import { DeleteTask, TaskPopupFor } from '../task';
+import { BlockPopup } from '../practice';
+import { DeleteTask } from '../task';
 import type { TodayData } from './data';
 import { Icon } from '../../components/ds/Icon';
 import { Segmented } from '../../components/ds/Controls';
@@ -82,16 +84,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const phone = layout === 'phone';
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
   const [ph, setPh] = useState(ZOOM[0]!);
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const pinch = useRef<{ gap: number; ph: number } | null>(null);
-  const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
   const toast = useToast();
-  const openTask = useOpenTask();
   // Its ask, when a drag or Move to lands a block on another: keep both, replace it, or leave it.
   const actions = useBlockCommands();
   const nav = useNav();
-  /** A task's block opened in the task's popup. */
-  const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
+  /** A block opened in its popup. */
+  const [pop, setPop] = useState<PopFor | null>(null);
   /** A block's quick menu, open at a point, and what had focus when it opened, to give it back. */
   const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number }; from: HTMLElement } | null>(null);
   /** Delete task from a block's menu, asking first. */
@@ -126,7 +125,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
     move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
     earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
-    off: !!drag || !!pop || open.size > 0,
+    off: !!drag || !!pop,
     draws: true,
   });
   const held = holdNew.draft?.slot;
@@ -201,20 +200,14 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         return [group, { right: clash ? '40%' : '4px', shown: shownColumns(group.cols, room, MORE_PX) }] as const;
       }),
   );
-  const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
-  // A task's block opens the task's popup, as the task does anywhere else, with the block's section at its top. A
-  // practice's session and a planning block open their details, as before.
-  const taskOf = (i: Item) => (i.kind && isTaskBlock(i.kind) ? i.block?.task_id : null);
+  // A block opens its popup, as its task or practice does anywhere else, with the block's section at its top.
   const openItem = (i: Item) => {
-    const id = taskOf(i);
-    if (id) setPop({ block: i.id, task: id });
-    else toggle(i.id);
+    if (i.block) setPop(popFor(i.block));
   };
   const popBlock = pop && data.blocks.find((b) => b.id === pop.block);
   // One not yet started can come off the calendar, as Have you started's Skip takes it.
   const removable = (b: BlockRow) => !b.started_at && !b.result && !b.ended_at && instantMs(b.end) > clock.now();
-  // Both open over the page on phone, and a task's popup does on desktop too; the rest open in place there.
-  const opens = (i: Item) => (phone || taskOf(i) ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': open.has(i.id) });
+  const opens = { 'aria-haspopup': 'dialog' as const };
 
   // Week's rules: an answered block stays put, one under way keeps its start, and nothing moves into time gone by.
   // shortcut: a block not drawn whole, running past midnight, stays put; until the timeline draws the next day too.
@@ -247,7 +240,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     };
     toast.show([`${i.title} is now ${range(to)}.`, ...actions.tookOff(off), ...notes].join(' '), { undo });
     const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
-    setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
+    setSplit(shortened(b, to, { task: !!i.kind && isTaskBlock(i.kind), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
 
   const press = (i: Item, mode: 'move' | 'resize') => (e: ReactPointerEvent) => {
@@ -316,7 +309,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     return entries.length ? [{ id: 'move', label: 'Move to', icon: 'calendar', submenu: entries }] : [];
   };
   const chooseOnWeek = () => nav.go('week', { edit: 'this' });
-  // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Skip this session"
+  // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Take off calendar"
   // for a practice. None for a planning block, which has its own flow, nor for another calendar's event.
   const menuOf = (i: Item): MenuEntry[] | null => {
     const b = i.block;
@@ -325,7 +318,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const words = WORDS[practice ? 'practice' : 'task'];
     const done: MenuChoice = { id: 'done', label: words.done, icon: 'done', tone: 'ok' };
     const open: MenuChoice = { id: 'open', label: 'Open', icon: 'notes' };
-    const remove: MenuChoice[] = !removable(b) ? [] : [practice ? { id: 'remove', label: 'Skip this session', icon: 'bin', tone: 'danger' } : { id: 'remove', label: 'Remove from calendar', icon: 'close' }];
+    const remove: MenuChoice[] = !removable(b) ? [] : [practice ? { id: 'remove', label: 'Take off calendar', icon: 'close' } : { id: 'remove', label: 'Remove from calendar', icon: 'close' }];
     const del: MenuChoice[] = practice ? [] : [{ id: 'delete', label: 'Delete task…', icon: 'bin', tone: 'danger' }];
     const after = (rest: MenuChoice[]): MenuEntry[] => (rest.length ? ['separator', ...rest] : []);
     switch (stageOf(b, clock.now())) {
@@ -512,7 +505,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
                     'aria-valuetext': range(slotOf(i)),
                   }
                 : { type: 'button' as const })}
-              {...opens(i)}
+              {...opens}
               data-block={i.block.id}
               title={i.time}
               style={style}
@@ -589,7 +582,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const overlap = overlapsText(others(i));
     if (phone) {
       return (
-        <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} {...opens(i)} onClick={() => openItem(i)}>
+        <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} {...opens} onClick={() => openItem(i)}>
           <span className="small quiet">{formatTime(i.start, zone)}</span>
           <span className="tlwhat">
             <span className={titleCls}>{i.title}</span>
@@ -605,7 +598,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const label = i.kind === 'project' ? (i.path ?? '').split(' > ')[0] : i.word;
     return (
       <div key={i.id} className={`tlrow${i.cur ? ' tlcur' : ''}`}>
-        <button className="tlbtn" type="button" {...opens(i)} onClick={() => openItem(i)}>
+        <button className="tlbtn" type="button" {...opens} onClick={() => openItem(i)}>
           <span className="small quiet">{i.time}</span>
           <span className="tlwhat">
             <span className={titleCls}>{i.title}</span>
@@ -617,18 +610,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             {overlap}
           </span>
         </button>
-        {open.has(i.id) && (
-          <div className="tldet stack8 small">
-            <BlockDetailBody block={i.block} />
-            {i.block.task_id && (
-              <div>
-                <button className="link small" type="button" aria-label={`Open ${i.title}`} onClick={() => openTask(i.block!.task_id!)}>
-                  Open task
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     );
   });
@@ -645,7 +626,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
       {actions.asking}
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
-      {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
       {holdNew.draft?.open && (
         <DraftCapture
           layout={layout}
@@ -654,10 +634,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         />
       )}
       {pop && (
-        <TaskPopupFor
-          id={pop.task}
+        <BlockPopup
+          pop={pop}
           close={() => setPop(null)}
-          block={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: chooseOnWeek }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+          section={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: chooseOnWeek }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
         />
       )}
       {menu && menuItem && (

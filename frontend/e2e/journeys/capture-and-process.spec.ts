@@ -139,7 +139,6 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(finished.getByRole('checkbox', { name: 'Pay the water bill done' })).toBeChecked();
   // The item that became a practice is finished too, and links to it, open on the Goals page.
   await finished.getByRole('button', { name: 'Became the practice Stretch every morning' }).click();
-  if (phone) await expect(page.getByRole('dialog', { name: 'Edit practice' }).getByLabel('Name')).toHaveValue('Stretch every morning');
-  else await expect(pane(page, 'Goals').getByRole('button', { name: /^Stretch every morning/, expanded: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Stretch every morning' }).getByRole('heading', { name: 'Stretch every morning' })).toBeVisible();
   expect(errors).toEqual([]);
 });

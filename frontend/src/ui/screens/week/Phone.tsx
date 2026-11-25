@@ -1,6 +1,6 @@
 // Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
-// shared time axis above one day's timeline. Tapping a task's block opens the task's popup, with the block's section
-// at its top, and a practice's session or planning opens its sheet. Holding a block still to come lifts it, to be let
+// shared time axis above one day's timeline. Tapping a block opens its popup, its task's, practice's or planning's, with
+// the block's section at its top, its length among it. Holding a block still to come lifts it, to be let
 // go on another row of the day at the time under the finger. Move, or Choose another time for a
 // task or for planning, makes the block draggable on the day, the strip carries it to another day, and planning's
 // week arrows to another week. To schedule sits above the
@@ -24,7 +24,8 @@ import { usePlanningActions } from '../../components/planning/usePlanning';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { fitZoom, usePinchZoom } from '../../components/week/pinch';
 import { Sheet } from '../../components/Sheet';
-import { TaskName } from '../../components/task/TaskName';
+import { opensPopup, popFor } from '../../components/blocks/BlockName';
+import type { PopFor } from '../../components/blocks/BlockName';
 import { BlockSection } from '../../components/blocks/BlockSection';
 import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
@@ -40,11 +41,12 @@ import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { ResetWeek } from './reset';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useWeekActions } from './useWeekActions';
-import { TaskPopupFor } from '../task';
+import { BlockPopup } from '../practice';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 
@@ -59,9 +61,8 @@ type Placing =
   | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean }
   | { mode: 'planning'; plan: PlacingPlanning; length: Minutes };
 
-type Open = { kind: 'block'; id: string } | { kind: 'task'; block: string; task: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
+type Open = { kind: 'pop'; pop: PopFor } | { kind: 'add' } | { kind: 'item'; id: string } | null;
 
-/** Work, which opens the task's popup, rather than a practice's session or planning, which open their own sheet. */
 const isTask = (b: PlacedBlock) => isTaskBlock(b.kind);
 
 export function PhoneWeek(props: WeekProps) {
@@ -224,13 +225,12 @@ export function PhoneWeek(props: WeekProps) {
   const carryTo = (days: number) => props.goWeek(addDays(props.week, days), plan && at ? { ...at, date: addDays(at.date, days) } : undefined);
 
   const blocksOn = (date: LocalDate) => model.blocks.filter((b) => b.date === date);
-  const opened = open?.kind === 'block' ? model.blocks.find((b) => b.id === open.id) : undefined;
   const openBlock = (id: string) => {
-    const b = model.blocks.find((x) => x.id === id);
-    setOpen(b?.task_id && isTask(b) ? { kind: 'task', block: id, task: b.task_id } : { kind: 'block', id });
+    const row = data.blocks.find((x) => x.id === id);
+    if (row && opensPopup(row)) setOpen({ kind: 'pop', pop: popFor(row) });
   };
   // The popup stays open when its block comes off the calendar; only the block's section goes.
-  const popped = open?.kind === 'task' ? open : null;
+  const popped = open?.kind === 'pop' ? open.pop : null;
   const popRow = popped && data.blocks.find((b) => b.id === popped.block);
   const popPlaced = popped && model.blocks.find((b) => b.id === popped.block);
   const popEdit = !!popPlaced && offset >= 0 && !popPlaced.past;
@@ -316,7 +316,7 @@ export function PhoneWeek(props: WeekProps) {
         <div className="card stack8 wksum">
           <div className="small wkkeys">
             <span className="keyitem">
-              <span className="skey" />
+              <span className="skey free" />
               <span className="strong">{formatMinutes(weekFree(data.week, ctx))} free</span>
               <span className="quiet"> of {formatMinutes(model.open)} available</span>
             </span>
@@ -327,6 +327,10 @@ export function PhoneWeek(props: WeekProps) {
             <span className="keyitem">
               <span className="skey busy" />
               <span>busy</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey closed" />
+              <span>unavailable</span>
             </span>
           </div>
           <div className="small quiet">{capLine}</div>
@@ -442,6 +446,7 @@ export function PhoneWeek(props: WeekProps) {
               See this week's analytics
             </Button>
           )}
+          <ResetWeek data={data} offset={offset} className="wkstats" />
         </div>
       )}
 
@@ -508,26 +513,11 @@ export function PhoneWeek(props: WeekProps) {
       ) : null}
 
       {asking}
-      {opened && (
-        <BlockSheet
-          block={opened}
-          model={model}
-          canEdit={offset >= 0 && !opened.past}
-          onClose={() => setOpen(null)}
-          onLength={(end) => changeBlock(opened, { date: opened.date, start: opened.start, end })}
-          onMove={() => startPlacing({ mode: 'move', block: opened, length: opened.end - opened.start }, opened)}
-          onRemove={() => {
-            setOpen(null);
-            setEdSel(null);
-            void act.remove(opened.id, opened.title);
-          }}
-        />
-      )}
       {popped && (
-        <TaskPopupFor
-          id={popped.task}
+        <BlockPopup
+          pop={popped}
           close={() => setOpen(null)}
-          block={
+          section={
             popRow && (
               <BlockSection
                 block={popRow}
@@ -677,8 +667,6 @@ function DayRows(props: {
       </div>,
     );
 
-  // A task's block always opens, to its popup; a practice's or planning's only while it can still change.
-  const shut = (block: PlacedBlock) => (props.readOnly || block.ended) && !isTask(block);
   // Held, a block still to come lifts and drags as a card does, onto whichever row it's let go over, at the time under
   // the finger there. Its own time is free while it moves. The press stays with the block, so the row under it never
   // takes it for a hold on empty time.
@@ -723,11 +711,7 @@ function DayRows(props: {
         <span className="tlkind">{kindLine}</span>
       </>
     );
-    return shut(block) ? (
-      <div key={block.id} className={cls} style={style}>
-        {inner}
-      </div>
-    ) : (
+    return (
       <button
         key={block.id}
         className={cls}
@@ -759,7 +743,7 @@ function DayRows(props: {
         group.items.length === 1 ? (
           draw(block, [], block.start, { height: cells * cell - 2 })
         ) : (
-          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => b.id !== HELD && !shut(b)} onOpen={props.onOpen} />
+          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => b.id !== HELD} onOpen={props.onOpen} />
         ),
         m,
         m + cells * 30,
@@ -1131,7 +1115,7 @@ export function DragDay(props: {
   );
 }
 
-/** A block's length on a slider, while it can change, and what's off about its time: in its sheet, or in a task's popup. */
+/** A block's length on a slider, while it can change, and what's off about its time, in its popup's block section. */
 function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: boolean; onLength(end: number): void }) {
   const { block, model } = props;
   const id = useId();
@@ -1167,43 +1151,6 @@ function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: b
         </p>
       )}
     </>
-  );
-}
-
-/** A tapped practice's session or planning block: its length on a slider, Move and Remove. */
-function BlockSheet(props: {
-  block: PlacedBlock;
-  model: WeekModel;
-  canEdit: boolean;
-  onClose(): void;
-  onLength(end: number): void;
-  onMove(): void;
-  onRemove(): void;
-}) {
-  const { block } = props;
-  return (
-    <Sheet label={block.title} onClose={props.onClose}>
-      <div>
-        <div className="small quiet">
-          {dayName(block.date)}, {slotRange(block)}
-        </div>
-        <h2>{block.task_id ? <TaskName id={block.task_id} title={block.title} /> : block.title}</h2>
-      </div>
-      <LengthAndNote block={block} model={props.model} canEdit={props.canEdit} onLength={props.onLength} />
-      {props.canEdit && (
-        <>
-          <Button variant="primary" type="button" onClick={props.onMove}>
-            Move
-          </Button>
-          <Button type="button" onClick={props.onRemove}>
-            Remove
-          </Button>
-        </>
-      )}
-      <Button type="button" onClick={props.onClose}>
-        Close
-      </Button>
-    </Sheet>
   );
 }
 

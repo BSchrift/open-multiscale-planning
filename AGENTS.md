@@ -14,6 +14,10 @@ name are in [.claude/skills](.claude/skills): Claude Code loads them from there,
   fixtures, docs. A known limit gets a `// shortcut: <the limit>, <when to upgrade>` comment. Never cut validation at a
   trust boundary, error handling that prevents data loss, security or accessibility.
 - **Match the code around you:** its naming, structure and comment density. Comments say why, not what.
+- **Say what's new.** A change someone will notice on the iPhone adds one line to the top of
+  [frontend/src/whatsNew.ts](frontend/src/whatsNew.ts), with the next id: one plain sentence saying what they can now
+  do. Each iPhone shows the lines it hasn't seen once, after the update that brings them
+  ([docs/releasing.md](docs/releasing.md#whats-new)).
 - **Check your work as a person would.** Run the app, look at screenshots on desktop and phone, and say plainly what you
   didn't verify.
 
@@ -120,9 +124,12 @@ Then wait for CI. A PR merges only with every check green.
 
 ## The product's rules
 
-- **Nothing happens to someone's plan without them.** Time is placed, and tasks are finished, only by an explicit action.
-  Suggestions are shown, never saved. Planning tasks are the one record the app makes without a tap: they place no time,
-  and they can be skipped or undone.
+- **Nothing happens to someone's plan without them.** Time is placed by an explicit action, or at a time the person set:
+  a practice's session lands at its set time on each of its days when that time is free, and otherwise waits to be
+  placed. Time is moved or taken off, and tasks are finished, only by an explicit action. Suggestions are shown, never
+  saved. The app makes two kinds of record without a tap: planning tasks, which place no time, and sessions at their set
+  times. Each is made once under a fixed id, so two devices make one; each can be skipped or undone; and one that was
+  deleted or taken off is never made again.
 - **Every change can be undone,** usually from the toast that reports it.
 - **Copy is plain and specific,** in sentence case, and says what happened.
 - **Accessibility is part of done:**

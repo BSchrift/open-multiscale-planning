@@ -63,7 +63,7 @@ type Fields = Record<string, unknown>;
 /**
  * Records of a type as the database file the browser keeps in IndexedDB has them, which is what a reload reads on phone.
  * Phone WebKit keeps the database in memory and saves it there whole 200ms after a change, so a reload any sooner loses
- * the change; desktop Chromium's OPFS file is on disk as each change commits, and copied there after 2 seconds of quiet.
+ * the change; desktop Chromium's OPFS file is on disk as each change commits, and copied there 2 seconds after the last.
  */
 async function savedRecords(page: Page, type: string): Promise<Fields[]> {
   const base64 = await page.evaluate(async (url) => {

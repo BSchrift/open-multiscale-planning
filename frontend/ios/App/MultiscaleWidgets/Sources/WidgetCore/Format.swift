@@ -20,9 +20,10 @@ public enum Format {
         return h > 0 ? "\(h)h" : "\(m)m"
     }
 
-    /// How long a pause has run, in words: "1 minute", "12 minutes", "1h 10m".
-    public static func pause(_ minutes: Int) -> String {
+    /// How long a pause has run, in words: "1 minute", "12 minutes", "1h 10m", or where room is short, "12 min".
+    public static func pause(_ minutes: Int, short: Bool = false) -> String {
         if minutes >= 60 { return Format.minutes(minutes) }
+        if short { return "\(minutes) min" }
         return minutes == 1 ? "1 minute" : "\(minutes) minutes"
     }
 
@@ -32,6 +33,15 @@ public enum Format {
         calendar.timeZone = zone
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// "Wednesday, Nov 18", as formatDayLong, in the given zone.
+    public static func dayLong(_ date: Date, in zone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let parts = calendar.dateComponents([.weekday, .month, .day], from: date)
+        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        return "\(weekdays[(parts.weekday ?? 1) - 1]), \(months[(parts.month ?? 1) - 1]) \(parts.day ?? 1)"
     }
 
     /// The days of a week from its Monday, "2026-11-16" to "2026-11-22", as weekDates.

@@ -82,22 +82,31 @@ async function open(): Promise<boolean> {
   return true;
 }
 
-// shortcut: changes are copied, as a whole file, to IndexedDB once the database has been quiet for QUIET_MS, so the bundle
+// shortcut: changes are copied, as a whole file, to IndexedDB once QUIET_MS has passed with no change, so the bundle
 // before this one finds them after a rollback; that costs what each save did before OPFS, but in this worker rather than
 // on the page. A first sync's pages come further apart than 200ms on a slow link, and a copy between them held up the
-// next page while it ran, so it waits for 2 seconds of quiet: a rollback within 2 seconds of an edit misses that edit.
+// next page while it ran, so it waits for 2 seconds without a change: a rollback within 2 seconds of an edit misses that
+// edit.
 // Drop the copy and the FILE_HASH check in a release after OPFS has shipped, once no browser can go back to a bundle from
 // before OPFS, and keep the first import of FILE for browsers that skip this release.
 const QUIET_MS = 2000;
 let copied = 0;
+// The changes the copy waiting to start is timed from. Only a new change starts the wait again: a page that goes on
+// reading, as one busy drawing and loading screens does, would otherwise hold the copy back for as long as it reads.
+let waitingFor = -1;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let copying = Promise.resolve();
 const changes = () => Number(db.changes(true));
 
 function copySoon() {
-  if (changes() === copied) return;
+  const now = changes();
+  if (now === copied || now === waitingFor) return;
+  waitingFor = now;
   clearTimeout(timer);
-  timer = setTimeout(() => (copying = copying.then(copy)), QUIET_MS);
+  timer = setTimeout(() => {
+    waitingFor = -1;
+    copying = copying.then(copy);
+  }, QUIET_MS);
 }
 
 async function copy() {
@@ -114,6 +123,7 @@ async function copy() {
 
 async function close() {
   clearTimeout(timer);
+  waitingFor = -1;
   await copying;
   if (changes() !== copied) await copy();
   await driver.close();

@@ -1,4 +1,4 @@
-// A block on Week once it's placed: its details on desktop, its length on both layouts, Remove on phone, and a past
+// A block on Week once it's placed: its popup on desktop, its length on both layouts, Remove on phone, and a past
 // week, which can be read but not changed. week.spec.ts has moving blocks, To schedule and the week arrows.
 
 import { expect, test } from '@playwright/test';
@@ -38,27 +38,21 @@ async function openWeek(page: Page, list = records) {
   return errors;
 }
 
-test("desktop: a practice's block shows its details beside the week and Close gives focus back, and a task's block opens the task with how it went", async ({ page }, info) => {
+test("desktop: a practice's block opens its popup and Esc gives focus back, and a task's block opens the task with how it went", async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openWeek(page);
-  // A practice's session keeps its own details beside the week.
+  // A practice's session opens its popup, in the task popup's frame, with the block's section at its top.
   const piano = page.getByRole('button', { name: 'Piano practice, Wed Nov 4, 7am to 7:30am, Practice.' });
-  await expect(piano).toHaveAttribute('aria-expanded', 'false');
+  await expect(piano).toHaveAttribute('aria-haspopup', 'dialog');
   await piano.click();
-  await expect(piano).toHaveAttribute('aria-expanded', 'true');
-  const detail = page.getByRole('region', { name: 'Piano practice' });
-  await expect(detail.getByText('7am to 7:30am')).toBeVisible();
-  await expect(detail).toContainText('Practice:');
+  const practice = page.getByRole('dialog', { name: 'Piano practice' });
+  const block = practice.getByRole('region', { name: 'Time block' });
+  await expect(block.getByText('Wed Nov 4, 7am to 7:30am')).toBeVisible();
+  await expect(block).toContainText('Practice:');
   await page.screenshot({ path: info.outputPath('week-block-detail.png') });
-  await detail.getByRole('button', { name: 'Close' }).click();
-  await expect(detail).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(practice).toHaveCount(0);
   await expect(piano).toBeFocused();
-  await expect(piano).toHaveAttribute('aria-expanded', 'false');
-  // A second click on the block closes it too.
-  await piano.click();
-  await expect(detail).toBeVisible();
-  await piano.click();
-  await expect(detail).toHaveCount(0);
 
   // A task's block opens the task, whose block section says when and what it belongs to.
   const summary = page.getByRole('button', { name: 'Draft the summary, Tue Nov 3, 6pm to 7pm, Project.' });
@@ -316,7 +310,7 @@ test('a press held on empty time on Week drafts an hour there, and Capture saves
     await page.mouse.down();
     await page.waitForTimeout(600);
     await page.mouse.up();
-    await expect(piano).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('dialog', { name: 'Piano practice' })).toBeVisible();
     await expect(draft).toHaveCount(0);
     await expect(capture).toHaveCount(0);
   }

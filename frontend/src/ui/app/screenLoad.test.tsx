@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ScreenProps } from './registry';
 import { AREAS } from './registry';
 import { lazyScreen, preloadScreens, ScreenBoundary } from './screenLoad';
+import type { LazyScreen } from './screenLoad';
+import { MorePage } from './Shell';
 import { renderApp } from './testing';
 
 afterEach(cleanup);
@@ -15,7 +17,7 @@ const Goals = () => <h1>Goals</h1>;
 // As a browser rejects an import() it couldn't fetch, such as offline.
 const offline = () => Promise.reject(new TypeError('Failed to fetch dynamically imported module'));
 
-function show(Screen: ReturnType<typeof lazyScreen>) {
+function show(Screen: LazyScreen) {
   return render(
     <div className="pane" role="region" tabIndex={-1} aria-label="Goals">
       <ScreenBoundary>
@@ -136,6 +138,18 @@ describe('loading screens ahead of use', () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it('draws a screen whose code has arrived at once, without the wait a screen still loading has', async () => {
+    const Screen = lazyScreen(() => Promise.resolve({ default: Goals }));
+    expect(await Screen.preload()).toBe(true);
+    render(
+      <Suspense fallback={<p>Loading</p>}>
+        <Screen {...props} />
+      </Suspense>,
+    );
+    expect(screen.getByRole('heading', { name: 'Goals' })).toBeVisible();
+    expect(screen.queryByText('Loading')).toBeNull();
+  });
+
   it('leaves a screen it couldn’t load to load when it opens', async () => {
     const load = vi.fn<() => Promise<{ default: typeof Goals }>>().mockImplementationOnce(offline).mockResolvedValue({ default: Goals });
     const Screen = lazyScreen(load);
@@ -186,6 +200,21 @@ describe('loading screens ahead of use', () => {
     stop();
     await new Promise((r) => setTimeout(r, 300));
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it('loads Capture, a task’s popup and the More tab first, in the apps too, so a tap opens them at once', async () => {
+    for (const kind of ['web', 'ios', 'electron'] as const) {
+      const first = [AREAS.capture.Screen, AREAS.task.Screen, MorePage].map((s) => vi.spyOn(s as ReturnType<typeof lazyScreen>, 'preload'));
+      const today = vi.spyOn(AREAS.today.Screen as ReturnType<typeof lazyScreen>, 'preload');
+      await renderApp({ kind });
+      await waitFor(() => first.forEach((s) => expect(s).toHaveBeenCalled()));
+      if (kind === 'web') {
+        await waitFor(() => expect(today).toHaveBeenCalled());
+        for (const s of first) expect(s.mock.invocationCallOrder[0]).toBeLessThan(today.mock.invocationCallOrder[0]!);
+      }
+      cleanup();
+      vi.restoreAllMocks();
+    }
   });
 
   it('happens in the browser, whose screens come from the server, and not in the apps, which carry them', async () => {

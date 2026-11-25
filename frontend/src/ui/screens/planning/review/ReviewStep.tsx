@@ -3,12 +3,14 @@
 
 import { plannedByKind, weekAlerts } from '../../../../core/capacity';
 import { spansAhead } from '../../../../core/slots';
-import { formatMinutes } from '../../../../core/dates';
+import { addWeeks, formatMinutes } from '../../../../core/dates';
+import { loadWeekPlanning } from '../../../../core/planning';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Instant, LocalDate } from '../../../../core/types';
 import { NextPlanning } from './NextPlanning';
 import type { Layout } from '../../../app/registry';
 import { useApp, useQuery } from '../../../app/store';
+import { usePlanningTimes } from '../../../components/planning/usePlanning';
 import { TimeUse } from '../../../components/week/TimeUse';
 import { placedBlocks } from '../../../components/weekgrid';
 import { loadPlanning, weekModel } from '../model';
@@ -18,6 +20,11 @@ export function ReviewStep(props: { week: LocalDate; began: Instant; layout: Lay
   const { week, layout } = props;
   const { clock } = useApp();
   const data = useQuery((sql) => loadPlanning(sql, clock, week), [week]).data;
+  // Next planning's row sits above Finish plan and has reads of its own, which can come after the rest. Both wait for
+  // them, so Finish plan never moves down from under the pointer.
+  const next = addWeeks(week, 1);
+  const planning = usePlanningTimes(next);
+  const ahead = useQuery((sql) => loadWeekPlanning(sql, next), [next]).data;
   if (!data) return null;
   const m = weekModel(data, clock);
   const aims = m.aimRows(m.placedBy);
@@ -49,13 +56,17 @@ export function ReviewStep(props: { week: LocalDate; began: Instant; layout: Lay
         </div>
       </div>
       <TimeUse open={m.open} planned={used} free={free} alerts={weekAlerts(m.slot, aims, m.pushback)} />
-      <NextPlanning week={week} began={props.began} />
-      {layout === 'desktop' && (
-        <div className="row">
-          <Button variant="primary" type="button" onClick={props.onFinish}>
-            Finish plan
-          </Button>
-        </div>
+      {planning && ahead && (
+        <>
+          <NextPlanning week={week} began={props.began} planning={planning} ahead={ahead} />
+          {layout === 'desktop' && (
+            <div className="row">
+              <Button variant="primary" type="button" onClick={props.onFinish}>
+                Finish plan
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -5,7 +5,7 @@ import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } 
 import type { Offline } from './offline';
 import { holdMouse, openSeeded, pane, planPrompt, readRecord, startPlanningOnToday, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
-import { askOnBlock, nowCard, showNow } from './today';
+import { askOnBlock, showNow } from './today';
 
 // Each main flow done with no connection, start to finish, by a signed-out app: everything it does is on this device,
 // so offline it should work as it does online, ask for nothing over the network, and keep the work through a reload.

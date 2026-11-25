@@ -23,7 +23,6 @@ import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
 import { useLeave } from '../../components/editors/useLeave';
-import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { NotesField } from '../../components/notes/NotesField';
 import { draftOf } from '../../components/oneoff/draft';
@@ -174,8 +173,15 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
   const { layout, clock } = useApp();
   const today = useToday();
   const toast = useToast();
-  const apply = usePlanChange();
   const remove = useDeleteTask();
+  // A one off at a time of day takes its block along with a new date, time or estimate, in the same Undo.
+  const write = useMutation(async (w, fields: Fields<'task'>) => {
+    const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] });
+    // Loaded as it saves, since the popup is part of the first load and this isn't.
+    const { followOneOff } = await import('../../../core/setTimes');
+    const follow = await followOneOff(w, task, { ...task, ...fields } as Task, clock);
+    return { writes: [...follow.writes, ...back.writes], said: follow.said };
+  });
   // Into a backlog, made if it's new, with any other edits in the same change.
   const file = useMutation(async (w, goalId: string, edits: Fields<'task'>) => {
     const edited = Object.keys(edits).length ? await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields: edits }] }) : { writes: [] };
@@ -229,10 +235,11 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
       return;
     }
     // A failed save keeps the popup open as it was, and has said so.
-    const saved = await apply(() => ({ writes: [{ type: 'task', id: task.id, fields }] }), {
-      message: moved ? `Moved ${name} to ${moved.label}.${moved.projectId && repeats ? " Repeats stay with One offs, so it won't repeat." : ''}` : `Saved ${name}.`,
-    });
-    if (saved) close();
+    const saved = await write.run(fields);
+    if (!saved) return;
+    const message = moved ? `Moved ${name} to ${moved.label}.${moved.projectId && repeats ? " Repeats stay with One offs, so it won't repeat." : ''}` : `Saved ${name}.`;
+    toast.show([message, saved.said].filter(Boolean).join(' '), { undo: () => undo.run(saved) });
+    close();
   };
 
   const deleteTask = () => void remove.run(task, close);

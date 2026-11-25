@@ -57,3 +57,55 @@ struct CaptureHomeWidget: Widget {
         .supportedFamilies([.systemSmall])
     }
 }
+
+/// This week: whether the week's plan is holding, from the Home Screen. A tap opens Week, or Plan while the week isn't
+/// planned. No buttons.
+struct WeekWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "this-week", provider: WeekProvider()) { entry in
+            WeekEntryView(entry: entry)
+        }
+        .configurationDisplayName("This week")
+        .description("Each day's planned time, your weekly aims and your practices.")
+        .supportedFamilies([.systemMedium, .systemLarge])
+    }
+}
+
+private struct WeekEntryView: View {
+    let entry: WeekEntry
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        Looked { WeekView(state: entry.state, size: family == .systemLarge ? .large : .medium) }
+            .widgetURL(entry.state.link)
+    }
+}
+
+struct WeekEntry: TimelineEntry {
+    let date: Date
+    let state: WeekState
+}
+
+/// This week's timeline: an entry now and at each midnight, read from the App Group's snapshot. The app reloads it
+/// whenever it writes a snapshot, which is when anything else it shows changes.
+struct WeekProvider: TimelineProvider {
+    func placeholder(in context: Context) -> WeekEntry { WeekProvider.sample(at: Date()) }
+
+    func getSnapshot(in context: Context, completion: @escaping (WeekEntry) -> Void) {
+        completion(context.isPreview ? WeekProvider.sample(at: Date()) : WeekProvider.entries(from: Date()).first!)
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<WeekEntry>) -> Void) {
+        completion(Timeline(entries: WeekProvider.entries(from: Date()), policy: .atEnd))
+    }
+
+    static func entries(from now: Date) -> [WeekEntry] {
+        let loaded = WidgetFiles.appGroup()?.readSnapshot() ?? .missing
+        return WidgetTimeline.weekEntryDates(loaded, from: now).map { WeekEntry(date: $0, state: WeekState(loaded, at: $0)) }
+    }
+
+    /// The gallery's and the placeholder's: the spec's example week, never anyone's own.
+    static func sample(at now: Date) -> WeekEntry {
+        WeekEntry(date: now, state: WeekState(.ok(.sample(at: now)), at: now))
+    }
+}

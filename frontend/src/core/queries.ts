@@ -227,7 +227,7 @@ export const QUERY_INDEX = {
   blocks: ['block_start'],
   block: [],
   placed: ['block_start', 'pick_week'],
-  queue: ['outcome_result', 'block_task'],
+  queue: ['outcome_result', 'block_task', 'completion_task'],
   finished: [],
   finishedCount: [],
   taskAttachments: [],

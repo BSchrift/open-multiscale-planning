@@ -41,6 +41,7 @@ import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { ResetWeek } from './reset';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
@@ -315,7 +316,7 @@ export function PhoneWeek(props: WeekProps) {
         <div className="card stack8 wksum">
           <div className="small wkkeys">
             <span className="keyitem">
-              <span className="skey" />
+              <span className="skey free" />
               <span className="strong">{formatMinutes(weekFree(data.week, ctx))} free</span>
               <span className="quiet"> of {formatMinutes(model.open)} available</span>
             </span>
@@ -326,6 +327,10 @@ export function PhoneWeek(props: WeekProps) {
             <span className="keyitem">
               <span className="skey busy" />
               <span>busy</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey closed" />
+              <span>unavailable</span>
             </span>
           </div>
           <div className="small quiet">{capLine}</div>
@@ -441,6 +446,7 @@ export function PhoneWeek(props: WeekProps) {
               See this week's analytics
             </Button>
           )}
+          <ResetWeek data={data} offset={offset} className="wkstats" />
         </div>
       )}
 

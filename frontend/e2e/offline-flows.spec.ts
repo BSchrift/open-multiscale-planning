@@ -238,7 +238,9 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
   // Does it fit reads the week on its own, so it can draw after the step has, as a line above it that moves the step down.
   // Once it's in, a box measured on the step stays put.
   await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
-  const placed = (n: number) => (phone ? page.getByRole('button', { name: `All picked tasks, ${n} of 4 placed` }) : page.getByText(`${n} of 4 placed`));
+  // Morning stretch's two sessions are at their set times, so they're counted apart: n of the 4 rows placed is 4 - n to place.
+  const progress = (n: number) => `${n === 4 ? 'Nothing left' : 4 - n} to place · 2 at their set times`;
+  const placed = (n: number) => (phone ? page.getByRole('button', { name: `All picked tasks, ${progress(n)}` }) : page.getByText(progress(n)));
   await expect(placed(1)).toBeVisible();
 
   // The first task by hand: on Tuesday, then a quarter hour later by key on phone; a day and an hour later by mouse on

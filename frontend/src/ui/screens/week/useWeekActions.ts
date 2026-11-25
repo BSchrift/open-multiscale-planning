@@ -15,6 +15,7 @@ import { DAY_NAMES } from '../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../components/editors/PracticeSchedule';
 import { useToast } from '../../components/Toast';
 import { dayName } from '../../components/blocks/describe';
+import { resetWeek } from '../../../core/weekReset';
 import type { Placeable } from './data';
 
 /** A placed block as both layouts hold it. */
@@ -30,15 +31,15 @@ export function useWeekActions() {
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const zone = clock.zone();
 
-  /** `undone` runs as Undo is pressed, before Undo saves. */
-  const withUndo = async (fn: (w: Writer) => Promise<PlanChange>, message: string, focusUndo = false, undone?: () => void) => {
+  /** `undone` runs as Undo is pressed, before Undo saves. A message can be worked out from what was changed. */
+  const withUndo = async (fn: (w: Writer) => Promise<PlanChange>, message: string | ((reverse: PlanChange) => string), focusUndo = false, undone?: () => void) => {
     const reverse = await run(fn);
     if (reverse) {
       const undo = () => {
         undone?.();
         return run((w) => applyPlanChange(w, reverse));
       };
-      toast.show(message, { undo, focusUndo });
+      toast.show(typeof message === 'string' ? message : message(reverse), { undo, focusUndo });
     }
     return reverse;
   };
@@ -87,5 +88,7 @@ export function useWeekActions() {
       withUndo((w) => skipSession(w, week, item.practice!.id, item.dates!.from, true, clock), `Skipped ${item.title} on ${DAY_NAMES[weekday(item.dates!.from)]} this week.`),
     markDone: (task: Task) => withUndo((w) => (task.kind === 'one_off' ? tickOneOff(w, task.id, clock) : closeTask(w, task.id, 'done', clock)), `${task.title} done`),
     keepPractice: (blockId: string, choice: KeepChoice) => withUndo((w) => keepPracticeChange(w, blockId, choice.keep, clock), choice.done),
+    /** Resets a week's plan, with one Undo. The button that did it goes, so focus moves to Undo. */
+    reset: (week: LocalDate, message: (reverse: PlanChange) => string, undone?: () => void) => withUndo((w) => resetWeek(w, week, clock), message, true, undone),
   };
 }

@@ -15,6 +15,7 @@ import { DAY_NAMES } from '../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../components/editors/PracticeSchedule';
 import { useToast } from '../../components/Toast';
 import { dayName } from '../../components/blocks/describe';
+import { resetWeek } from '../../../core/weekReset';
 import type { Placeable } from './data';
 
 /** A placed block as both layouts hold it. */
@@ -94,5 +95,7 @@ export function useWeekActions() {
       const { followMessage, keepSetTime } = await import('../../../core/setTimes');
       return withUndo((w) => keepSetTime(w, blockId, choice.keep, clock), (done) => [choice.done, followMessage(done)].filter(Boolean).join(' '));
     },
+    /** Resets a week's plan, with one Undo. The button that did it goes, so focus moves to Undo. */
+    reset: (week: LocalDate, message: (reverse: PlanChange) => string, undone?: () => void) => withUndo((w) => resetWeek(w, week, clock), message, true, undone),
   };
 }

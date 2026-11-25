@@ -5,7 +5,7 @@ import WidgetKit
 /// The app's icons (Icon.tsx), drawn from the same 24-point paths: stroked at 1.75 with round caps and joins, filled only
 /// where a state needs it. Hidden from VoiceOver: the widget's label says it all.
 enum IconName {
-    case clock, today, inbox, plus, chevron, undo, live, done, notDone, partly, noAnswer, pause, play
+    case clock, today, inbox, plus, chevron, undo, live, done, notDone, partly, noAnswer, pause, play, week
 }
 
 @available(iOS 17.0, macOS 14.0, *)
@@ -88,6 +88,11 @@ struct IconShape: Shape {
         case .pause:
             line((8, 4), (8, 20))
             line((16, 4), (16, 20))
+        case .week:
+            path.addRoundedRect(in: CGRect(x: rect.minX + 4 * s, y: rect.minY + 5.5 * s, width: 16 * s, height: 14.5 * s), cornerSize: CGSize(width: 2.5 * s, height: 2.5 * s))
+            line((4, 10), (20, 10))
+            line((9.3, 10), (9.3, 20))
+            line((14.7, 10), (14.7, 20))
         case .live, .play:
             break
         }

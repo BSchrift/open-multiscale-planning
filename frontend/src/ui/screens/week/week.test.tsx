@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1005,7 +1007,7 @@ describe('Week on phone', () => {
     expect(days[0]).not.toHaveClass('tight');
     expect(days[0]!.querySelector('.wfree')).toBeEmptyDOMElement();
     // The strip draws open time gone by like closed time, never in the free colour; Thursday's is still free.
-    const freeLook = (day: Element) => [...day.querySelectorAll('.wshape .sl')].filter((c) => c.className.trim() === 'sl').length;
+    const freeLook = (day: Element) => day.querySelectorAll('.wshape .sl.free').length;
     expect(freeLook(days[0]!)).toBe(0);
     expect(freeLook(days[3]!)).toBeGreaterThan(0);
     // Today's open morning has gone by; only its evening is free.
@@ -1051,6 +1053,27 @@ describe('Week on phone', () => {
     expect(days[1]!.querySelectorAll('.sl.planned:not(.maint):not(.practice)').length).toBeGreaterThan(0);
     expect(days[2]!.querySelectorAll('.sl.planned.practice').length).toBeGreaterThan(0);
     expect(days[2]!.querySelectorAll('.sl.planned:not(.practice)')).toHaveLength(0);
+  });
+
+  it("the strip draws a day's free time as free, never in busy's colour, and the legend shows each colour it uses", async () => {
+    await phone();
+    const days = within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button');
+    // Tuesday is open 7am to 9am and 5pm to 10pm, with project work at 6pm and Quiz night until 7:30pm.
+    const tue = [...days[1]!.querySelectorAll('.wshape .sl')].map((s) => s.className.replace(/^sl /, ''));
+    expect(new Set(tue)).toEqual(new Set(['closed', 'free', 'planned', 'busy']));
+    expect(tue.filter((c) => c === 'free')).toHaveLength(11);
+    expect(tue.filter((c) => c === 'busy')).toHaveLength(1);
+    // The legend has a key for each of them, in the colour the strip draws it.
+    const keys = [...document.querySelectorAll('.wksum .skey')].map((k) => k.className.replace(/^skey /, ''));
+    expect(keys).toEqual(['free', 'planned', 'busy', 'closed']);
+    expect(screen.getByText('unavailable')).toBeVisible();
+    const sheet = readFileSync(join(import.meta.dirname, '../../styles/phone.css'), 'utf8');
+    const fill = (selector: string) => sheet.match(new RegExp(`${selector.replaceAll('.', '\\.')}\\{[^}]*background:([^;}]+)`))?.[1];
+    for (const look of ['free', 'planned', 'busy', 'closed']) expect(fill(`.sl.${look}`), look).toBe(fill(`.skey.${look}`));
+    expect(fill('.sl.free')).not.toBe(fill('.sl.busy'));
+    // Free is the light track desktop's time bar draws it as.
+    expect(fill('.sl.free')).toBe('var(--wash)');
+    expect(fill('.sl.closed')).toBe('transparent');
   });
 
   it('a block in progress still opens, and only a finished one reads as ended', async () => {

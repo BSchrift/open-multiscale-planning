@@ -1,26 +1,29 @@
 // Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
-// shared time axis above one day's timeline. Tapping a block opens its popup, its task's, practice's or planning's, with
+// shared time axis above one day's timeline, which a swipe moves to the day before or after, on into the weeks either
+// side, keeping the time of day (DayPager). Tapping a block opens its popup, its task's, practice's or planning's, with
 // the block's section at its top, its length among it. Holding a block still to come lifts it, to be let
 // go on another row of the day at the time under the finger. Move, or Choose another time for a
 // task or for planning, makes the block draggable on the day, the strip carries it to another day, and planning's
 // week arrows to another week. To schedule sits above the
 // day: a card opens its suggested times, and while editing, cards drag onto the day and blocks drag back up to it.
 
-import { useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
-import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement } from 'react';
+import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today, weekStart } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
 import { SLIDER_STEP } from '../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
-import { useApp } from '../../app/store';
+import { useApp, useQuery } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { PlanningSet } from '../../components/planning/PlanningRow';
 import { PlanningTimes } from '../../components/planning/PlanningTimes';
 import { planningWeekOf } from '../../../core/planning';
 import { usePlanningActions } from '../../components/planning/usePlanning';
+import { DayPager } from '../../components/week/DayPager';
+import type { KeptTime } from '../../components/week/DayPager';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { fitZoom, usePinchZoom } from '../../components/week/pinch';
 import { Sheet } from '../../components/Sheet';
@@ -36,7 +39,7 @@ import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/week
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
 import { DraftCapture } from '../capture/DraftCapture';
-import { landOn, rowItem } from './data';
+import { landOn, loadWeek, rowItem, weekModel } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
@@ -74,7 +77,16 @@ export function PhoneWeek(props: WeekProps) {
   const now = clock.now();
   const day0 = today(clock);
   const nowMin = localMinutes(now, clock.zone());
-  const [selDay, setSelDay] = useState<LocalDate>(isThis ? day0 : data.week);
+  // A swipe past the week's end opens the week beside it on the day it reached, with the time of day it kept.
+  const [arrived] = useState(() => (props.openDay && weekStart(props.openDay.date) === data.week ? props.openDay : null));
+  const arrivedTime = useRef(arrived?.time ?? null);
+  useEffect(() => void (arrivedTime.current = null), []);
+  const [selDay, setSelDay] = useState<LocalDate>(arrived?.date ?? (isThis ? day0 : data.week));
+  // The day nearest the middle while the day is swiped, which the strip follows. The heading waits for the day to
+  // change, since it's above the day and a heading that changed height mid-swipe would move the day.
+  const [near, setNear] = useState<LocalDate | null>(null);
+  // While a hold's draft waits on the day for Capture, swiping to another day would take it away.
+  const [drafting, setDrafting] = useState(false);
   const [open, setOpen] = useState<Open>(null);
   const [placing, setPlacing] = useState<Placing | null>(null);
   const [at, setAt] = useState<Slot | null>(null);
@@ -84,7 +96,6 @@ export function PhoneWeek(props: WeekProps) {
   const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   // A task's block made shorter asks what about the rest, until answered or another block is opened.
   const [split, setSplit] = useState<Shortened | null>(null);
-  const swipe = useRef<{ x: number; y: number } | null>(null);
   // Pinching the day draws its hours taller or shorter, kept on this device. At its smallest the whole day fits between
   // the week's sticky top and whatever covers the bottom of the screen.
   const dayCard = useRef<HTMLDivElement>(null);
@@ -140,6 +151,7 @@ export function PhoneWeek(props: WeekProps) {
 
   const pickDay = (date: LocalDate) => {
     setSelDay(date);
+    setNear(null);
     if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
@@ -253,18 +265,17 @@ export function PhoneWeek(props: WeekProps) {
   const dayTitle = dayName(selDay);
   const showDrag = !!placing || editing;
 
-  // One finger swiped sideways changes the day; a second finger makes it a pinch instead.
-  const onTouchStart = (e: TouchEvent) => {
-    swipe.current = e.touches.length === 1 ? { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY } : null;
-  };
-  const onTouchEnd = (e: TouchEvent) => {
-    const from = swipe.current;
-    if (!from) return;
-    const dx = e.changedTouches[0]!.clientX - from.x;
-    const dy = e.changedTouches[0]!.clientY - from.y;
-    if (Math.abs(dx) >= 48 && Math.abs(dx) > 2 * Math.abs(dy)) {
-      setSelDay(addDays(data.week, Math.max(0, Math.min(6, dayIndex + (dx < 0 ? 1 : -1)))));
-    }
+  // The week beside this one, on its first or last day or once a swipe has gone past them, so a swipe past the end draws
+  // the day there and carries on into that week.
+  const besideWeek = showDrag ? null : weekStart(selDay) !== data.week ? weekStart(selDay) : dayIndex === 0 ? addDays(data.week, -7) : dayIndex === 6 ? addDays(data.week, 7) : null;
+  const besideData = useQuery((sql, c) => (besideWeek ? loadWeek(sql, c, besideWeek) : Promise.resolve(null)), [besideWeek]).data;
+  const beside = useMemo(() => (besideData && besideData.week === besideWeek ? weekModel(besideData, clock) : null), [besideData, besideWeek, clock]);
+  const modelOn = (date: LocalDate) => (weekStart(date) === data.week ? model : weekStart(date) === besideWeek ? beside : null);
+  /** Swiped to the day before or after. Past the week's ends, it goes on into the week beside, as the week arrows do. */
+  const swipeTo = (date: LocalDate, time: KeptTime | null) => {
+    setSelDay(date);
+    setNear(null);
+    if (weekStart(date) !== data.week) props.goWeek(weekStart(date), undefined, { date, time });
   };
 
   const capLine = `${formatMinutes(model.planned.project)} projects, ${formatMinutes(model.planned.practice)} practices, ${formatMinutes(model.planned.one_off)} one offs`;
@@ -332,7 +343,7 @@ export function PhoneWeek(props: WeekProps) {
           <DayStrip
             week={data.week}
             label="Choose a day"
-            selected={selDay}
+            selected={near ?? selDay}
             ctx={ctx}
             placed={ctx.placed}
             draft={placing ? at : null}
@@ -421,7 +432,7 @@ export function PhoneWeek(props: WeekProps) {
           </div>
         </div>
       ) : (
-        <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <div>
           {props.finished[selDay] !== undefined ? (
             // Today or a day gone by: what was finished, which opens Done on that day.
             <div className="between dnday">
@@ -433,9 +444,34 @@ export function PhoneWeek(props: WeekProps) {
           ) : (
             <h3 className="wkday">{dayTitle}</h3>
           )}
-          <div ref={dayCard} className="card wkdaycard" {...pinch}>
-            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={holdMove} />
-          </div>
+          {/* Swiped sideways, the day follows the finger to the day before or after, the week's ends included. */}
+          <DayPager
+            ref={dayCard}
+            className="card wkdaycard"
+            {...pinch}
+            day={selDay}
+            enabled={!drafting}
+            onDay={swipeTo}
+            onNear={(date) => setNear(date === selDay ? null : date)}
+            top={() => root.current?.querySelector('.weektop')?.getBoundingClientRect().bottom ?? 0}
+            time={arrivedTime.current}
+            render={(date, current) => {
+              const m = modelOn(date);
+              // The week beside still loading draws an empty day until it's read.
+              if (!m) return null;
+              return (
+                <DayRows
+                  date={date}
+                  model={m}
+                  cell={CELL_PX * zoom}
+                  readOnly={offset < 0 || m !== model}
+                  onOpen={openBlock}
+                  onMove={holdMove}
+                  {...(current ? { onDrafting: setDrafting } : {})}
+                />
+              );
+            }}
+          />
           {isThis && (
             <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
               See this week's analytics
@@ -619,8 +655,10 @@ function DayRows(props: {
   onOpen(id: string): void;
   /** Resolves to whether it moved. `undone` runs as its Undo is pressed. */
   onMove(block: PlacedBlock, slot: Slot, undone: () => void): Promise<boolean>;
+  /** Whether a hold's draft is on the day, from the hold until Capture saves or cancels it. */
+  onDrafting?(drafting: boolean): void;
 }) {
-  const { date, model, cell } = props;
+  const { date, model, cell, onDrafting } = props;
   const { clock, layout, platform } = useApp();
   // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
   const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
@@ -637,6 +675,11 @@ function DayRows(props: {
     earliest,
   });
   const held = holdNew.draft?.slot;
+  const drafting = !!holdNew.draft;
+  useEffect(() => {
+    onDrafting?.(drafting);
+    return () => onDrafting?.(false);
+  }, [onDrafting, drafting]);
   const draftBlock: PlacedBlock | null = held ? { ...held, id: HELD, title: holdNew.draft!.name.trim() || 'New task', kind: 'project', draft: true, task_id: null, practice_id: null, past: false, ended: false, result: null } : null;
   const saved = model.blocks.filter((b) => b.date === date);
   // A block let go on another row is drawn at its new time while it saves.
@@ -661,8 +704,6 @@ function DayRows(props: {
       </div>,
     );
 
-  // A block lifted by this touch's hold: letting it go after a sideways drag isn't a swipe to the next day.
-  const lifted = useRef(false);
   // Held, a block still to come lifts and drags as a card does, onto whichever row it's let go over, at the time under
   // the finger there. Its own time is free while it moves. The press stays with the block, so the row under it never
   // takes it for a hold on empty time.
@@ -670,7 +711,6 @@ function DayRows(props: {
     e.stopPropagation();
     dragCard(e, { length: block.end - block.start, offers: [] }, { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== block.id) }, {
       preview: () => undefined,
-      lift: () => (lifted.current = true),
       drop: (slot) => {
         const put = { id: block.id, slot };
         setLanded(put);
@@ -792,8 +832,7 @@ function DayRows(props: {
     m = n;
   }
   return (
-    // A finger moving the draft, or a held block, sideways isn't a swipe to the next day.
-    <div className="tlrows" onTouchStart={() => (lifted.current = false)} onTouchEnd={(e) => (holdNew.draft || lifted.current) && e.stopPropagation()}>
+    <div className="tlrows">
       {rows}
       <HoldRing ring={holdNew.ring} />
       {holdNew.draft?.open && (

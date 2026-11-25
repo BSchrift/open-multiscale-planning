@@ -898,6 +898,24 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on Week, o
   });
 });
 
+/**
+ * One finger swiped sideways across the phone's day from `el`, by `dx`, as pointer events. jsdom has no layout, so the
+ * day is given a width, and reduced motion settles the swipe at once rather than by a spring.
+ */
+function swipeDay(el: Element, dx: number, y = 10) {
+  const card = el.closest<HTMLElement>('.wkdaycard')!;
+  Object.defineProperty(card, 'clientWidth', { value: 300, configurable: true });
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+  try {
+    const at = (i: number) => ({ clientX: 200 + (dx * i) / 10, clientY: y, pointerType: 'touch', pointerId: 7 });
+    fireEvent.pointerDown(el, { ...at(0), button: 0 });
+    for (let i = 1; i <= 10; i++) fireEvent.pointerMove(window, at(i));
+    fireEvent.pointerUp(window, at(10));
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
 describe('Week on phone', () => {
   const phone = (options: Parameters<typeof open>[0] = {}) => open({ layout: 'phone', ...options });
 
@@ -1255,11 +1273,10 @@ describe('Week on phone', () => {
     Object.defineProperty(document, 'elementFromPoint', { value: () => free, configurable: true });
     try {
       // 150px left and 50px down: far more sideways than down, as a swipe to the next day would be.
-      fireEvent.touchStart(el, { touches: [{ clientX: 200, clientY: 10 }] });
       holdDown(el, { clientX: 200, clientY: 10, pointerType: 'touch' });
+      fireEvent.pointerMove(window, { clientX: 150, clientY: 27, pointerType: 'touch' });
       fireEvent.pointerMove(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
       fireEvent.pointerUp(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
-      fireEvent.touchEnd(el, { changedTouches: [{ clientX: 50, clientY: 60 }] });
     } finally {
       Reflect.deleteProperty(document, 'elementFromPoint');
     }
@@ -1267,9 +1284,7 @@ describe('Week on phone', () => {
     expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();
 
     // The same sideways move without a hold is still a swipe to the next day.
-    const moved = await screen.findByRole('button', { name: /^Paint the fence, 7pm to 8pm/ });
-    fireEvent.touchStart(moved, { touches: [{ clientX: 200, clientY: 10 }] });
-    fireEvent.touchEnd(moved, { changedTouches: [{ clientX: 50, clientY: 60 }] });
+    swipeDay(await screen.findByRole('button', { name: /^Paint the fence, 7pm to 8pm/ }), -200);
     expect(await screen.findByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
   });
 
@@ -1825,11 +1840,12 @@ describe('hold to create on Week', () => {
       expect(t.platform.haptics).toEqual(['light']);
 
       const free = rowFrom(18 * 60);
-      fireEvent.touchStart(free, { touches: [{ clientX: 20, clientY: 50 }] });
+      Object.defineProperty(free.closest('.wkdaycard'), 'clientWidth', { value: 300, configurable: true });
       press(free, 50, 'phone');
       await pass(450);
       expect(draft()).not.toBeNull();
-      fireEvent.touchEnd(free, { changedTouches: [{ clientX: 220, clientY: 60 }] });
+      // Dragged sideways after the hold, the draft moves with the finger and the day stays.
+      for (const x of [40, 120, 220]) fireEvent.pointerMove(window, { clientX: x, clientY: 60, pointerType: 'touch', pointerId: 1 });
       letGo(60, 'phone', 220);
       await screen.findByRole('dialog', { name: 'Capture' });
       expect(screen.getByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();

@@ -3,7 +3,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
 import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
-import { holdMouse, openSeeded, pane, planPrompt, readRecord, startPlanningOnToday, startPlanningThenUndo } from './seed';
+import { holdMouse, openSeeded, pane, planPrompt, readRecord, settled, startPlanningOnToday, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 import { askOnBlock, showNow } from './today';
 
@@ -56,7 +56,8 @@ test('every main screen opens offline for the first time, once the app has loade
   // The app loads each screen's code by itself once it has opened, then whatever that code imports. Soft, so a screen
   // that never loaded still goes on to show what opening it offline does.
   await expect.soft.poll(() => SCREEN_URLS.filter((url) => !requested.has(url)), { timeout: 15_000 }).toEqual([]);
-  await page.waitForLoadState('networkidle');
+  // Then until that loading has finished with all it imports: a page once quiet doesn't wait for quiet again.
+  await settled(page);
 
   const offline = await goOffline(page, context);
   for (const name of ['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']) {

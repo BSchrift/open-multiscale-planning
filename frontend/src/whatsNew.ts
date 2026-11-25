@@ -12,6 +12,8 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
   { id: 12, text: "See what's now and next on your Lock Screen, and the rest of your day in a Today widget." },
   { id: 11, text: "Add the This week widget to your Home Screen to see your week's plan at a glance." },
   { id: 10, text: "Reset this week's or next week's plan from Week to plan it again from the start." },
+  { id: 9, text: 'A one off on one date can now have a time of day, and it lands on your calendar then.' },
+  { id: 8, text: "A practice's sessions now land on your calendar at its set times when those times are free." },
   { id: 7, text: "A practice's session and a planning block now open one popup, wherever you tap them." },
   { id: 6, text: "Add widgets to your Home Screen to see what's now and next, and to capture a task in a tap." },
   { id: 5, text: 'Every task opens one popup where you can mark it done, set dates, schedule it or start it.' },

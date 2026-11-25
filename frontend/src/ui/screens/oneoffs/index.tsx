@@ -5,12 +5,16 @@
 import { useId, useState } from 'react';
 import { isRepeating } from '../../../core/schedule';
 import type { OneOffRow as Row } from '../../../core/schedule';
-import type { Fields } from '../../../core/types';
+import { applyPlanChange } from '../../../core/plan';
+import type { PlanChange } from '../../../core/plan';
+import { placedMessage, placeSetTimes } from '../../../core/setTimes';
+import type { Fields, Task } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useShowCompleted } from '../../app/showCompleted';
-import { useMutation, useQuery, useToday } from '../../app/store';
+import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { OneOffForm, OneOffRow, useOneOffTick } from '../../components/oneoff';
 import { Sheet } from '../../components/Sheet';
+import { useToast } from '../../components/Toast';
 import { ShowCompleted } from '../../components/ShowCompleted';
 import { FinishedTasks } from './FinishedTasks';
 import { oneOffList } from './rows';
@@ -22,13 +26,22 @@ export default function OneOffsScreen({ layout }: ScreenProps) {
   const rows = useQuery((sql, clock) => oneOffList(sql, clock), [day]).data ?? [];
   const ticks = useOneOffTick();
   const showCompleted = useShowCompleted();
-  const create = useMutation((w, fields: Fields<'task'>) => w.create('task', fields));
+  const { clock } = useApp();
+  const toast = useToast();
+  // A one off at a time of day lands then as it's added, which its toast says, with Undo.
+  const create = useMutation(async (w, fields: Fields<'task'>) => {
+    const id = await w.create('task', fields);
+    return placeSetTimes(w, clock, { ...fields, id } as Task);
+  });
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const [adding, setAdding] = useState(false);
   const repeatingId = useId();
   const phone = layout === 'phone';
 
   const save = async (fields: Fields<'task'>) => {
-    if ((await create.run(fields)) === undefined) return false;
+    const done = await create.run(fields);
+    if (done === undefined) return false;
+    if (done.placed.length) toast.show(placedMessage(done.placed, clock), { undo: () => undo.run(done) });
     setAdding(false);
     return true;
   };

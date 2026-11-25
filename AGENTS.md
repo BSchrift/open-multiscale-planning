@@ -124,9 +124,12 @@ Then wait for CI. A PR merges only with every check green.
 
 ## The product's rules
 
-- **Nothing happens to someone's plan without them.** Time is placed, and tasks are finished, only by an explicit action.
-  Suggestions are shown, never saved. Planning tasks are the one record the app makes without a tap: they place no time,
-  and they can be skipped or undone.
+- **Nothing happens to someone's plan without them.** Time is placed by an explicit action, or at a time the person set:
+  a practice's session, or a one off with a time, lands at its set time on its day when that time is free, and otherwise
+  waits to be placed. Time is moved or taken off, and tasks are finished, only by an explicit action. Suggestions are shown, never
+  saved. The app makes two kinds of record without a tap: planning tasks, which place no time, and sessions at their set
+  times. Each is made once under a fixed id, so two devices make one; each can be skipped or undone; and one that was
+  deleted or taken off is never made again.
 - **Every change can be undone,** usually from the toast that reports it.
 - **Copy is plain and specific,** in sentence case, and says what happened.
 - **Accessibility is part of done:**

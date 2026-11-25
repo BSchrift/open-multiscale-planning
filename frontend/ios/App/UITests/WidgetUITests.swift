@@ -73,7 +73,11 @@ final class WidgetUITests: XCTestCase {
     /// since it starts only from a tap on the tab.
     func testEachWidgetLinkOpensItsScreen() {
         let app = launchApp(seed: "Seed plan")
-        for (link, screen) in [("week", "week"), ("inbox", "inbox"), ("today", "today"), ("plan", "planning"), ("capture", "capture")] {
+        // The second is a row of the large Today widget, which opens Today at its block, query and all. Bringing the block
+        // into view is widgets.test.tsx's.
+        let links = [("week", "week"), ("today?block=row-from-a-widget", "today"), ("inbox", "inbox"), ("today", "today"),
+                     ("plan", "planning"), ("capture", "capture")]
+        for (link, screen) in links {
             let name = measured + "screen." + screen
             Heard.listen(name)
             let before = Heard.count(name)

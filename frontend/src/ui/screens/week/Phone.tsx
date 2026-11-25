@@ -327,7 +327,7 @@ export function PhoneWeek(props: WeekProps) {
         <div className="card stack8 wksum">
           <div className="small wkkeys">
             <span className="keyitem">
-              <span className="skey" />
+              <span className="skey free" />
               <span className="strong">{formatMinutes(weekFree(data.week, ctx))} free</span>
               <span className="quiet"> of {formatMinutes(model.open)} available</span>
             </span>
@@ -338,6 +338,10 @@ export function PhoneWeek(props: WeekProps) {
             <span className="keyitem">
               <span className="skey busy" />
               <span>busy</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey closed" />
+              <span>unavailable</span>
             </span>
           </div>
           <div className="small quiet">{capLine}</div>

@@ -636,17 +636,21 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 <span className="quiet"> of {formatMinutes(model.open)} available, </span>
                 {formatMinutes(planned)} planned
               </div>
-              <div className="small" aria-hidden="true">
-                <span className="skey" />
-                free
-                <span className="skey planned" />
-                planned
-                <span className="skey busy" />
-                busy
-                <span className="skey draft" />
-                this task
-                <span className="skey sug" />
-                suggested
+              {/* Each key keeps its words together when the legend wraps. */}
+              <div className="small wkkeys" aria-hidden="true">
+                {[
+                  ['free', 'free'],
+                  ['planned', 'planned'],
+                  ['busy', 'busy'],
+                  ['closed', 'unavailable'],
+                  ['draft', 'this task'],
+                  ['sug', 'suggested'],
+                ].map(([look, words]) => (
+                  <span key={look} className="keyitem">
+                    <span className={`skey ${look}`} />
+                    {words}
+                  </span>
+                ))}
               </div>
               <DayStrip
                 week={week}

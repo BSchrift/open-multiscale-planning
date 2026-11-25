@@ -1047,6 +1047,7 @@ describe('Google Calendar', () => {
       signIn: vi.fn(async () => undefined),
       signOut: vi.fn(async () => undefined),
       syncNow: vi.fn(async () => undefined),
+      settled: vi.fn(async () => undefined),
       connectCalendar: vi.fn(async () => undefined),
       refreshCalendar: vi.fn(async () => undefined),
       disconnectCalendar: vi.fn(async () => undefined),
@@ -2872,7 +2873,7 @@ describe("a block's quick menu", () => {
     expect(await menuOf(/^Call the bank, 1:45pm to 2:30pm/)).toEqual(['Done', 'Start', 'Move to', 'Open', '-', 'Remove from calendar', 'Delete task…']);
     expect(await menuOf(/^Plan the talk, 11am to 12pm/)).toEqual(['Done', 'Partly…', 'Not done', '-', 'Open', 'Delete task…']);
     expect(await menuOf(/^Email Sam, 9am to 9:30am/)).toEqual(['Open', '-', 'Delete task…']);
-    expect(await menuOf(/^Piano practice, 6pm to 6:30pm/)).toEqual(['Did it', 'Start now', 'Move to', 'Open', '-', 'Skip this session']);
+    expect(await menuOf(/^Piano practice, 6pm to 6:30pm/)).toEqual(['Did it', 'Start now', 'Move to', 'Open', '-', 'Take off calendar']);
     expect(await menuOf(/^Piano practice, 12pm to 12:30pm/)).toEqual(['Did it', 'Some…', 'Skipped', '-', 'Open']);
     // Another calendar's event has no menu: the browser's own stays.
     const event = within(screen.getByRole('region', { name: "Today's timeline" })).getByText('Quiz night');
@@ -2908,6 +2909,23 @@ describe("a block's quick menu", () => {
     expect(el).toHaveFocus();
     fireEvent.keyDown(el, { key: 'ContextMenu' });
     expect(await screen.findByRole('menu', { name: 'Write the report' })).toBeVisible();
+  });
+
+  it("Take off calendar puts a practice's session in To schedule, saying where it was, with Undo", async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', preferred_times: [18 * 60], state: 'active' }, 'pr');
+      await w.create('time_block', { practice_id: 'pr', start: at('18:00'), end: at('18:30'), tz: ZONE }, 'session:pr:2026-11-02');
+    });
+    rightClick(await screen.findByRole('button', { name: /^Piano practice, 6pm to 6:30pm/ }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Take off calendar' }));
+    expect(await screen.findByText("Took Piano practice off Mon 6pm. It's in To schedule.")).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'session:pr:2026-11-02')).toMatchObject({ cancelled: true });
+    // It waits in To schedule, with its set time first.
+    const lane = await screen.findByRole('region', { name: 'To schedule' });
+    expect(within(lane).getByText('30m · usually 6pm')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-02'))?.cancelled).toBeNull());
   });
 
   it('Move to moves it to the next free time or tomorrow, each with Undo, and Choose a time opens Week to place it', async () => {

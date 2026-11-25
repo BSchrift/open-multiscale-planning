@@ -13,6 +13,7 @@ import type { Route } from './nav';
 import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useKeyboardInset } from './keyboard';
 import { useReminders } from './reminders';
+import { useSetTimes } from './setTimes';
 import { useShareImport } from './shareImport';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
@@ -330,6 +331,7 @@ function Frame() {
   useShareImport();
   useKeyboardInset();
   useUpdatedToast();
+  useSetTimes();
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 

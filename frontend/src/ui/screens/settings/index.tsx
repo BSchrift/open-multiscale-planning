@@ -4,7 +4,9 @@ import { availableHours } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
 import { addWeeks, formatDate, formatMinutes, formatTime, localDate, nowInstant, thisWeek, today } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { cadenceLabel } from '../../../core/plan';
+import { applyPlanChange, cadenceLabel } from '../../../core/plan';
+import type { PlanChange } from '../../../core/plan';
+import { addAwayDates, awayMessage } from '../../../core/setTimes';
 import { CALENDAR_ID, getRecord, getSettings, listRecords, updateSettings } from '../../../core/records';
 import { PAUSE_REMINDER_MIN } from '../../../core/reminders';
 import { slotContext } from '../../../core/slots';
@@ -300,7 +302,9 @@ function Away(props: { layout: Layout }) {
     async (sql) => (await listRecords(sql, 'away_period')).filter((a) => a.end >= day).sort((a, b) => a.start.localeCompare(b.start)),
     [day],
   );
-  const add = useMutation((w, start: string, end: string) => w.create('away_period', { start, end }));
+  // Practice sessions on the new dates come off, as nothing is placed or asks on a day away.
+  const add = useMutation((w, start: string, end: string) => addAwayDates(w, start, end, clock));
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const setAway = useMutation((w, id: string, fields: Fields<'away_period'>) => w.set('away_period', id, fields));
   const phone = props.layout === 'phone';
   const remove = async (id: string, text: string) => {
@@ -313,9 +317,11 @@ function Away(props: { layout: Layout }) {
       toast.show('Choose a start and an end date');
       return;
     }
-    if ((await add.run(from, to)) !== undefined) {
+    const added = await add.run(from, to);
+    if (added) {
       setFrom('');
       setTo('');
+      toast.show(awayMessage(from, to, added.off), { undo: () => undo.run(added) });
     }
   };
   return (
@@ -346,7 +352,7 @@ function Away(props: { layout: Layout }) {
           </div>
         );
       })}
-      <p className="small quiet">Reminders are muted, and pace and reliability exclude these dates.</p>
+      <p className="small quiet">Reminders are muted, practices aren't placed, and pace and reliability exclude these dates.</p>
     </Section>
   );
 }

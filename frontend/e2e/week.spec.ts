@@ -612,14 +612,20 @@ test("phone: a card held in Today's sheet of what's waiting, then dragged down o
   expect(errors).toEqual([]);
 });
 
-test("a set-day practice waits above its own days: Friday's 9:30 places it, Undo takes it back, and a new time can be kept for Tuesdays", async ({ page }, info) => {
+test("a set-day practice taken off its set times waits above its own days: Friday's 9:30 places it, Undo takes it back, and a new time can be kept for Tuesdays", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const run: Seed = {
     type: 'practice',
     id: 'run',
     fields: { title: 'Morning run', target_min: 30, per: 'day', days: [0, 1, 4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' },
   };
-  const errors = await openWeek(page, [...records.filter((r) => r.id !== 'pr' && r.id !== 'b2'), run]);
+  // Taken off their set times, Tuesday's and Friday's wait above their days, as the app would otherwise place them there.
+  const off = (day: number, start: string, end: string): Seed => ({
+    type: 'time_block',
+    id: `session:run:2026-11-0${day}`,
+    fields: { practice_id: 'run', start: at(day, start), end: at(day, end), tz: 'America/Chicago', cancelled: true },
+  });
+  const errors = await openWeek(page, [...records.filter((r) => r.id !== 'pr' && r.id !== 'b2'), run, off(3, '07:00', '07:30'), off(6, '09:30', '10:00')]);
   const friday = 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule';
   // On phone, Friday on the strip, whose sheet of what's waiting holds Friday's session.
   if (phone) await strip(page).getByRole('button', { name: /^Fri Nov 6/ }).tap();

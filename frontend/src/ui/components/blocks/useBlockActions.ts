@@ -17,7 +17,7 @@ import {
   unscheduleBlock,
 } from '../../../core/blocks';
 import type { BlockAnswer, BlockAnswerFor } from '../../../core/blocks';
-import { formatMinutes, formatTime, instantMs, localDate, weekStart } from '../../../core/dates';
+import { formatMinutes, formatTime, formatWeekday, instantMs, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
@@ -172,11 +172,16 @@ export function useBlockActions(say?: Say) {
         },
       });
     },
-    /** Skip, choose a new time later: off the calendar and into To schedule, still in its week. */
+    /**
+     * Take off calendar, choose a new time later: off the calendar and into To schedule, still in its week. A practice's
+     * session says where it was, as it waits for that day only.
+     */
     skip: (block: BlockRow) =>
       withUndo(
         (w) => unscheduleBlock(w, block.id, weekStart(localDate(block.start, clock.zone())), clock),
-        `Took ${block.title ?? 'it'} off the calendar. It's in ${where}.`,
+        block.practice_id
+          ? `Took ${block.title ?? 'it'} off ${formatWeekday(localDate(block.start, clock.zone()))} ${formatTime(block.start, clock.zone())}. It's in To schedule.`
+          : `Took ${block.title ?? 'it'} off the calendar. It's in ${where}.`,
         true,
       ),
     start: (block: BlockRow) => begin(block, false, false),

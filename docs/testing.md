@@ -35,7 +35,10 @@ five-year account, about 33,000 records: on CI in e2e-stack (`frontend/e2e/stack
 user of its own, with the page's CPU six times slower once synced, so Week's read-back passes the toast's 5 seconds as
 prod's did; and on every staging run as `integration.historyUser`, in the web app suite's `history` project, seeded
 first, with the long first sync, a reload during one, OPFS, planning and the console, reported only for now. That page
-never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them.
+never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them. Each
+change has every open screen read again, and once Save and exit's writes waited behind those reads for over 15 seconds
+on prod's desktop; writes now go ahead of reads still waiting, which core.test.ts checks, and the browser suite's stretch
+spec times Save and exit on the five-year account with Inbox and Week open.
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
@@ -122,7 +125,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Inbox step | covered (plan: "Goals asks for some… with Process over an inert flow", "an empty Inbox says so…") | covered (same) | covered (journeys/next-stretch) | missing |
 | Finish: fit, aims, steps not looked at, Undo | covered (plan: "plans the next stretch…"; stretch: "the step arrows move between steps, and Finish names the steps not looked at…", "planned without a cadence… its toast's Undo takes the plan back", "Finish and plan the week…") | covered (same) | covered (journeys/next-stretch) | missing |
 | Cadence changed in place, now or when this plan ends, or turned off | covered (plan: "…changes cadence in place…"; stretch: "a new cadence can end this plan now…", "turning the schedule off…") | covered (same) | missing | missing |
-| Save and exit, then resume | covered (plan: "…resumes planning where it was, with Undo still there"; stretch: "a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later"; stack/stretch: across devices) | covered (plan, stretch) | covered (journeys/planning-task) | missing |
+| Save and exit, then resume | covered (plan: "…resumes planning where it was, with Undo still there"; stretch: "a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later", "on a five-year history, with Inbox and Week open behind it, Save and exit leaves planning at once"; stack/stretch: across devices) | covered (plan, stretch) | covered (journeys/planning-task) | missing |
 | Edit goals (the UI has Open project in Goals, which saves planning) | covered (plan: "a goal's projects are blocks… the project itself after saving planning") | covered (same) | missing | missing |
 | Never planned: this stretch from today | covered (plan: "never planned, plans this stretch from today…") | covered (same) | covered (journeys/next-stretch) | missing |
 
@@ -214,6 +217,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Set times: two devices placing the same sessions offline make one each day, and a take-off on one wins | covered (stack/set-times: "two devices placing the same practice offline…"; unit: core/setTimes.test.ts) | n/a | missing | missing |
 | Set times: the bundle before shows, skips and moves what the update placed, and the update leaves them | covered (compat: "the update places a practice at its set times…") | n/a | n/a | n/a |
 | Set times: an edit moves the sessions at the old time, Pause and Resume take them off and put them back, away dates take them off | covered (unit: editors/PracticeEditor.test.tsx, screens/settings/settings.test.tsx, core/setTimes.test.ts) | covered (same) | missing | missing |
+| One offs at a time of day: asked only with one date, placed as added or on opening, moved with a new time, kept by the bundle before through a date change | covered (set-times: "a one off added with a date and a time of day…"; oneoffs: "a one off at a time of day"; compat: "a one off's time of day…"; stack/set-times: "two devices placing the same one off…"; unit: core/setTimes.test.ts) | covered (same) | missing | missing |
 
 ### One offs
 

@@ -59,7 +59,7 @@ createPlatform(__APP_CONFIG__.env).then(
         : undefined;
     root.render(
       <StrictMode>
-        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, { forget: forgetScreenState, ...(updates ? { updates } : {}) })} updates={updates}>
+        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, { forget: forgetScreenState, ...(updates ? { updates } : {}) })} updates={updates} build={build}>
           <Shell />
         </AppProvider>
       </StrictMode>,

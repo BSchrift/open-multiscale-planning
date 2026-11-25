@@ -193,7 +193,7 @@ test('a held block dragged sideways moves, and a hold on empty time drafts there
   const free = page.locator('.dppane:not(.dpside) .tlfree').last();
   await free.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const fb = (await free.boundingBox())!;
-  const start = { x: fb.x + fb.width * 0.7, y: fb.y + 20 };
+  const start = { x: fb.x + fb.width * 0.7, y: fb.y + fb.height / 2 };
   await send('down', start);
   await expect(page.locator('.holddraft')).toBeVisible();
   for (let i = 1; i <= 6; i++) await send('move', { x: start.x - 30 * i, y: start.y });

@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe("what's new on the iPhone", () => {
   it('shows the lines this phone has not seen once an update brings them, dated by the update, and Got it puts them away for good', async () => {
-    // The line before the newest two, by position, as ids can skip.
+    // The line before the newest two: ids held for other changes can leave gaps between them.
     sawUpTo(WHATS_NEW[2]!.id);
     const first = await renderApp(IPHONE);
     await settle();

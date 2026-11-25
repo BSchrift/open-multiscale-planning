@@ -8,6 +8,8 @@ import { formatDate, nowInstant } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import { newId } from '../../../core/records';
+import { addPractice } from '../../components/editors';
+import type { SaidChange } from '../../components/editors';
 import type { Writer } from '../../../core/records';
 import type { Fields, Objective } from '../../../core/types';
 import { useApp } from '../../app/store';
@@ -44,7 +46,19 @@ export function useAdd(act: Act) {
     goal: (title: string) => add('objective', { title, state: 'active' }, `Added goal ${title}.`),
     project: (fields: Fields<'project'>) =>
       add('project', fields, `Added project ${fields.title}, ${formatDate(fields.start!)} to ${formatDate(fields.end!)}.`),
-    practice: (fields: Fields<'practice'>) => add('practice', fields, `Added practice ${fields.title}.`),
+    // A practice at set times is placed as it's added, under the same Undo.
+    practice: async (fields: Fields<'practice'>) => {
+      const id = newId(clock);
+      const saved = await act(
+        `add-${id}`,
+        (done) => (done as SaidChange).said,
+        async (w): Promise<SaidChange> => {
+          const { added, said } = await addPractice(w, fields, id, clock);
+          return { ...added, said: `Added practice ${fields.title}.${said ? ` ${said}` : ''}` };
+        },
+      );
+      return saved ? id : undefined;
+    },
   };
 }
 

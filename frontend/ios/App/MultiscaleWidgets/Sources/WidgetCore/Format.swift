@@ -35,6 +35,15 @@ public enum Format {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
+    /// "Wednesday, Nov 18", as formatDayLong, in the given zone.
+    public static func dayLong(_ date: Date, in zone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let parts = calendar.dateComponents([.weekday, .month, .day], from: date)
+        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        return "\(weekdays[(parts.weekday ?? 1) - 1]), \(months[(parts.month ?? 1) - 1]) \(parts.day ?? 1)"
+    }
+
     /// The days of a week from its Monday, "2026-11-16" to "2026-11-22", as weekDates.
     public static func weekDays(from start: String) -> [String] {
         let utc = TimeZone(identifier: "UTC")!

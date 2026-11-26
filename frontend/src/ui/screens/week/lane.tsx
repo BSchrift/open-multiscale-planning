@@ -40,7 +40,8 @@ export function laneWords(item: LaneItem): string {
   if (s) return `${sayMinutes(item.length)} on ${DAY_NAMES[s.day]}${s.time === null ? '' : ` around ${sayTime(s.time)}`}`;
   if (item.practice) return item.line.replace(' · ', ', ');
   const when = datesText(item.dates);
-  return `${item.line}${when ? `, ${when}` : ''}`;
+  const why = item.why ? `, ${sayTime(item.why.time)} ${item.why.why}` : '';
+  return `${item.line}${when ? `, ${when}` : ''}${why}`;
 }
 
 export function LaneCard(props: {
@@ -52,6 +53,9 @@ export function LaneCard(props: {
   onToggle(): void;
   onPreview(slot: Slot | null): void;
   onDrop(slot: Slot): void;
+  /** As it lifts to drag, and as it's put down: To schedule's sheet on Today steps aside meanwhile. */
+  onLift?(): void;
+  onPut?(): void;
 }) {
   const { item } = props;
   const { platform } = useApp();
@@ -61,7 +65,7 @@ export function LaneCard(props: {
       className={`lanecard ${KIND_CLASS[item.kind]}${props.open ? ' on' : ''}`}
       aria-expanded={props.open}
       aria-label={`${item.title}, ${KIND_WORD[item.kind]}, ${laneWords(item)}, to schedule`}
-      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic }) : undefined}
+      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic, lift: props.onLift, put: props.onPut }) : undefined}
       onClick={props.onToggle}
     >
       <span className="strong lanet">{item.title}</span>

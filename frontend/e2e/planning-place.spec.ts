@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, holdMouse, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
+import { openStrip, todayRead } from './today';
 
-// When will you plan this week, opened from Week's Choose a time: the sheet shows whole, over the tab bar and the +
-// button, and Choose another time places the planning block on the calendar, beside what's busy, by hand.
+// When will you plan this week, opened from Week's Choose a time, or on phone from Today's Plan this week: the sheet
+// shows whole, over the tab bar and the + button, and Choose another time places the planning block on the calendar,
+// beside what's busy, by hand.
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -30,18 +32,25 @@ const onTop = (target: Locator) =>
     return !!hit && e.contains(hit);
   });
 
-async function openSheet(page: Page) {
+async function openSheet(page: Page, phone: boolean) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  if (phone) {
+    // The phone has no Week: the week's planning is the footer of the strip on Today, whose sheet has Choose a time.
+    await todayRead(page, true);
+    await page.getByRole('button', { name: 'Plan this week', exact: true }).click();
+  } else await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   await page.getByRole('button', { name: 'Choose a time to plan this week' }).click();
   return { errors, sheet: page.getByRole('dialog', { name: 'When will you plan this week?' }) };
 }
 
+/** The page planning is placed on: Week, or on phone Today. */
+const week = (page: Page, phone: boolean) => pane(page, phone ? 'Today' : 'Week');
+
 test('the sheet shows whole, over the tab bar and the + button', async ({ page }, info) => {
-  const { errors, sheet } = await openSheet(page);
+  const { errors, sheet } = await openSheet(page, info.project.name === 'phone');
   await expect(sheet).toBeVisible();
   // Every control in it can be reached, none under anything else.
   for (const button of await sheet.getByRole('button').all()) {
@@ -75,7 +84,7 @@ const said = (when: string) => {
 
 test('Choose another time: the block waits on the calendar to drag beside what is busy, and Place here schedules it', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const { errors, sheet } = await openSheet(page);
+  const { errors, sheet } = await openSheet(page, phone);
   await sheet.getByRole('button', { name: 'Choose another time' }).click();
   await expect(sheet).toHaveCount(0);
   let when: string;
@@ -84,9 +93,9 @@ test('Choose another time: the block waits on the calendar to drag beside what i
     const handle = page.getByRole('slider', { name: /^Time for Plan the week of Nov 2/ });
     await expect(handle).toBeFocused();
     // Wednesday, beside Quiz night, then a quarter hour later by key.
-    await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(2).click();
+    await (await openStrip(page)).getByRole('button').nth(2).tap();
     await expect(page.getByRole('heading', { name: 'Wed Nov 4' })).toBeVisible();
-    await expect(pane(page, 'Week').getByText('Quiz night')).toBeVisible();
+    await expect(week(page, phone).getByText('Quiz night')).toBeVisible();
     await handle.focus();
     const before = (await handle.getAttribute('aria-valuetext'))!;
     await page.keyboard.press('ArrowDown');
@@ -107,14 +116,19 @@ test('Choose another time: the block waits on the calendar to drag beside what i
     await page.mouse.up();
     await expect(block).not.toHaveAttribute('aria-label', was);
     when = (await block.getAttribute('aria-label'))!;
-    await expect(pane(page, 'Week').getByText('Quiz night')).toBeVisible();
+    await expect(week(page, phone).getByText('Quiz night')).toBeVisible();
     await block.scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath('planning-place-desktop.png') });
   }
   await page.getByRole('button', { name: 'Place here' }).click();
   await expect(page.getByText(`Planning scheduled for ${said(when)}.`)).toBeVisible();
+  // On phone, Today shows Wednesday, where the block went, and its row saying when is today's. Today is pressed from
+  // the keyboard, since a press with the pointer puts the toast and its Undo away.
+  if (phone) await page.locator('.tdhead').getByRole('button', { name: 'Today' }).press('Enter');
   await expect(page.getByRole('region', { name: `Planning is set for ${said(when)}.` })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(pane(page, 'Week').getByText("This week isn't planned yet. About 30m.")).toBeVisible();
+  // Week asks again; on phone, the footer of Today's strip offers it again.
+  if (phone) await expect(week(page, phone).getByRole('button', { name: 'Plan this week', exact: true })).toBeVisible();
+  else await expect(week(page, phone).getByText("This week isn't planned yet. About 30m.")).toBeVisible();
   expect(errors).toEqual([]);
 });

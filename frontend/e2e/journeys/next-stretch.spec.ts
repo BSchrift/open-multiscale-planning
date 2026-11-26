@@ -1,5 +1,6 @@
 import { expect, test } from '../platform';
-import { startPlanningThenUndo } from '../seed';
+import { skipPlanningOnToday, startPlanningThenUndo } from '../seed';
+import { askOnBlock } from '../today';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
@@ -15,7 +16,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const goal = 'Learn to bake bread';
   const errors = await start(page, chicago('2026-12-07', '09:00')); // Monday, in the last quarter of 2026.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
 
   // The first plan is for this stretch, from today to the quarter's end.
   await tab(page, phone, 'Plan');
@@ -51,11 +52,17 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   // started, so starting late in a minute counted 29m rather than 30m.
   await tab(page, phone, 'Today');
   await jumpTo(page, chicago('2026-12-07', '10:00'));
+  // On phone, Next up is what Start something offers in the free time.
+  if (phone) await page.getByRole('button', { name: 'Start something' }).click();
   await page.getByRole('region', { name: 'Next up' }).getByRole('button', { name: 'Start Mix the starter' }).click();
   // Saved before the clock moves on, or the block would start at the later time.
-  await expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible();
+  await (phone
+    ? expect(page.locator('.cev.raised:not(.settling)')).toContainText('Mix the starter')
+    : expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible());
   await jumpTo(page, chicago('2026-12-07', '10:31'));
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Done', exact: true }).click();
+  // It asks how it went: in its prompt, and on phone on the block itself.
+  const asked = phone ? await askOnBlock(page, /^Mix the starter, /) : page.getByRole('dialog', { name: 'Block finished' });
+  await asked.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
 
   // The Saturday after Christmas: the stretch ends Dec 31, so it's time to plan Jan 1 to Mar 31.

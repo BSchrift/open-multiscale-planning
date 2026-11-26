@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
-import { openSeeded, pane, readRecord, saved } from './seed';
+import { openSeeded, pane, readRecord, saved, startPlanningOnToday } from './seed';
 import type { Seed } from './seed';
+import { openBlock, openStrip, waitingSheet } from './today';
 
 // Practices at their set times: on opening, the app places each set day at its time, this week and next once its
 // planning has appeared, and says so once with Undo. A day whose time is taken waits, saying why, on Week and in
@@ -72,12 +73,14 @@ test('Week shows them as planned, and the day whose time is taken waits above it
   const phone = info.project.name === 'phone';
   await open(page);
   await expect(page.getByText('Placed 7 practice sessions at their set times next week.')).toBeVisible();
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  // On phone, Week is Today's: its strip goes to next week, and Thursday's card waits in the footer's sheet.
+  if (!phone) await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
   await page.getByRole('button', { name: 'Next week', exact: true }).click();
-  const week = pane(page, 'Week');
+  const week = pane(page, phone ? 'Today' : 'Week');
   if (phone) {
-    await week.getByRole('button', { name: /^Thu/ }).first().click();
-    const card = week.getByRole('button', { name: 'Morning run, Practice, 30 minutes on Thursday, 7 AM is taken, to schedule' });
+    await (await openStrip(page)).getByRole('button', { name: /^Thu/ }).tap();
+    await page.getByRole('button', { name: /^\d+ to schedule/ }).tap();
+    const card = page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Thursday, 7 AM is taken, to schedule' });
     await expect(card).toBeVisible();
     await expect(card.getByText('Thu · 7am is taken')).toBeVisible();
   } else {
@@ -94,7 +97,8 @@ test("planning's Schedule step ticks the sessions at their set times, and asks f
   const phone = info.project.name === 'phone';
   await open(page);
   await expect(page.getByText('Placed 7 practice sessions at their set times next week.')).toBeVisible();
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  // On phone, Today's prompt to plan offers it.
+  await startPlanningOnToday(page);
   await expect(page.getByRole('navigation', { name: 'Planning steps' })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
@@ -130,8 +134,9 @@ test('Today shows the session at its set time, and Take off calendar puts it in 
   // The toast goes before the screen is kept.
   await expect(page.getByText(/^Placed 5 practice sessions/)).toHaveCount(0, { timeout: 15_000 });
   await shoot(page, info, 'today');
-  // Its popup, a dialog on desktop and a sheet on phone, says what taking it off does before it's chosen.
-  await block.click();
+  // Its popup, a dialog on desktop and a sheet on phone, says what taking it off does before it's chosen. On phone a
+  // first tap selects the block and a second opens it.
+  await openBlock(page, block, info.project.name === 'phone');
   const popup = page.getByRole('dialog', { name: 'Morning run' });
   await expect(popup.getByText("Taken off, it waits in To schedule for another time today. Next Tuesday it's back at 7am.")).toBeVisible();
   await expect(popup.getByRole('button', { name: 'Change its set times' })).toBeVisible();
@@ -141,10 +146,38 @@ test('Today shows the session at its set time, and Take off calendar puts it in 
   // The popup stays, with the practice's fields; Cancel puts it away.
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(popup).toHaveCount(0);
-  const card = today.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: /^Morning run, Practice, 30 minutes on Tuesday around 7 AM/ });
+  // On phone, To schedule is in the sheet behind the count in Today's strip footer.
+  const lane = info.project.name === 'phone' ? await waitingSheet(page) : today.getByRole('region', { name: 'To schedule' });
+  const card = lane.getByRole('button', { name: /^Morning run, Practice, 30 minutes on Tuesday around 7 AM/ });
   await expect(card.getByText('30m · usually 7am')).toBeVisible();
   await card.click();
   // Its set time first: in the card on desktop, in a sheet on phone.
   await expect(page.getByRole('button', { name: /^Tue 7am to 7:30am$/ })).toBeVisible();
   await shoot(page, info, 'removed');
+});
+
+test('a one off added with a date and a time of day lands then, said with Undo, and its row says when', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page);
+  await expect(page.getByText('Placed 7 practice sessions at their set times next week.')).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: phone ? 'More' : 'One offs' }).click();
+  if (phone) await page.getByRole('button', { name: /^One offs/ }).click();
+  const list = pane(page, 'One offs');
+  let form = list.getByRole('form', { name: 'Add a one off' });
+  if (phone) {
+    await list.getByRole('button', { name: 'Add one off' }).click();
+    form = page.getByRole('dialog', { name: 'Add a one off' });
+  }
+  await form.getByLabel('Title').fill('Renew passport');
+  await form.getByLabel('Date (optional)').fill('2026-12-02');
+  await form.getByLabel('At a time of day (optional)').fill('09:00');
+  await shoot(page, info, 'oneoff-form');
+  await form.getByRole('button', { name: 'Add one off' }).click();
+  await expect(page.getByText('Placed Renew passport at its set time, Wed 9am.')).toBeVisible();
+  await expect(list.getByText('Dec 2, 9am, 30m')).toBeVisible();
+  if (phone) return;
+  // On Week, it's a block at its time, as a block placed by hand is.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  await page.getByRole('button', { name: 'Next week', exact: true }).click();
+  await expect(pane(page, 'Week').getByRole('button', { name: /^Renew passport, Wed Dec 2, 9am to 9:30am/ })).toBeVisible();
 });

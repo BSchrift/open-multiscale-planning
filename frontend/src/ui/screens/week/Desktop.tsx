@@ -3,6 +3,7 @@
 // planning's, with the block's section at its top, while editing too. Editing adds a list of tasks
 // to place on the left, and the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning
 // from Choose another time waits on the grid with Place here above it, and the week arrows carry it to another week.
+// Zoom out and Zoom in above the grid step its hours as Today's calendar does.
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
@@ -41,11 +42,12 @@ import type { Shortened } from '../../components/editors/SplitAsk';
 import { BlockPopup } from '../practice';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
+import { ZoomButtons } from '../../components/CalendarZoom';
 
 /** The grid's id for the planning block being placed. */
 const PLANNING = 'planning';
 
-export function DesktopWeek(props: WeekProps) {
+export function DesktopWeek(props: WeekProps & { zoom: number; onZoom(zoom: number): void }) {
   const { data, model, offset, editing } = props;
   const { clock, platform } = useApp();
   const nav = useNav();
@@ -433,8 +435,13 @@ export function DesktopWeek(props: WeekProps) {
                 )}
               </section>
             )}
+            {/* Above the grid's right corner, as Today's are above its calendar, so they never cover a block. */}
+            <div className="wkzoom">
+              <ZoomButtons zoom={props.zoom} onZoom={props.onZoom} />
+            </div>
             <HoldWeekGrid
               ctx={model.ctx}
+              zoom={props.zoom}
               blocks={gridBlocks}
               info={model.info}
               done={{ finished: props.finished, open: props.openDone }}

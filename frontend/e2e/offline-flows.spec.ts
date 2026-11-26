@@ -3,8 +3,9 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
 import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
-import { holdMouse, openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
+import { holdMouse, openSeeded, pane, planPrompt, readRecord, settled, startPlanningOnToday, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
+import { askOnBlock, showNow } from './today';
 
 // Each main flow done with no connection, start to finish, by a signed-out app: everything it does is on this device,
 // so offline it should work as it does online, ask for nothing over the network, and keep the work through a reload.
@@ -55,10 +56,12 @@ test('every main screen opens offline for the first time, once the app has loade
   // The app loads each screen's code by itself once it has opened, then whatever that code imports. Soft, so a screen
   // that never loaded still goes on to show what opening it offline does.
   await expect.soft.poll(() => SCREEN_URLS.filter((url) => !requested.has(url)), { timeout: 15_000 }).toEqual([]);
-  await page.waitForLoadState('networkidle');
+  // Then until that loading has finished with all it imports: a page once quiet doesn't wait for quiet again.
+  await settled(page);
 
   const offline = await goOffline(page, context);
-  for (const name of ['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']) {
+  // The phone has no Week: its Today draws the week.
+  for (const name of ['Today', 'Inbox', ...(phone ? [] : ['Week']), 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']) {
     await tab(page, phone, name);
     await expect(broken(page), name).toHaveCount(0);
   }
@@ -70,7 +73,7 @@ test('every main screen opens offline for the first time, once the app has loade
   await card.getByRole('button', { name: 'Exit' }).click();
   await expect(card).toHaveCount(0);
   await tab(page, phone, 'Today');
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await expect(steps(page)).toBeVisible();
   await expect(broken(page)).toHaveCount(0);
   expectOffline(offline);
@@ -167,7 +170,7 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
     { type: 'task', id: 'i1', fields: { kind: 'inbox', title: 'Rake the leaves' } },
   ]);
 
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   // Inbox: its item goes to the project, and Process hands back to planning.
   await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
   await page.getByRole('button', { name: 'Process 1 item' }).click();
@@ -205,13 +208,18 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
   await expectSaved(page, 'week_plan', `week:${WEEK}`, { finished_at: expect.any(String) });
 
   await reloadOnline(page, offline);
-  await expect(page.getByRole('button', { name: 'Start planning' })).toHaveCount(0);
+  await expect(planPrompt(page)).toHaveCount(0);
   expect(await readRecord(page, 'week_plan', `week:${WEEK}`)).toMatchObject({ finished_at: expect.any(String) });
-  await tab(page, phone, 'Week');
-  await expect(pane(page, 'Week').getByText('Everything this week is on the calendar.')).toBeVisible();
+  // Everything is on the calendar: Week says so, and on phone, Today, which draws the week, has nothing waiting.
+  await tab(page, phone, phone ? 'Today' : 'Week');
+  const week = pane(page, phone ? 'Today' : 'Week');
+  if (phone) {
+    await expect(week.getByRole('region', { name: /^This week, / })).toBeVisible();
+    await expect(week.getByRole('button', { name: /\d+ to schedule/ })).toHaveCount(0);
+  } else await expect(week.getByText('Everything this week is on the calendar.')).toBeVisible();
   // Its suggested time was Tuesday's first free one.
-  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).click();
-  await expect(pane(page, 'Week').getByText('Write chapter one').first()).toBeVisible();
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).tap();
+  await expect(week.getByText('Write chapter one').first()).toBeVisible();
   expectOffline(offline);
 });
 
@@ -281,9 +289,10 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
   await expectSaved(page, 'time_block', { task_id: 'o1' }, { deleted_at: expect.any(String) });
 
   await reloadOnline(page, offline);
-  await tab(page, phone, 'Week');
-  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).click();
-  await expect(pane(page, 'Week').getByText('Collect the sources').first()).toBeVisible();
+  // On phone, on Today, which draws the week.
+  await tab(page, phone, phone ? 'Today' : 'Week');
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Tue Nov 3/ }).tap();
+  await expect(pane(page, phone ? 'Today' : 'Week').getByText('Collect the sources').first()).toBeVisible();
   expectOffline(offline);
 });
 
@@ -299,8 +308,9 @@ test('answers time blocks on Today offline: how the last one went, then Start an
     block('b3', 't3', '16:00', '16:30'),
   ]);
 
-  // The block gone by asks how it went: Partly, with the time left.
-  const prompt = page.getByRole('dialog', { name: 'Block finished' });
+  // The block gone by asks how it went, in its prompt or on phone on the block itself: Partly, with the time left.
+  const phone = await page.locator('[data-layout="phone"]').count() > 0;
+  const prompt = phone ? await askOnBlock(page, /^Write the report, 12pm to 1pm/) : page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText('Write the report')).toBeVisible();
   await prompt.getByRole('button', { name: 'Partly' }).click();
   const left = page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' });
@@ -316,22 +326,24 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
   expect(await readRecord(page, 'block_outcome', 'outcome:b1')).toMatchObject({ result: 'partly', remaining_min: 90 });
 
-  // The one under way: Start, then Mark done now, and Undo puts it back.
-  const now = page.getByRole('region', { name: 'Current block' });
-  await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
+  // The one under way: Start, then Mark done now, and Undo puts it back. On phone, the answer handed the selection back
+  // to the block under way, which a tap raises with its actions.
+  const now = await showNow(page, phone);
+  const times = now.getByText(phone ? '1:58pm to 3pm' : 'Now, 1:58pm to 3pm');
+  await expect(times).toBeVisible();
   await now.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(now.getByText('In progress, time left')).toBeVisible();
+  await expect(phone ? now.getByRole('button', { name: 'Mark done now' }) : now.getByText('In progress, time left')).toBeVisible();
   await now.getByRole('button', { name: 'Mark done now' }).click();
   await expect(page.getByText("Marked done. You're free until 4pm.")).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
+  await expect(times).toBeVisible();
   expect(await readRecord(page, 'time_block', 'b2')).toMatchObject({ started_at: expect.any(String) });
   // Mark done keeps the start and ends the block, so only the end gone says the Undo was saved, not just the Mark done.
   await expectSaved(page, 'time_block', 'b2', { started_at: expect.any(String), ended_at: null });
   await expectSaved(page, 'block_outcome', 'outcome:b1', { result: 'partly', remaining_min: 90 });
 
   await reloadOnline(page, offline);
-  await expect(page.getByRole('region', { name: 'Current block' }).getByText('In progress, time left')).toBeVisible();
+  await expect(phone ? (await showNow(page, true)).getByRole('button', { name: 'Mark done now' }) : page.getByRole('region', { name: 'Current block' }).getByText('In progress, time left')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
   expectOffline(offline);
 });

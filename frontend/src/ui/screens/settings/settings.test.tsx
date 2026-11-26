@@ -415,7 +415,8 @@ describe('Settings', () => {
       expect(within(await screen.findByRole('region', { name: 'Planning cadence' })).getByText('Calendar quarters')).toBeVisible();
       await userEvent.click(screen.getByRole('button', { name: 'Change planning cadence' }));
       await waitFor(() => expect(t.nav().route).toMatchObject({ area: 'plan', params: { cadence: 'edit' } }));
-      expect(t.nav().backLabel).toBe('Settings');
+      // Plan is a tab of its own on phone, so back goes to More's tab, where Settings was left.
+      expect(t.nav().backLabel).toBe('More');
     });
 
     it('with none, says so', async () => {

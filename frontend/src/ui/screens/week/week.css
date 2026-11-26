@@ -6,11 +6,15 @@
 [data-layout='desktop'] .week .panel { border-radius: var(--radius-card); }
 [data-layout='phone'] .week .panel { padding: var(--space-4); border-radius: var(--radius-card); }
 [data-layout] .wkgrid { padding: var(--space-3) var(--space-4) var(--space-4); }
+[data-layout] .wkzoom { display: flex; justify-content: flex-end; margin-bottom: var(--space-2); }
 /* Phone: the sticky header is ground, so the week's figures and the chosen day read as the cards under it. */
 [data-layout='phone'] .week .weektop { border-bottom: 0; background: var(--ground); }
 [data-layout='phone'] :is(.wksum, .wkdaycard) { padding: var(--space-3); }
-/* Two fingers on the day zoom its hours, not the page; one still scrolls. */
+/* Two fingers on the day zoom its hours, not the page; one scrolls it, or swipes sideways to the next day. */
 [data-layout='phone'] .wkdaycard { touch-action: pan-y; }
+/* Swiped, each day carries the card's side padding, so the days either side slide in with a gap between them. */
+[data-layout='phone'] .wkdaycard.dpager { padding-inline: 0; }
+[data-layout='phone'] .wkdaycard .dppane { padding-inline: var(--space-3); }
 /* Keeps each day 44pt wide on 375pt phones. */
 [data-layout='phone'] .wksum .wstrip { margin-inline: calc(-1 * var(--space-1)); }
 [data-layout='phone'] .wkdaycard > .daywrap { padding-block: 0; }

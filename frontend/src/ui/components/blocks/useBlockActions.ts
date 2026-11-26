@@ -43,8 +43,10 @@ let lastResume: { db: Db; blockId: string; at: number; reverse: PlanChange } | n
 
 /** say: where its messages go instead of the app's toast, as the phone's Schedule step says its own above its dock. */
 export function useBlockActions(say?: Say) {
-  const { clock, db } = useApp();
+  const { clock, db, layout } = useApp();
   const toast = useToastOr(say);
+  // On phone, To schedule is Today's: the strip's count opens it. Desktop's is on Week.
+  const where = layout === 'phone' ? 'To schedule' : 'To schedule on Week';
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange | void>) => fn(w));
   const { run } = write;
 
@@ -179,7 +181,7 @@ export function useBlockActions(say?: Say) {
         (w) => unscheduleBlock(w, block.id, weekStart(localDate(block.start, clock.zone())), clock),
         block.practice_id
           ? `Took ${block.title ?? 'it'} off ${formatWeekday(localDate(block.start, clock.zone()))} ${formatTime(block.start, clock.zone())}. It's in To schedule.`
-          : `Took ${block.title ?? 'it'} off the calendar. It's in To schedule on Week.`,
+          : `Took ${block.title ?? 'it'} off the calendar. It's in ${where}.`,
         true,
       ),
     start: (block: BlockRow) => begin(block, false, false),

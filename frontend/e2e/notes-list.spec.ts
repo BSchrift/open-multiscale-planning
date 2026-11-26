@@ -113,9 +113,12 @@ test("a note attached to a project shows on its goal's card and its page, and on
   await popup(page).getByRole('button', { name: 'Save' }).click();
   await expect(notes.getByRole('button', { name: /^Tiles: 10x10 white, matt/ })).toHaveAccessibleDescription('Saved Nov 2 · Kitchen redo · On Today now');
   await nav(page).getByRole('button', { name: 'Today' }).click();
+  // On phone, a chip in the row of what's due today, which opens them.
+  if (phone) await page.getByRole('group', { name: 'Due today' }).getByRole('button', { name: '1 note' }).click();
   const today = page.getByRole('region', { name: 'Notes for today' });
   await expect(today.getByRole('button', { name: /^Tiles: 10x10 white, matt/ })).toBeVisible();
   await page.screenshot({ path: info.outputPath('today.png'), fullPage: true, animations: 'disabled' });
+  if (phone) await page.keyboard.press('Escape');
 
   // On the goal's card, in one Notes row, and on the project's own page.
   await nav(page).getByRole('button', { name: 'Goals' }).click();

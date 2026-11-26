@@ -1,10 +1,11 @@
-// Practices at their set times. A practice on set days with a time lands at that time on each of its days by itself, from
-// today to the end of this week, and next week from when its planning appears, whenever that time, or one of the
-// practice's other listed times, is free. Everything else still waits to be placed: a practice at any time, a counted
-// one, and a day whose times are all taken, which waits in To schedule saying why.
+// Practices and one offs at their set times. A practice on set days with a time lands at that time on each of its days by
+// itself, from today to the end of this week, and next week from when its planning appears, whenever that time, or one
+// of the practice's other listed times, is free. So does a one off with a time of day, on its one date or a repeating
+// one's next. Everything else still waits to be placed: a practice at any time, a counted one, a one off with a range
+// or a window, and a day whose times are all taken, which waits in To schedule saying why.
 //
-// Each session is an ordinary block under the day's id (practiceSessionId), written as an automatic write, and only
-// where no record has that id, deleted or not, and no session of the practice is on or for that day. So two devices make
+// Each session is an ordinary block under the day's id (practiceSessionId, or dueBlockId for a one off), written as an
+// automatic write, and only where no record has that id, deleted or not, and no block of it is on or for that day. So two devices make
 // one session, any explicit write from any device wins over it, and a session taken off or deleted is never made again.
 // Its start and end come only from the practice, the day, the zone and which listed time is free, so two devices that
 // both place it write the same record, and where they saw different calendars one device's values win every field.
@@ -20,7 +21,7 @@ import type { PracticeKeep } from './blocks';
 import type { Clock } from './clock';
 import { addDays, addWeeks, blockMinutes, dayRange, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, instantMs, localDate, localMinutes, nowInstant, thisWeek, today, weekday, weekRange, weekStart } from './dates';
 import type { Sql } from './db';
-import { applyPlanChange } from './plan';
+import { applyPlanChange, minutesLeft, NO_ESTIMATE_MIN } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
 import { PLANNING_LEAD_DAYS } from './planning';
 import { blocksInRange, weekPractices } from './queries';
@@ -29,7 +30,7 @@ import { CALENDAR_ID, getRecord, getSettings, listRecords, practiceSessionId, se
 import type { Writer } from './records';
 import { existingTime, fits, practiceDays, practiceTime, sessionLength, skippedSessionKey, slotContext, slotInstants, takenBy, whyNot } from './slots';
 import type { SlotContext, Span } from './slots';
-import type { LocalDate, Minutes, Practice, TimeOfDay } from './types';
+import type { LocalDate, Minutes, Practice, Task, TimeOfDay } from './types';
 
 /** The days set times fill in by themselves: today to the end of this week, and next week once its planning appears. */
 export function setTimesDays(clock: Clock): LocalDate[] {
@@ -87,6 +88,46 @@ export function atSetTime(p: Practice, b: { id: string; start: string; end: stri
 }
 
 const isLive = (p: Practice) => p.state === 'active' && !p.deleted_at && p.target_min > 0;
+const isTime = (t: unknown): t is TimeOfDay => Number.isInteger(t) && (t as number) >= 0 && (t as number) < 1440;
+
+/** A one off's block for the day it's due, so two devices placing it make one, as a practice's session does. */
+export const dueBlockId = (taskId: string, date: LocalDate) => `due:${taskId}:${date}`;
+
+/**
+ * The day and time a one off is set to: its one date, or a repeating one's next, with its time of day. Null for one
+ * that's finished, has no time, or has a range, a window or months rather than a day.
+ */
+export function oneOffSetTime(t: Task): { date: LocalDate; time: TimeOfDay } | null {
+  const s = t.schedule;
+  if (t.kind !== 'one_off' || t.deleted_at || t.done_at || t.cancelled_at || !isTime(t.time) || !s) return null;
+  if (s.type === 'once') return s.from && (!s.to || s.to === s.from) ? { date: s.from, time: t.time } : null;
+  return (s.type === 'recurring' || s.type === 'float' || s.type === 'rule') && t.next_due ? { date: t.next_due, time: t.time } : null;
+}
+
+/** Why a one off can't land at its time on its day, or null when it can or has no time that day. */
+export function oneOffWhy(t: Task, date: LocalDate, ctx: SlotContext): SetTimeWhy | null {
+  const set = oneOffSetTime(t);
+  if (!set || set.date !== date) return null;
+  const time = existingTime(date, set.time, ctx.zone);
+  const length = oneOffLength(t);
+  if (fits(date, time, length, 'one_off', ctx)) return null;
+  const why = whyNot(date, time, length, ctx);
+  const by = why === 'is taken' ? takenBy(date, time, time + length, ctx) : undefined;
+  return { time, why, ...(by ? { by } : {}) };
+}
+
+/** A one off's block: its time left, or half an hour with no estimate. */
+const oneOffLength = (t: Task) => Math.max(15, minutesLeft(t) || NO_ESTIMATE_MIN);
+
+/** Open one offs with a time of day, by the index on their kind rather than every task. */
+const TIMED_ONE_OFFS = `
+  SELECT id, data FROM records
+  WHERE type = 'task' AND json_extract(data, '$.kind') = 'one_off' AND json_extract(data, '$.time') IS NOT NULL
+    AND json_extract(data, '$.done_at') IS NULL AND json_extract(data, '$.deleted_at') IS NULL`;
+
+/** A task's blocks in a range, taken off ones too: a day that has had one is never filled in again. */
+const TASK_BLOCKS = `
+  SELECT start FROM time_block WHERE task_id = :task AND start >= :from_utc AND start < :to_utc AND deleted_at IS NULL`;
 const weeksOf = (days: readonly LocalDate[]) => [...new Set(days.map(weekStart))];
 
 /** A week's free time as slots.ts sees it, with its blocks, the same context Week and planning work from. */
@@ -115,7 +156,9 @@ const sessionSpan = (p: Practice, id: string, date: LocalDate, start: TimeOfDay)
 
 export interface PlacedSession {
   id: string;
-  practice_id: string;
+  /** A practice's session, or a one off's block. */
+  practice_id?: string;
+  task_id?: string;
   title: string;
   date: LocalDate;
   start: TimeOfDay;
@@ -126,19 +169,29 @@ export interface SetTimesChange extends PlanChange {
   placed: PlacedSession[];
 }
 
+const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 /**
- * Places each set-time session missing from the days setTimesDays gives, at its set time where that's free. Pass
- * w.automatic when the app does it on its own. With `only`, places just that practice, as it is given, for a change
- * the person made. The reverse takes each session off, so it waits in To schedule and is never placed again.
+ * Places each set-time session missing from the days setTimesDays gives, at its set time where that's free, then each
+ * one off with a time of day. Pass w.automatic when the app does it on its own. With `only`, places just that practice
+ * or one off, as it is given, for a change the person made. The reverse takes each off, so it waits in To schedule and
+ * is never placed again.
  */
-export async function placeSetTimes(w: Writer, clock: Clock, only?: Practice): Promise<SetTimesChange> {
+export async function placeSetTimes(w: Writer, clock: Clock, only?: Practice | Task): Promise<SetTimesChange> {
   const zone = clock.zone();
   const days = setTimesDays(clock);
-  // The practice made first gets the slot: ids are made in time order.
-  const practices = (only ? [only] : await listRecords(w.sql, 'practice'))
+  const task = only && 'kind' in only ? only : null;
+  // The practice made first gets the slot: ids are made in time order. One offs come after the practices.
+  const practices = (task ? [] : only ? [only as Practice] : await listRecords(w.sql, 'practice'))
     .filter((p) => isLive(p) && days.some((d) => setTime(p, d) !== null))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (!practices.length) return { writes: [], placed: [] };
+    .sort(byId);
+  const oneOffs = (task ? [task] : only ? [] : (await w.sql.all<{ id: string; data: string }>(TIMED_ONE_OFFS)).map((r) => ({ ...(JSON.parse(r.data) as Task), id: r.id })))
+    .flatMap((t) => {
+      const set = oneOffSetTime(t);
+      return set && days.includes(set.date) ? [{ task: t, ...set, id: dueBlockId(t.id, set.date) }] : [];
+    })
+    .sort((a, b) => byId(a.task, b.task));
+  if (!practices.length && !oneOffs.length) return { writes: [], placed: [] };
   // Any record under a day's id, deleted ones too, a practice at a time so the list stays short.
   const existing = new Set<string>();
   for (const p of practices) {
@@ -146,6 +199,7 @@ export async function placeSetTimes(w: Writer, clock: Clock, only?: Practice): P
     const rows = await w.sql.all<{ id: string }>(`SELECT id FROM records WHERE id IN (${ids.map((_, i) => `:id${i}`).join(', ')})`, Object.fromEntries(ids.map((id, i) => [`id${i}`, id])));
     for (const r of rows) existing.add(r.id);
   }
+  for (const o of oneOffs) if (await w.sql.get('SELECT 1 AS found FROM records WHERE id = :id', { id: o.id })) existing.add(o.id);
   const placed: PlacedSession[] = [];
   for (const week of weeksOf(days)) {
     let { ctx } = await weekContext(w.sql, week, clock);
@@ -166,20 +220,35 @@ export async function placeSetTimes(w: Writer, clock: Clock, only?: Practice): P
         placed.push({ id, practice_id: p.id, title: p.title, date, start: fit.start });
       }
     }
+    // A one off at its time on its day, where that's free and the day has had no block of it.
+    const range = weekRange(week, zone);
+    for (const o of oneOffs.filter((x) => weekStart(x.date) === week)) {
+      const had = (await w.sql.all<{ start: string }>(TASK_BLOCKS, { task: o.task.id, ...range })).some((b) => localDate(b.start, zone) === o.date);
+      const start = existingTime(o.date, o.time, zone);
+      const length = oneOffLength(o.task);
+      if (existing.has(o.id) || had || !fits(o.date, start, length, 'one_off', ctx)) continue;
+      const span: Span = { id: o.id, date: o.date, start, end: start + length, title: o.task.title, kind: 'one_off' };
+      await w.create('time_block', { task_id: o.task.id, ...slotInstants(span, zone), tz: zone }, o.id);
+      ctx = { ...ctx, placed: [...ctx.placed, span] };
+      placed.push({ id: o.id, task_id: o.task.id, title: o.task.title, date: o.date, start });
+    }
   }
   return { writes: placed.map((s): RecordWrite => ({ type: 'time_block', id: s.id, fields: { cancelled: true } })).reverse(), placed };
 }
 
 const sessions = (n: number) => `${n} ${n === 1 ? 'session' : 'sessions'}`;
 
-/** "Placed 7 practice sessions at their set times next week.", or for one, "Placed Morning run at its set time, Thu 7am." */
+/**
+ * "Placed 7 practice sessions at their set times next week.", or with one offs, "Placed 7 blocks at their set times next
+ * week.", or for one, "Placed Morning run at its set time, Thu 7am."
+ */
 export function placedMessage(placed: readonly PlacedSession[], clock: Clock): string {
   if (placed.length === 1) return `Placed ${placed[0]!.title} at its set time, ${formatWeekday(placed[0]!.date)} ${formatTimeOfDay(placed[0]!.start)}.`;
   const current = thisWeek(clock);
   const thisOne = placed.some((s) => weekStart(s.date) === current);
   const next = placed.some((s) => weekStart(s.date) !== current);
   const when = thisOne && next ? 'this week and next' : next ? 'next week' : 'this week';
-  return `Placed ${placed.length} practice sessions at their set times ${when}.`;
+  return `Placed ${placed.length} ${placed.every((s) => s.practice_id) ? 'practice sessions' : 'blocks'} at their set times ${when}.`;
 }
 
 /** What following an edited schedule did, with its exact reverse. */
@@ -272,6 +341,44 @@ export function followMessage(r: Omit<FollowChange, 'writes'>): string {
   if (r.dropped) said.push(`Took ${sessions(r.dropped)} off the calendar.`);
   if (r.waiting) said.push(`${r.waiting} ${r.waiting === 1 ? 'waits' : 'wait'} in To schedule.`);
   return said.join(' ');
+}
+
+/**
+ * After a one off's dates, time or estimate change: its block still to come at the old time on the old day moves to the
+ * new time if that's free on the same day, and otherwise comes off to wait in To schedule, as it does on a new day,
+ * where it's then placed. Cleared, its time leaves what's placed alone. Write the task's new fields first, in the same
+ * transaction. Returns the exact reverse, with what to say: 'Moved Renew passport to Wed 10am.', or ''.
+ */
+export async function followOneOff(w: Writer, before: Task, after: Task, clock: Clock): Promise<PlanChange & { said: string }> {
+  const zone = clock.zone();
+  const was = oneOffSetTime(before);
+  const now = oneOffSetTime(after);
+  const reverse: RecordWrite[] = [];
+  const said: string[] = [];
+  const b = was && (await getRecord(w.sql, 'time_block', dueBlockId(before.id, was.date)));
+  const sits =
+    !!b && !!was && !b.deleted_at && !b.cancelled && !b.started_at && instantMs(b.start) > clock.now() && localDate(b.start, zone) === was.date && localMinutes(b.start, zone) === existingTime(was.date, was.time, zone);
+  const cleared = !isTime(after.time);
+  if (b && sits && !cleared) {
+    const set = async (fields: Record<string, unknown>) => reverse.unshift({ type: 'time_block', id: b.id, fields: await w.set('time_block', b.id, fields) });
+    const { ctx } = await weekContext(w.sql, weekStart(was!.date), clock);
+    const others = { ...ctx, placed: ctx.placed.filter((x) => x.id !== b.id) };
+    const start = now && existingTime(now.date, now.time, zone);
+    const length = oneOffLength(after);
+    if (now && start !== null && now.date === was!.date && fits(now.date, start, length, 'one_off', others)) {
+      const times = slotInstants({ date: now.date, start, end: start + length }, zone);
+      if (times.start !== b.start || times.end !== b.end) {
+        await set(times);
+        said.push(`Moved ${after.title} to ${formatWeekday(now.date)} ${formatTimeOfDay(start)}.`);
+      }
+    } else {
+      await set({ cancelled: true });
+      if (!now || now.date === was!.date) said.push(`Took ${after.title} off ${formatWeekday(was!.date)} ${formatTimeOfDay(was!.time)}. It's in To schedule.`);
+    }
+  }
+  const placed = await placeSetTimes(w, clock, after);
+  if (placed.placed.length) said.push(placedMessage(placed.placed, clock));
+  return { writes: [...placed.writes, ...reverse], said: said.join(' ') };
 }
 
 /** Each session of a practice still to come and not started, taken off or not. */

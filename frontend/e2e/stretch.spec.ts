@@ -27,31 +27,24 @@ const heading = (page: Page, name: string | RegExp) => page.getByRole('heading',
 const main = (page: Page, phone: boolean, name: string) => (phone ? page.locator('.flowbot').getByRole('button', { name, exact: true }) : page.getByRole('button', { name, exact: true }));
 const cadence = (page: Page) => pane(page, 'Plan').getByRole('region', { name: 'Planning cadence' });
 
-async function goPlan(page: Page, phone: boolean) {
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone) {
-    await nav.getByRole('button', { name: 'More' }).click();
-    const back = page.getByRole('button', { name: 'Back to More' });
-    if (await back.isVisible()) await back.click();
-    await pane(page, 'More').getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await nav.getByRole('button', { name: 'Plan' }).click();
-  }
+/** The Plan page: a tab on both layouts, where on phone it took Week's place in the tab bar. */
+async function goPlan(page: Page) {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Plan' })).toBeVisible();
 }
 
-async function open(page: Page, phone: boolean, seeds: readonly Seed[]) {
+async function open(page: Page, seeds: readonly Seed[]) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, seeds);
-  await goPlan(page, phone);
+  await goPlan(page);
   return errors;
 }
 
 test('with no cadence, Start planning asks how often first, and the first stretch follows the choice', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, phone, [...records, noCadence]);
+  const errors = await open(page, [...records, noCadence]);
   await expect(cadence(page).getByRole('heading', { name: 'Set your planning cadence' })).toBeVisible();
   await cadence(page).getByRole('button', { name: 'Start planning' }).click();
 
@@ -80,7 +73,7 @@ test('with no cadence, Start planning asks how often first, and the first stretc
 
 test("planned without a cadence, the stretch starts in three days, Finish says to plan whenever you like, and its toast's Undo takes the plan back", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, phone, [...records, noCadence]);
+  const errors = await open(page, [...records, noCadence]);
   await cadence(page).getByRole('button', { name: 'Plan without a cadence' }).click();
   await expect(heading(page, 'Step 1 of 5, Goals. Are these still your goals?')).toBeFocused();
   await expect(page.getByText('Planning for: Nov 5 to Feb 5')).toBeVisible();
@@ -103,7 +96,7 @@ test("planned without a cadence, the stretch starts in three days, Finish says t
 
 test('a new cadence can end this plan now, which opens planning for a stretch from tomorrow', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, phone, [...records, planned]);
+  const errors = await open(page, [...records, planned]);
   await cadence(page).getByRole('button', { name: 'Change planning cadence' }).click();
   const editor = page.getByRole('group', { name: 'Change planning cadence' });
   await editor.getByRole('combobox', { name: 'How often' }).selectOption('every');
@@ -129,7 +122,7 @@ test('a new cadence can end this plan now, which opens planning for a stretch fr
 
 test('turning the schedule off says there will be no stretches; Cancel keeps the cadence, and Save leaves planning to whenever you like', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, phone, [...records, planned]);
+  const errors = await open(page, [...records, planned]);
   const change = cadence(page).getByRole('button', { name: 'Change planning cadence' });
   await change.click();
   const editor = page.getByRole('group', { name: 'Change planning cadence' });
@@ -156,7 +149,7 @@ test('turning the schedule off says there will be no stretches; Cancel keeps the
 
 test('the step arrows move between steps, and Finish names the steps not looked at, with Look now', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, phone, [...records, planned]);
+  const errors = await open(page, [...records, planned]);
   await cadence(page).getByRole('button', { name: 'Plan now' }).click();
   await expect(heading(page, 'Step 1 of 5, Goals. Are these still your goals?')).toBeFocused();
   const back = (phone ? page.locator('.flowbot') : page.locator('.stepsnav')).getByRole('button', { name: 'Previous step' });
@@ -187,7 +180,7 @@ test('the step arrows move between steps, and Finish names the steps not looked 
 
 test("Finish and plan the week sets the plan and opens weekly planning at its Inbox, and the toast's Undo takes the plan back", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, phone, [...records, planned, { type: 'task', id: 'i1', fields: { kind: 'inbox', title: 'Rake the leaves' } }]);
+  const errors = await open(page, [...records, planned, { type: 'task', id: 'i1', fields: { kind: 'inbox', title: 'Rake the leaves' } }]);
   await cadence(page).getByRole('button', { name: 'Plan now' }).click();
   await steps(page).getByRole('button', { name: /Finish/ }).click();
   await main(page, phone, 'Finish and plan the week').click();
@@ -201,7 +194,7 @@ test("Finish and plan the week sets the plan and opens weekly planning at its In
   await expect(toast).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await goPlan(page, phone);
+  await goPlan(page);
   // Planning is back where it was, ready to continue, and the next stretch has no plan.
   await expect(cadence(page).getByRole('button', { name: 'Continue planning' })).toBeVisible();
   await expect(page.getByRole('region', { name: /^Next plan/ })).toHaveCount(0);
@@ -211,10 +204,9 @@ test("Finish and plan the week sets the plan and opens weekly planning at its In
 
 // Prod's shared test user has a first plan in this state, begun and never finished. Staging's never does, since its
 // compat suite finishes a plan on every run, so the deployed spec's walk is checked from this state here.
-test('a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later', async ({ page }, info) => {
-  const phone = info.project.name === 'phone';
+test('a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later', async ({ page }) => {
   const progress = { for: '2026-11-01', step: 'inbox', done: [], seen: ['goals', 'practices', 'projects', 'inbox'], begun_on: '2026-11-01', at: '2026-11-01T20:00:00.000Z' };
-  const errors = await open(page, phone, [...records, { type: 'settings', id: 'settings', fields: { plan_progress: progress } }]);
+  const errors = await open(page, [...records, { type: 'settings', id: 'settings', fields: { plan_progress: progress } }]);
   await cadence(page).getByRole('button', { name: 'Continue planning' }).click();
   await expect(page.locator('.welcome').getByText('Welcome back. You were on Inbox.')).toBeVisible();
   await expect(heading(page, /^Step 4 of 5, Inbox/)).toBeFocused();

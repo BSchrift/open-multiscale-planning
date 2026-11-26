@@ -97,9 +97,9 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
   );
 }
 
-export function QueuePanel(props: { items: readonly QueueItem[]; onClose(): void }) {
-  const { items, onClose } = props;
-  const { layout } = useApp();
+/** Each row of Needs a new time with its best open time, this week or next. */
+export function QueueRows(props: { items: readonly QueueItem[] }) {
+  const { items } = props;
   const slots = useQuery(async (sql, clock) => {
     const settings = await getSettings(sql);
     const [projects, milestones, tasks, away] = await Promise.all([
@@ -125,8 +125,7 @@ export function QueuePanel(props: { items: readonly QueueItem[]; onClose(): void
     }
     return { contexts: out, workOf };
   }, []).data;
-
-  const body = (
+  return (
     <>
       {items.length === 0 && <p className="quiet">Nothing needs a new time.</p>}
       {items.map((item) => (
@@ -134,6 +133,12 @@ export function QueuePanel(props: { items: readonly QueueItem[]; onClose(): void
       ))}
     </>
   );
+}
+
+export function QueuePanel(props: { items: readonly QueueItem[]; onClose(): void }) {
+  const { items, onClose } = props;
+  const { layout } = useApp();
+  const body = <QueueRows items={items} />;
 
   if (layout === 'phone') {
     return (

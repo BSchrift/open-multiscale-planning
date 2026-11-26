@@ -116,15 +116,17 @@ final class OfflineUITests: XCTestCase {
     func testOfflineTodayAsksAboutItsBlocksAndTheAnswersOutliveARestart() {
         let app = launchApp(seed: "Seed today", offline: true)
         allowNotificationsIfAsked()
-        // The block that ended half an hour ago asks first, then the one that began six minutes ago without a Start. Each
-        // prompt's name is a button that opens its popup.
-        exists(app.webButton("Feed the starter"))
-        app.tapWeb("Not done", until: app.webButton("Yes, started"))
-        app.tapWeb("Yes, started", until: app.webText("In progress, time left"))
+        // The one that began six minutes ago without a Start asks whether it has, its name a button that opens its popup.
+        // The one that ended half an hour ago asks on itself once a tap selects it.
+        exists(app.webButton("Shape the dough"))
+        app.tapWeb("Yes, started", until: app.startedNow("Shape the dough"))
+        app.tapWeb(anyStartingWith: "Feed the starter, ", until: app.webButton("Not done"))
+        // Answered, the selection goes back to the block in progress.
+        app.tapWeb("Not done", until: app.startedNow("Shape the dough"))
 
         app.terminate()
         app.launchLoaded()
-        onToday(app.webText("In progress, time left"), in: app)
+        onToday(app.startedNow("Shape the dough"), in: app)
         // A block gone by says how it went, so the answer was kept. Any kind of element, as iOS types a block by whether
         // it opens a popup.
         let answered = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Feed the starter, ' AND label ENDSWITH '. Not done.'")).firstMatch
@@ -134,14 +136,15 @@ final class OfflineUITests: XCTestCase {
     func testEveryMainScreenOpensOffline() {
         let app = launchApp(seed: "Seed plan", offline: true)
         onToday(app.webText("Today"), in: app)
-        app.openWeek()
+        // The week's strip is Today's, over its day, and the week's jobs are Plan's.
         exists(app.webButton("Previous week"))
+        app.tapWeb("Plan", until: app.webButton("See this week's analytics"))
         app.tapWeb("Inbox", until: app.webText("Inbox is empty. Anything you capture lands here."))
         app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
         app.tapWeb("More", until: app.webText("More"))
         // More's rows, each with something only it shows, and the way back.
         let rows = [
-            ("Plan", app.webText("Plan")), ("One offs", app.webText("One offs")), ("Analytics", app.webText("Analytics")),
+            ("One offs", app.webText("One offs")), ("Analytics", app.webText("Analytics")),
             ("Done", app.webButton("Previous day")), ("Settings", app.webText("Settings")),
         ]
         for (row, shown) in rows {

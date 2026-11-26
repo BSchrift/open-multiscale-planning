@@ -4,8 +4,8 @@ import type { Clock } from '../../../core/clock';
 import { addWeeks, dayRange, instantMs, thisWeek, toInstant, today } from '../../../core/dates';
 import { loadTaskPlanning, loadWeekPlanning, planningId, stretchPlanningDue } from '../../../core/planning';
 import type { Sql } from '../../../core/db';
-import { activeMilestones, blocksInRange, completionsSince, inboxCount, needsNewTime, shownTasks, todayPlans, weekPicks } from '../../../core/queries';
-import { busyEvents, lastPlan, queueItems } from '../../../core/queue';
+import { blocksInRange, completionsSince, inboxCount, needsNewTime } from '../../../core/queries';
+import { busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { isSignedIn, syncStatus } from '../../../core/sync';
 import type { LocalDate } from '../../../core/types';
@@ -21,21 +21,18 @@ export async function loadToday(sql: Sql, clock: Clock) {
   const recent = await blocksInRange(sql, { from_utc: toInstant(clock.now() - RECENT_DAYS * DAY_MS), to_utc: day.to_utc });
   const calendar = await getRecord(sql, 'calendar', CALENDAR_ID);
   const sources = await listRecords(sql, 'calendar_source');
-  // The weeks of plans and picks the queue and the prompt to plan look at, not every week's.
-  const plans = await todayPlans(sql, thisWeek(clock));
-  const picks = await weekPicks(sql, lastPlan(plans)?.week_start ?? null);
+  const plans = await listRecords(sql, 'week_plan');
+  const picks = await listRecords(sql, 'week_pick');
   const [from, to] = [instantMs(day.from_utc), instantMs(day.to_utc)];
   return {
     date,
     recent,
     blocks: recent.filter((b) => b.start >= day.from_utc),
     settings: await getSettings(sql),
-    // Open tasks, every task of an active project, those finished today and those today's blocks name, and the active
-    // projects' milestones: what Pick one thing, Next up, One offs, the timeline, the queue and the prompt to plan look
-    // up, not five years of finished work.
-    tasks: await shownTasks(sql, { doneFrom: day.from_utc, blocks: day }),
+    // shortcut: whole tables for lookups and Welcome back's options, fine for one person's records; narrow with queries if Today slows.
+    tasks: await listRecords(sql, 'task'),
     projects: await listRecords(sql, 'project'),
-    milestones: await activeMilestones(sql),
+    milestones: await listRecords(sql, 'milestone'),
     objectives: await listRecords(sql, 'objective'),
     practices: await listRecords(sql, 'practice'),
     away: await listRecords(sql, 'away_period'),

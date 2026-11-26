@@ -2,7 +2,7 @@
 
 import { expect, test } from '@playwright/test';
 import { NOW, SAMPLE } from './pick-sample';
-import { expectTapTarget, openSeeded, readRecord } from './seed';
+import { expectTapTarget, openSeeded, readRecord, startPlanningOnToday } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -21,7 +21,7 @@ test('picks a backlog task for the week from its closed group, and takes it off 
   const phone = info.project.name === 'phone';
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await expect(page.getByRole('heading', { name: /^Pick tasks/ })).toBeVisible();
 

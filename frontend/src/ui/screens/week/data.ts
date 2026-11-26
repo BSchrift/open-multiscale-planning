@@ -14,6 +14,8 @@ import { activeMilestones, blocksBetween, blocksInRange, inboxCount, needsNewTim
 import { blockConflicts, busyEvents, lastPlan, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
+import { oneOffWhy, setTimeFit } from '../../../core/setTimes';
+import type { SetTimeWhy } from '../../../core/setTimes';
 import { closestFit, fits, infoSpans, offers, practicesLeft, practiceSlots, practiceTime, sessionOffers, skippedSessionKey, slotContext, spansAhead } from '../../../core/slots';
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
@@ -91,8 +93,10 @@ export interface LaneItem {
   dates?: { from: LocalDate; to: LocalDate };
   /** A practice's sessions still to place, which To schedule's count counts. Anything else is one. */
   sessions?: number;
-  /** Why the first suggested time isn't the usual one: '9:30am is taken, so 10am'. */
+  /** Why the first suggested time isn't the usual one: '9:30am is taken by Dentist, so 10am'. */
   note?: string;
+  /** A set day's session whose set time can't be used, and why: the card warns 'Thu · 7am is taken'. */
+  why?: SetTimeWhy;
   task?: Task;
   practice?: Practice;
   /** Picked for this week, so it can be taken out again. */
@@ -132,6 +136,7 @@ export function weekModel(d: WeekData, clock: Clock) {
     calendar,
     blocks: d.blocks,
     clock,
+    away: records.away,
   });
   const info: Span[] = infoSpans({ week, calendar, sources, clock });
 
@@ -194,6 +199,9 @@ export function weekModel(d: WeekData, clock: Clock) {
     const plan = ranked.find((p) => p.project.id === t.project_id) ?? null;
     const { work } = workOf(t, plan, week, planCtx);
     const length = Math.min(left, FIRST_BLOCK_MIN);
+    // A one off at a time of day whose time is taken waits saying so, as a practice's day does.
+    const dates = datesOf(t);
+    const why = dates && dates.from === dates.to ? oneOffWhy(t, dates.from, ctx) : null;
     return {
       id: t.id,
       title: t.title,
@@ -206,6 +214,7 @@ export function weekModel(d: WeekData, clock: Clock) {
       task: t,
       picked: picked !== null,
       offers: offers(length, work, ctx).slice(0, 3),
+      ...(why ? { why } : {}),
     };
   };
   const picks = scheduleOrder(plans, oneOffs, input, planCtx);
@@ -225,8 +234,10 @@ export function weekModel(d: WeekData, clock: Clock) {
         return x.dates.map((date) => {
           const offers = sessionOffers(p, date, ctx);
           const time = practiceTime(p, weekday(date));
-          const line = time === null ? formatMinutes(x.length) : `${formatMinutes(x.length)} · ${formatTimeOfDay(time)}`;
-          return { ...each, id: skippedSessionKey(p.id, date), left: x.length, line, dates: { from: date, to: date }, sessions: 1, offers, note: offers[0]?.note };
+          const line = time === null ? formatMinutes(x.length) : `${formatMinutes(x.length)} · usually ${formatTimeOfDay(time)}`;
+          const fit = setTimeFit(p, date, ctx);
+          const why = fit && 'why' in fit ? { why: fit } : {};
+          return { ...each, id: skippedSessionKey(p.id, date), left: x.length, line, dates: { from: date, to: date }, sessions: 1, offers, note: offers[0]?.note, ...why };
         });
       }
       const offers = practiceSlots(p, ctx, skippedSessions).slice(0, 3);

@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { NOW, SAMPLE } from './pick-sample';
-import { expectOnTop, expectTapTarget, openSeeded } from './seed';
+import { expectOnTop, expectTapTarget, openSeeded, startPlanningOnToday } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -12,7 +12,7 @@ test.use({ timezoneId: 'America/Chicago' });
 async function openPick(page: Page, records: readonly Seed[] = SAMPLE, now = NOW) {
   await page.clock.install({ time: now });
   await openSeeded(page, records);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await expect(page.getByRole('heading', { name: /^Pick tasks/ })).toBeVisible();
 }

@@ -15,7 +15,7 @@ test('starts at setup on an empty database, then shows the shell', async ({ page
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav).toBeVisible();
   if (info.project.name === 'phone') {
-    await expect(nav.getByRole('button')).toHaveText(['Today', 'Week', 'Inbox', 'Goals', 'More']);
+    await expect(nav.getByRole('button')).toHaveText(['Today', 'Plan', 'Inbox', 'Goals', 'More']);
     await nav.getByRole('button', { name: 'More' }).click();
     await page.getByRole('button', { name: 'Settings' }).click();
     await expect(pane(page, 'Settings')).toBeVisible();

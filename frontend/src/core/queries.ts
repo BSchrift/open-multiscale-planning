@@ -9,6 +9,17 @@ import type { Sql } from './db';
 import type { Attachment, BlockOutcome, BlockResult, Instant, LocalDate, Memo, MemoHome, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick, WeekPlan } from './types';
 import type { UtcRange } from './dates';
 
+/** A block as Today and Week draw it, with its task's or practice's title and its answer. */
+const BLOCK_ROW = `
+    SELECT b.id, b.start, b.end, b.tz, b.task_id, b.practice_id, b.started_at, b.ended_at, b.paused_at, b.paused_min,
+           COALESCE(t.title, p.title) AS title,
+           t.kind AS task_kind,
+           o.result, o.remaining_min, o.logged_min
+    FROM time_block b
+    LEFT JOIN task t ON t.id = b.task_id
+    LEFT JOIN practice p ON p.id = b.practice_id
+    LEFT JOIN block_outcome o ON o.id = 'outcome:' || b.id AND o.deleted_at IS NULL`;
+
 export const SQL = {
   inbox: `
     SELECT id, title, estimate_min, notes IS NOT NULL AND notes != '' AS has_notes,
@@ -25,18 +36,14 @@ export const SQL = {
     WHERE kind = 'inbox'
       AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL`,
 
-  blocks: `
-    SELECT b.id, b.start, b.end, b.tz, b.task_id, b.practice_id, b.started_at, b.ended_at, b.paused_at, b.paused_min,
-           COALESCE(t.title, p.title) AS title,
-           t.kind AS task_kind,
-           o.result, o.remaining_min, o.logged_min
-    FROM time_block b
-    LEFT JOIN task t ON t.id = b.task_id
-    LEFT JOIN practice p ON p.id = b.practice_id
-    LEFT JOIN block_outcome o ON o.id = 'outcome:' || b.id AND o.deleted_at IS NULL
+  blocks: `${BLOCK_ROW}
     WHERE b.start >= :from_utc AND b.start < :to_utc
       AND b.cancelled IS NOT 1 AND b.deleted_at IS NULL
     ORDER BY b.start`,
+
+  block: `${BLOCK_ROW}
+    WHERE b.id = :id
+      AND b.cancelled IS NOT 1 AND b.deleted_at IS NULL`,
 
   placed: `
     SELECT ROUND(COALESCE(SUM(
@@ -50,11 +57,14 @@ export const SQL = {
         WHERE k.week_start = :week_start AND k.task_id = b.task_id
           AND k.deleted_at IS NULL)`,
 
+  // The join names an answer by its block both ways, so whichever SQLite starts from, the other is found by its id. With
+  // only b.id = o.block_id, starting from open tasks, as the statistics of a long history lead it to, read every answer
+  // again for each block.
   queue: `
     SELECT t.id, t.title, t.kind, t.project_id, b.id AS block_id, b.start AS block_start, b.end AS block_end,
            o.answered_at, o.result, o.remaining_min
     FROM block_outcome o
-    JOIN time_block b ON b.id = o.block_id
+    JOIN time_block b ON b.id = o.block_id AND o.id = 'outcome:' || b.id
     JOIN task t ON t.id = b.task_id
     WHERE o.result IN ('partly', 'not')
       AND o.deleted_at IS NULL AND o.dropped_at IS NULL
@@ -279,8 +289,10 @@ export const QUERY_INDEX = {
   inbox: ['task_kind', 'block_task'],
   inboxCount: ['task_kind'],
   blocks: ['block_start'],
+  block: [],
   placed: ['block_start', 'pick_week'],
-  queue: ['outcome_result', 'block_task', 'completion_task'],
+  // Which side it starts from is the planner's choice, by the statistics: answers by their result, or blocks, or open tasks.
+  queue: ['block_task', 'completion_task'],
   finished: [],
   finishedCount: [],
   taskAttachments: [],
@@ -422,6 +434,11 @@ export interface BlockRow {
 /** Today and Week: turn the local day or week into a range with dayRange or weekRange. */
 export function blocksInRange(sql: Sql, range: UtcRange): Promise<BlockRow[]> {
   return sql.all<BlockRow>(SQL.blocks, { from_utc: range.from_utc, to_utc: range.to_utc });
+}
+
+/** One block, as blocksInRange has it, for a popup opened from somewhere that names it, such as the Now card. */
+export async function blockRow(sql: Sql, id: string): Promise<BlockRow | undefined> {
+  return (await sql.all<BlockRow>(SQL.block, { id }))[0];
 }
 
 /** Time placed this week that wasn't picked, from now on: practices and repeating work. Add picks and divide by open time. */

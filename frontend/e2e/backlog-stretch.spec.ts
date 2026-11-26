@@ -21,26 +21,21 @@ const records: Seed[] = [
 const untouched: Seed = { type: 'task', id: 'k1', fields: { kind: 'project', project_id: 'backlog:g1', milestone_id: null, title: 'Ask Sam for his focaccia recipe', estimate_min: 20, order: 1 } };
 const fresh: Seed = { type: 'task', id: 'k2', fields: { kind: 'project', project_id: 'backlog:g1', milestone_id: null, title: 'Watch a shaping video', estimate_min: 60, order: 2 } };
 
-async function openGoalsStep(page: Page, phone: boolean) {
+async function openGoalsStep(page: Page) {
   // The first task arrives in April and isn't touched again, so it's untouched by November.
   await page.clock.install({ time: new Date('2026-04-02T17:00:00Z') });
   await openSeeded(page, [...records.slice(0, 4), untouched]);
   await page.clock.setSystemTime(NOW);
   await seed(page, [fresh]);
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone) {
-    await nav.getByRole('button', { name: 'More' }).click();
-    await page.getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await nav.getByRole('button', { name: 'Plan' }).click();
-  }
+  // A tab on both layouts: on phone, Plan took Week's place in the tab bar.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   await page.getByRole('button', { name: 'Plan now' }).click();
   await expect(page.getByRole('heading', { name: /Goals\. Are these still your goals\?/ })).toBeFocused();
 }
 
 test("the Goals step shows each goal's backlog as a block, whose preview offers Keep and Delete and a way to Goals", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  await openGoalsStep(page, phone);
+  await openGoalsStep(page);
   const card = page.getByRole('region', { name: 'Learn to bake bread' });
   const block = card.getByRole('button', { name: 'Open the backlog for Learn to bake bread' });
   await expect(block).toContainText('2 tasks, 1h 20m, 1 untouched since Apr 2');

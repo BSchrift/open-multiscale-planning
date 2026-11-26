@@ -31,7 +31,7 @@ test-ios:
 	@scripts/test-ios.sh
 
 # The iPhone widgets' Swift package on this Mac, with no Simulator: the snapshot, the timeline, the action queue and the
-# contract fixtures the app's tests write.
+# contract fixtures the app's tests write. CI also renders every widget on a Simulator (scripts/test-widget-renders.sh).
 test-widgets:
 	cd frontend/ios/App/MultiscaleWidgets && swift test
 

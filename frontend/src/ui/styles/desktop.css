@@ -132,7 +132,6 @@
 :where([data-layout='desktop']) .tlbtn:hover{background:var(--wash)}
 :where([data-layout='desktop']) .tlbusy{display:grid;grid-template-columns:128px minmax(0,1fr);align-items:center;gap:var(--space-2);min-height:40px;padding:var(--space-2) var(--space-1);color:var(--ink-3)}
 :where([data-layout='desktop']) .tlcur{background:var(--accent-tint)}
-:where([data-layout='desktop']) .tldet{padding:0 var(--space-3) var(--space-4) calc(var(--space-16) + var(--space-16) + var(--space-6) + var(--space-1))}
 :where([data-layout='desktop']) .prompt{position:fixed;right:24px;bottom:24px;width:380px;max-width:calc(100vw - 32px);border:1px solid var(--line);border-radius:var(--radius-card);background:var(--card);padding:var(--space-4);box-shadow:var(--shadow-2);z-index:var(--z-nav)}
 :where([data-layout='desktop']) .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;max-width:calc(100vw - 32px);padding:var(--space-3) var(--space-4);border-radius:var(--radius-control);background:var(--ink);color:var(--on-accent);font-size:var(--fs-label);z-index:calc(var(--z-nav) + 10)}
 :where([data-layout='desktop']) .overlay{position:fixed;inset:0;overflow-y:auto;background:var(--scrim);display:flex;justify-content:center;align-items:flex-start;padding:calc(var(--space-16) + var(--space-8)) var(--space-4);z-index:var(--z-overlay)}
@@ -186,8 +185,7 @@
 :where([data-layout='desktop']) .colhead{min-height:48px;padding:var(--space-1);font-size:var(--fs-meta)}
 :where([data-layout='desktop']) .colhead .free{display:block;color:var(--ink-3);font-size:var(--fs-caption)}
 :where([data-layout='desktop']) .colhead.tight .free{color:var(--warn);font-weight:var(--fw-strong)}
-:where([data-layout='desktop']) .colbody.tall{background:repeating-linear-gradient(to bottom,var(--card) 0,var(--card) 39px,var(--hairline) 39px,var(--hairline) 40px)}
-:where([data-layout='desktop']) .colbody{position:relative;border-radius:var(--radius-block);background:repeating-linear-gradient(to bottom,var(--card) 0,var(--card) 25px,var(--hairline) 25px,var(--hairline) 26px);border:1px solid var(--hairline);overflow:hidden}
+:where([data-layout='desktop']) .colbody{position:relative;border-radius:var(--radius-block);background:repeating-linear-gradient(to bottom,var(--card) 0,var(--card) calc(var(--hour,26px) - 1px),var(--hairline) calc(var(--hour,26px) - 1px),var(--hairline) var(--hour,26px));border:1px solid var(--hairline);overflow:hidden}
 :where([data-layout='desktop']) .hours{position:relative;margin-top:var(--space-12)}
 :where([data-layout='desktop']) .hours span{position:absolute;right:6px;font-size:var(--fs-caption);color:var(--ink-3)}
 :where([data-layout='desktop']) .ev{position:absolute;left:2px;right:2px;border-radius:var(--radius-block);padding:1px var(--space-1);font-size:var(--fs-caption);line-height:1.25;overflow:hidden;text-align:left;border:0}
@@ -271,6 +269,5 @@
 @media (max-width:640px){
   :where([data-layout='desktop']) .tlbtn{grid-template-columns:96px minmax(0,1fr)}
   :where([data-layout='desktop']) .tlbusy{grid-template-columns:96px minmax(0,1fr)}
-  :where([data-layout='desktop']) .tldet{padding-left:var(--space-3)}
   :where([data-layout='desktop']) .hbar{grid-template-columns:96px minmax(0,1fr) 96px}
 }

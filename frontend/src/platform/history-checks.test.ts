@@ -2,10 +2,12 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadAnalyticsData } from '../core/analytics';
 import { fixedClock } from '../core/clock';
 import { addDays, addWeeks, localDate, thisWeek, weekStart } from '../core/dates';
+import { refreshStatistics } from '../core/db';
 import type { Db, Sql } from '../core/db';
-import { historyChanges, historyFacts, HISTORY } from '../core/history-testing';
+import { historyChanges, historyFacts, HISTORY, keptHistory } from '../core/history-testing';
+import { parsePeriod } from '../../../config/retention';
 import { gatherPlans, oneOffCandidates, plannable, projectCandidates, taskDue } from '../core/plan';
-import { needsNewTime } from '../core/queries';
+import { needsNewTime, SQL } from '../core/queries';
 import { queueItems, welcomeOptions } from '../core/queue';
 import { applyRemote, listRecords } from '../core/records';
 import { oneOffRows } from '../core/schedule';
@@ -164,4 +166,20 @@ describe('the history on a device', () => {
     expect(notes_search_ms).toBeGreaterThan(0);
     expect(records).toBe(historyFacts().records);
   }, 60_000);
+});
+
+describe('the history as a server with retention keeps it, on a device that has opened since its first sync', () => {
+  it("finds Today's queue through indexes, with the statistics every launch after the first makes", async () => {
+    const db = await openTestDb();
+    const changes = keptHistory(parsePeriod('P30D'), Date.parse(HISTORY.now));
+    for (let i = 0; i < changes.length; i += 500) await applyRemote(db, changes.slice(i, i + 500));
+    // In no order: queueItems puts them in order.
+    const queue = async () => (await needsNewTime(db)).sort((a, b) => a.block_id.localeCompare(b.block_id));
+    const before = await queue();
+    await refreshStatistics(db);
+    const plan = (await db.all<{ detail: string }>(`EXPLAIN QUERY PLAN ${SQL.queue}`)).map((p) => p.detail);
+    // Every answer of a type read again for each candidate row took 4 seconds in Node and 6 in the browser.
+    expect(plan.slice(1).filter((d) => d.includes('records_by_type'))).toEqual([]);
+    expect(await queue()).toEqual(before);
+  }, 120_000);
 });

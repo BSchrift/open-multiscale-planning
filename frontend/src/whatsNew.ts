@@ -1,0 +1,28 @@
+// What's new in the iPhone app, newest first. Each iPhone shows the lines it hasn't seen once, the first time an update
+// with them runs (docs/releasing.md, "What's new").
+//
+// A pull request that changes what someone can do on the iPhone adds its line at the top, with the next id. One plain
+// sentence in the app's voice: sentence case, what the person can now do, no jargon, no pull request numbers. Ids are
+// never reused or changed. core/whatsNew.test.ts checks the rules.
+
+import type { WhatsNewEntry } from './core/whatsNew';
+
+export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 17, text: "On your phone, Plan has its own tab, with this week's and next week's plans on top." },
+  { id: 16, text: "On your phone, Today shows the week above your day: tap or swipe to see any day." },
+  { id: 15, text: "Today opens on your day's calendar, and a tap on a block shows what you can do with it now." },
+  { id: 14, text: 'Swipe left or right on a day to move to the next or previous one.' },
+  { id: 13, text: 'Capture shows the time estimate right under the name, so you can set it without Add details.' },
+  { id: 12, text: "See what's now and next on your Lock Screen, and the rest of your day in a Today widget." },
+  { id: 11, text: "Add the This week widget to your Home Screen to see your week's plan at a glance." },
+  { id: 10, text: "Reset this week's or next week's plan from Week to plan it again from the start." },
+  { id: 9, text: 'A one off on one date can now have a time of day, and it lands on your calendar then.' },
+  { id: 8, text: "A practice's sessions now land on your calendar at its set times when those times are free." },
+  { id: 7, text: "A practice's session and a planning block now open one popup, wherever you tap them." },
+  { id: 6, text: "Add widgets to your Home Screen to see what's now and next, and to capture a task in a tap." },
+  { id: 5, text: 'Every task opens one popup where you can mark it done, set dates, schedule it or start it.' },
+  { id: 4, text: 'Start now stops the block that was running and asks how it went.' },
+  { id: 3, text: "Find where a task belongs by searching for it in the task's popup." },
+  { id: 2, text: "A task holds up to ten attachments, and if a photo can't upload, the app says why." },
+  { id: 1, text: 'Hold on empty time in the calendar to give it a task you already have, or a new one.' },
+];

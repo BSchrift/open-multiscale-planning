@@ -3,8 +3,8 @@ import type { Page } from '@playwright/test';
 import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
-// A practice's editor on Goals: a number of times a week with a session length and no set time, and Pause, Resume and
-// End practice, which act at once.
+// A practice's popup on Goals, the one its sessions open everywhere: a number of times a week with a session length and
+// no set time, and Pause practice, Resume practice and End practice, which act at once.
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -15,28 +15,28 @@ const records: Seed[] = [
   { type: 'practice', id: 'pr1', fields: { title: 'Stretch', target_min: 15, per: 'day', state: 'active', preferred_times: [420] } },
 ];
 
-async function openPractice(page: Page, phone: boolean) {
+async function openPractice(page: Page) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Goals' }).click();
   await page.getByRole('button', { name: /^Practices with no goal/ }).click();
-  return { errors, open: () => edit(page, phone) };
+  return { errors, open: () => edit(page) };
 }
 
-async function edit(page: Page, phone: boolean) {
+async function edit(page: Page) {
   await page.getByRole('button', { name: /^Stretch/ }).click();
-  return phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
+  return page.getByRole('dialog', { name: 'Stretch' });
 }
 
 test('Pause marks a practice Paused until Resume, and End practice takes it off Goals with Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const { errors, open } = await openPractice(page, phone);
+  const { errors, open } = await openPractice(page);
   const row = page.getByRole('button', { name: /^Stretch/ });
   let editor = await open();
   await expect(row).not.toContainText('Paused');
-  const pause = editor.getByRole('button', { name: 'Pause' });
+  const pause = editor.getByRole('button', { name: 'Pause practice' });
   if (phone) {
     await expectTapTarget(pause);
     await expectTapTarget(editor.getByRole('button', { name: 'End practice' }));
@@ -44,15 +44,15 @@ test('Pause marks a practice Paused until Resume, and End practice takes it off 
   await pause.click();
   // It acts at once, and the editor stays open with its way back.
   await expect(row).toContainText('Paused');
-  const resume = editor.getByRole('button', { name: 'Resume' });
+  const resume = editor.getByRole('button', { name: 'Resume practice' });
   await expect(resume).toBeVisible();
   await page.screenshot({ path: info.outputPath(`practice-paused-${info.project.name}.png`) });
   await resume.click();
-  await expect(editor.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'Pause practice' })).toBeVisible();
   await expect(row).not.toContainText('Paused');
 
   // Paused, it reads so with the editor closed too.
-  await editor.getByRole('button', { name: 'Pause' }).click();
+  await editor.getByRole('button', { name: 'Pause practice' }).click();
   await editor.getByRole('button', { name: 'Cancel' }).click();
   await expect(editor).toHaveCount(0);
   await expect(row).toContainText('Paused');
@@ -70,7 +70,7 @@ test('Pause marks a practice Paused until Resume, and End practice takes it off 
 
 test('Times a week with a longer session and no set time saves as one line, and reopens as saved', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const { errors, open } = await openPractice(page, phone);
+  const { errors, open } = await openPractice(page);
   let editor = await open();
   await editor.getByRole('radio', { name: 'Times a week' }).click();
   const fewer = editor.getByRole('button', { name: 'One fewer time a week' });

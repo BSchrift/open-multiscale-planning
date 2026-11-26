@@ -86,24 +86,43 @@ async function rollback(driver: SqlDriver): Promise<void> {
   await driver.exec('ROLLBACK').catch(() => undefined);
 }
 
-/** Serializes all work on one connection, and adds parameters, transactions and change events. */
+/**
+ * Serializes all work on one connection, and adds parameters, transactions and change events. Writes go in their own
+ * order, ahead of reads still waiting: every change has every mounted screen read again, and on a long history a save
+ * queued behind those reads waited seconds for them (Save and exit, on prod's shared test user). A read already under
+ * way finishes first. A read is many statements, which writes could already come between, so none relies on its order.
+ */
 export function createDb(driver: SqlDriver): Db {
   const sql = bind(driver);
   const listeners = new Set<(change: DbChange) => void>();
-  let tail: Promise<unknown> = Promise.resolve();
+  const writes: (() => Promise<void>)[] = [];
+  const reads: (() => Promise<void>)[] = [];
+  let busy = false;
 
-  const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
-    const result = tail.then(work, work);
-    tail = result.catch(() => undefined);
-    return result;
+  const next = () => {
+    const job = writes.shift() ?? reads.shift();
+    if (!job) return;
+    busy = true;
+    void job().finally(() => {
+      busy = false;
+      next();
+    });
   };
+  const enqueue = <T>(lane: (() => Promise<void>)[], work: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      // A statement that throws before it starts, as with a missing parameter, still settles and frees the queue.
+      lane.push(() => new Promise<T>((started) => started(work())).then(resolve, reject));
+      if (!busy) next();
+    });
+  const read = <T>(work: () => Promise<T>) => enqueue(reads, work);
+  const write = <T>(work: () => Promise<T>) => enqueue(writes, work);
 
   return {
-    all: (s, p) => enqueue(() => sql.all(s, p)),
-    get: (s, p) => enqueue(() => sql.get(s, p)),
-    run: (s, p) => enqueue(() => sql.run(s, p)),
+    all: (s, p) => read(() => sql.all(s, p)),
+    get: (s, p) => read(() => sql.get(s, p)),
+    run: (s, p) => write(() => sql.run(s, p)),
     transaction: (fn) =>
-      enqueue(async () => {
+      write(async () => {
         await driver.exec('BEGIN IMMEDIATE');
         try {
           const result = await fn(sql);
@@ -128,7 +147,7 @@ export function createDb(driver: SqlDriver): Db {
         }
       }
     },
-    close: () => enqueue(() => driver.close()),
+    close: () => read(() => driver.close()),
   };
 }
 
@@ -147,6 +166,7 @@ export const RECORD_FIELDS = {
     'order',
     'schedule',
     'next_due',
+    'time',
     'done_at',
     'cancelled_at',
     'cancelled_by',

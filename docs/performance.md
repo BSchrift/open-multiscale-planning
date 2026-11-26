@@ -159,7 +159,9 @@ and 1.9 s in the Mac app; 291 KB fetched on a cold first load.
 `web.initial`, the gzipped bytes of the scripts and styles the web app's page links, is exact, so it blocks a merge
 from the first day: the frontend CI job runs `node scripts/bundle-budget.ts dist` on its build and fails over the
 200 KB in `config/perf.ts`. On 14 November 2026 it was 173.3 KB in 15 files. Given the base's build too
-(`--base <dist>`), it notes a change that adds more than 5 KB, which the PR check puts in its comment. `web.firstload`,
+(`--base <dist>`), it notes a change that adds more than 5 KB, which the PR check puts in its comment. Capture, a task's
+popup and the phone's More tab load once the app has drawn, ahead of a tap, rather than with the page, and the script
+fails if one is back in those files: moving them out took it from 199.0 KB to 167.3 KB on 25 November 2026. `web.firstload`,
 everything a cold first load fetches until Today is interactive, is counted by the runner's cold starts in a browser:
 291 KB on that day, gzipped.
 

@@ -7,7 +7,8 @@
 #   - frontend/, except the Mac app (electron/), the browser tests (e2e/), unit tests, their configs, and the scripts
 #     the iPhone build doesn't run. vite.config.ts imports electron/identity.ts only for the Mac app's shell hash.
 #   - config/'s files the build reads: app.gen.ts, retention, and each environment's YAML. Not the Go that checks them.
-#   - make test-ios: the Makefile and scripts/test-ios.sh, with the local stack it starts where Docker runs. CI's macOS
+#   - make test-ios: the Makefile and scripts/test-ios.sh, with the local stack it starts where Docker runs, and the
+#     widgets' renders, scripts/test-widget-renders.sh, which run beside it. CI's macOS
 #     runners have no Docker, so the stack's own inputs aren't the iPhone job's.
 #   - .github/workflows/ci.yml, which sets up the job.
 # infrastructure/test/ci-changes.test.ts holds this list to what vite.config.ts and scripts/test-ios.sh read.
@@ -30,7 +31,7 @@ ios_input() {
     frontend/*) return 0 ;;
     config/*.go | config/go.mod | config/go.sum | config/cmd/* | config/*.example.yaml) return 1 ;;
     config/*) return 0 ;;
-    scripts/test-ios.sh | scripts/local-stack.sh | Makefile | .github/workflows/ci.yml) return 0 ;;
+    scripts/test-ios.sh | scripts/test-widget-renders.sh | scripts/local-stack.sh | Makefile | .github/workflows/ci.yml) return 0 ;;
     *) return 1 ;;
   esac
 }

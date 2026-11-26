@@ -214,11 +214,15 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
   let pulled: Set<string> | null = null;
   let resets = 0;
   let applied = 0;
+  // A pull already asked for, from cursor, sent before the page before it was applied.
+  let ahead: Promise<SyncResponse> | null = null;
   for (;;) {
-    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db, refused, oneByOne);
+    const { rows, changes, held, more } = pulled || ahead ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db, refused, oneByOne);
+    const sent = ahead ?? timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+    ahead = null;
     let res: SyncResponse;
     try {
-      res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+      res = await sent;
     } catch (err) {
       // The server refuses a whole request for one record too long, without saying which, so the batch goes again one
       // record at a time, and the one it refuses alone is held. Refused again once held, it can't be held any further.
@@ -248,6 +252,14 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
     }
     // A server that claims more without moving the cursor would otherwise loop forever.
     if (res.more && res.cursor === cursor) throw new SyncError('error');
+    // With nothing to send, the next page comes down while this one is applied, so a first sync takes about as long as
+    // the slower of the two rather than their sum. Pages are still applied in order, and a cursor is stored only once
+    // its page is, so a crash still only repeats work. Changes made meanwhile go once the pull is done.
+    if (res.more && (pulled || (changes.length === 0 && !more && !(await db.get('SELECT 1 FROM outbox LIMIT 1'))))) {
+      ahead = timedSend(send, pulled ? { cursor: res.cursor, changes: [] } : { cursor: res.cursor, changes: [], expiry_reset: true });
+      // Awaited on the next turn. If applying this page fails first, its failure has nowhere to go.
+      ahead.catch(() => undefined);
+    }
     await applyRemote(db, res.changes);
     applied += res.changes.length;
     for (const change of res.changes) {
@@ -262,7 +274,7 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
       received = pulled = null;
       continue;
     }
-    await clearSent(db, rows);
+    if (rows.length > 0) await clearSent(db, rows);
     await setMeta(db, META.cursor, String(res.cursor));
     cursor = res.cursor;
     if (res.more || more) continue;

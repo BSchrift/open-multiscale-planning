@@ -34,11 +34,11 @@ toast holding the journey's next Undo had gone (#312). So the same journey also 
 five-year account, about 33,000 records: on CI in e2e-stack (`frontend/e2e/stack/history-journey.spec.ts`), seeded for a
 user of its own, with the page's CPU six times slower once synced, so Week's read-back passes the toast's 5 seconds as
 prod's did; and on every staging run as `integration.historyUser`, in the web app suite's `history` project, seeded
-first, with the long first sync, a reload during one, OPFS, planning and the console, reported only for now. That page
-never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them. Each
-change has every open screen read again, and once Save and exit's writes waited behind those reads for over 15 seconds
-on prod's desktop; writes now go ahead of reads still waiting, which core.test.ts checks, and the browser suite's stretch
-spec times Save and exit on the five-year account with Inbox and Week open.
+first, with the long first sync, a reload during one, OPFS, planning and the console, which stops a release when it
+fails. That page never reloads: a reload would give each of the account's records an expiry of staging's minutes and
+send them. Each change has every open screen read again, and once Save and exit's writes waited behind those reads for
+over 15 seconds on prod's desktop; writes now go ahead of reads still waiting, which core.test.ts checks, and the
+browser suite's stretch spec times Save and exit on the five-year account with Inbox and Week open.
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app

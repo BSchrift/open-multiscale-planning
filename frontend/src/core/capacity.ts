@@ -41,14 +41,21 @@ export function recentPushback(weeks: { planned: Minutes; done: Minutes }[]): Mi
   return Math.max(0, Math.round(average / 30) * 30);
 }
 
-/** recentPushback over the last four weeks planned and finished before this one, the same for Week and planning. */
-export function pushbackLately(weekPlans: readonly WeekPlan[], data: AnalyticsData, clock: Clock): Minutes {
-  const finished = weekPlans
+/** The last four weeks planned and finished before this one, oldest first, which pushbackLately counts. */
+export function pushbackWeeks(weekPlans: readonly WeekPlan[], clock: Clock): LocalDate[] {
+  return weekPlans
     .filter((p) => p.finished_at && p.week_start < thisWeek(clock))
     .map((p) => p.week_start)
     .sort()
     .slice(-4);
-  return recentPushback(weeksTime(data, clock, finished).map((t) => ({ planned: t.planned_min, done: t.delivered_min })));
+}
+
+/**
+ * recentPushback over the last four weeks planned and finished before this one, the same for Week and planning. The
+ * data needs the blocks of those weeks and what they name.
+ */
+export function pushbackLately(weekPlans: readonly WeekPlan[], data: AnalyticsData, clock: Clock): Minutes {
+  return recentPushback(weeksTime(data, clock, pushbackWeeks(weekPlans, clock)).map((t) => ({ planned: t.planned_min, done: t.delivered_min })));
 }
 
 /** `placed` is time placed that wasn't picked, from placedMinutes. Share is what the capacity ring draws. */

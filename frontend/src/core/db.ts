@@ -286,14 +286,15 @@ export const MIGRATIONS: Migration[] = [
 /**
  * Indexes made at open, as the views are, rather than by a migration, which bundles up to c88b04d would refuse. A bundle
  * from before one never reads it, and SQLite keeps it up to date through that bundle's writes, so one left behind after
- * a rollback does no harm. They let Done read a day's finishes without reading every task, and Today's queue find a
- * task's finishes without reading every one.
+ * a rollback does no harm. They let Done read a day's finishes without reading every task, Today's queue find a task's
+ * finishes without reading every one, and Today find the notes shown on its day without reading every note.
  */
 export const INDEXES: Readonly<Record<string, string>> = {
   task_done: "CREATE INDEX task_done ON records (json_extract(data, '$.done_at')) WHERE type = 'task'",
   completion_done: "CREATE INDEX completion_done ON records (json_extract(data, '$.done_at')) WHERE type = 'task_completion'",
   milestone_met: "CREATE INDEX milestone_met ON records (json_extract(data, '$.met_at')) WHERE type = 'milestone'",
   completion_task: "CREATE INDEX completion_task ON records (json_extract(data, '$.task_id')) WHERE type = 'task_completion'",
+  memo_show_on: "CREATE INDEX memo_show_on ON records (json_extract(data, '$.show_on')) WHERE type = 'memo'",
 };
 
 /** Keys in the meta table. */

@@ -6,7 +6,7 @@
 
 import { parseClock } from './clock';
 import type { Sql } from './db';
-import type { Attachment, BlockResult, Instant, LocalDate, Memo, MemoHome, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
+import type { Attachment, BlockOutcome, BlockResult, Instant, LocalDate, Memo, MemoHome, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick, WeekPlan } from './types';
 import type { UtcRange } from './dates';
 
 /** A block as Today and Week draw it, with its task's or practice's title and its answer. */
@@ -180,6 +180,67 @@ export const SQL = {
       AND json_extract(data, '$.deleted_at') IS NULL
     ORDER BY id`,
 
+  // The tasks Today or Week shows, rather than all of them: open ones; those finished since :done_from; every task of an
+  // active project, done and cancelled ones too, which plan.plannable needs for a milestone's progress; those named by
+  // blocks starting in either range; and those picked for :week. A null leaves its part out.
+  shownTasks: `
+    SELECT id, data FROM records
+    WHERE type = 'task' AND json_extract(data, '$.done_at') IS NULL AND json_extract(data, '$.cancelled_at') IS NULL
+      AND json_extract(data, '$.deleted_at') IS NULL
+    UNION
+    SELECT id, data FROM records
+    WHERE type = 'task' AND json_extract(data, '$.done_at') >= :done_from AND json_extract(data, '$.deleted_at') IS NULL
+    UNION
+    SELECT id, data FROM records
+    WHERE type = 'task'
+      AND json_extract(data, '$.project_id') IN (SELECT id FROM project WHERE state = 'active' AND deleted_at IS NULL)
+      AND json_extract(data, '$.deleted_at') IS NULL
+    UNION
+    SELECT id, data FROM records
+    WHERE type = 'task' AND json_extract(data, '$.deleted_at') IS NULL
+      AND id IN (
+        SELECT task_id FROM time_block WHERE start >= :from_utc AND start < :to_utc
+        UNION ALL
+        SELECT task_id FROM time_block WHERE start >= :back_from_utc AND start < :back_to_utc
+        UNION ALL
+        SELECT task_id FROM week_pick WHERE week_start = :week)
+    ORDER BY id`,
+
+  // The milestones of active projects, the only ones Today and Week plan with.
+  activeMilestones: `
+    SELECT id, data FROM records
+    WHERE type = 'milestone' AND json_extract(data, '$.deleted_at') IS NULL
+      AND json_extract(data, '$.project_id') IN (SELECT id FROM project WHERE state = 'active' AND deleted_at IS NULL)
+    ORDER BY id`,
+
+  // Today's week plan and the one finished last, which the queue checks against.
+  todayPlans: `
+    SELECT id, data FROM records
+    WHERE type = 'week_plan' AND json_extract(data, '$.deleted_at') IS NULL
+      AND (json_extract(data, '$.week_start') = :week
+        OR id = (
+          SELECT id FROM week_plan WHERE COALESCE(finished_at, '') != '' AND deleted_at IS NULL
+          ORDER BY finished_at DESC, id LIMIT 1))
+    ORDER BY id`,
+
+  weekPicks: `
+    SELECT id, data FROM records
+    WHERE type = 'week_pick' AND json_extract(data, '$.week_start') IN (:week, :other_week)
+      AND json_extract(data, '$.deleted_at') IS NULL
+    ORDER BY id`,
+
+  blocksBetween: `
+    SELECT id, data FROM records
+    WHERE type = 'time_block' AND json_extract(data, '$.start') >= :from_utc AND json_extract(data, '$.start') < :to_utc
+      AND json_extract(data, '$.deleted_at') IS NULL
+    ORDER BY id`,
+
+  outcomesBetween: `
+    SELECT id, data FROM records
+    WHERE type = 'block_outcome' AND json_extract(data, '$.deleted_at') IS NULL
+      AND id IN (SELECT 'outcome:' || id FROM time_block WHERE start >= :from_utc AND start < :to_utc)
+    ORDER BY id`,
+
   futureBlocks: `
     SELECT id, task_id, practice_id, start, end, tz, started_at, ended_at, cancelled, deleted_at
     FROM time_block
@@ -237,7 +298,7 @@ export const QUERY_INDEX = {
   taskAttachments: [],
   memoAttachments: [],
   notes: [],
-  notesForDay: [],
+  notesForDay: ['memo_show_on'],
   deletedNotes: [],
   noteAttachments: [],
   oneOffs: ['task_kind'],
@@ -247,6 +308,12 @@ export const QUERY_INDEX = {
   metMilestones: ['milestone_met'],
   tasksOfProject: ['task_project'],
   projectTasks: ['task_project'],
+  shownTasks: ['task_done', 'task_project', 'block_start', 'pick_week'],
+  activeMilestones: [],
+  todayPlans: [],
+  weekPicks: ['pick_week'],
+  blocksBetween: ['block_start'],
+  outcomesBetween: ['block_start'],
   futureBlocks: ['block_task'],
   taskBlocks: ['block_task'],
   futurePicks: ['pick_week'],
@@ -459,6 +526,51 @@ export async function tasksOfProject(sql: Sql, projectId: string): Promise<Task[
 export async function projectTasks(sql: Sql): Promise<Task[]> {
   const rows = await sql.all<{ id: string; data: string }>(SQL.projectTasks);
   return rows.map(({ id, data }) => ({ ...(JSON.parse(data) as Omit<Task, 'id'>), id }));
+}
+
+/**
+ * The tasks a screen shows, as whole records: open ones, every task of an active project, those finished since doneFrom,
+ * those named by the blocks starting in the ranges given, and those picked for the week given.
+ */
+export async function shownTasks(
+  sql: Sql,
+  params: { doneFrom?: Instant; blocks: UtcRange; back?: UtcRange; week?: LocalDate },
+): Promise<Task[]> {
+  return wholeRecords<Task>(
+    await sql.all(SQL.shownTasks, {
+      done_from: params.doneFrom ?? null,
+      from_utc: params.blocks.from_utc,
+      to_utc: params.blocks.to_utc,
+      back_from_utc: params.back?.from_utc ?? null,
+      back_to_utc: params.back?.to_utc ?? null,
+      week: params.week ?? null,
+    }),
+  );
+}
+
+/** The milestones of active projects, as whole records for plan.gatherPlans. */
+export async function activeMilestones(sql: Sql): Promise<Milestone[]> {
+  return wholeRecords<Milestone>(await sql.all(SQL.activeMilestones));
+}
+
+/** This week's plan and the one finished last, as whole records. */
+export async function todayPlans(sql: Sql, week: LocalDate): Promise<WeekPlan[]> {
+  return wholeRecords<WeekPlan>(await sql.all(SQL.todayPlans, { week }));
+}
+
+/** The picks of one or two weeks, as whole records. */
+export async function weekPicks(sql: Sql, week: LocalDate | null, otherWeek: LocalDate | null = null): Promise<WeekPick[]> {
+  return wholeRecords<WeekPick>(await sql.all(SQL.weekPicks, { week, other_week: otherWeek }));
+}
+
+/** Blocks starting in a range, cancelled ones too, as whole records for analytics. */
+export async function blocksBetween(sql: Sql, range: UtcRange): Promise<TimeBlock[]> {
+  return wholeRecords<TimeBlock>(await sql.all(SQL.blocksBetween, { from_utc: range.from_utc, to_utc: range.to_utc }));
+}
+
+/** The answers to blocks starting in a range, as whole records for analytics. */
+export async function outcomesBetween(sql: Sql, range: UtcRange): Promise<BlockOutcome[]> {
+  return wholeRecords<BlockOutcome>(await sql.all(SQL.outcomesBetween, { from_utc: range.from_utc, to_utc: range.to_utc }));
 }
 
 /** A task's blocks not yet started. A closed task gives these up. */

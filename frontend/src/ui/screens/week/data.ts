@@ -1,7 +1,7 @@
 // Everything Week reads for one week, and the figures both layouts draw from it. The rules live in core.
 
 import { loadAnalyticsData } from '../../../core/analytics';
-import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from '../../../core/capacity';
+import { openTime, plannedByKind, pushbackLately, pushbackWeeks, weekAlerts, weeklyAims } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
 import { addDays, addWeeks, formatMinutes, formatTimeOfDay, instantMs, thisWeek, today, weekday, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
@@ -10,8 +10,8 @@ import { FIRST_BLOCK_MIN, gatherBacklogs, gatherPlans, minutesLeft, NO_ESTIMATE_
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
 import { loadWeekPlanning, PLANNING_LEAD_DAYS, weekEstimate, weekGate, weekRow } from '../../../core/planning';
 import type { WeekPlanning } from '../../../core/planning';
-import { blocksInRange, inboxCount, needsNewTime } from '../../../core/queries';
-import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
+import { activeMilestones, blocksBetween, blocksInRange, inboxCount, needsNewTime, outcomesBetween, shownTasks, weekPicks } from '../../../core/queries';
+import { blockConflicts, busyEvents, lastPlan, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
 import { oneOffWhy, setTimeFit } from '../../../core/setTimes';
@@ -24,22 +24,35 @@ import { placedBlocks } from '../../components/weekgrid';
 import type { PlacedBlock } from '../../components/weekgrid';
 import type { BlockKind } from '../../components/blocks/describe';
 
-// shortcut: reads every task, project and block on each change, as planning does; add narrower queries if Week slows.
+/**
+ * Reads the week it shows, not the whole history: its blocks and picks, and the last finished plan's picks for the queue;
+ * open tasks, every task and milestone of an active project, and the tasks the blocks and picks name; and the blocks and
+ * answers of the weeks pushbackLately counts. Every goal, project, practice, time away and week plan, which are few.
+ */
 export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
-  const range = weekRange(week, clock.zone());
-  const [blocks, settings, calendar, sources, weekPlans, picks, queue, records, planning, nextPlanning, inbox] = await Promise.all([
+  const zone = clock.zone();
+  const range = weekRange(week, zone);
+  const [blocks, settings, calendar, sources, weekPlans, queue, planning, nextPlanning, inbox] = await Promise.all([
     blocksInRange(sql, range),
     getSettings(sql),
     getRecord(sql, 'calendar', CALENDAR_ID),
     listRecords(sql, 'calendar_source'),
     listRecords(sql, 'week_plan'),
-    listRecords(sql, 'week_pick'),
     needsNewTime(sql),
-    loadAnalyticsData(sql),
     loadWeekPlanning(sql, week),
     loadWeekPlanning(sql, addWeeks(week, 1)),
     inboxCount(sql),
   ]);
+  const counted = pushbackWeeks(weekPlans, clock);
+  const back = counted.length ? { from_utc: weekRange(counted[0]!, zone).from_utc, to_utc: weekRange(counted.at(-1)!, zone).to_utc } : { from_utc: range.from_utc, to_utc: range.from_utc };
+  const [picks, milestones, tasks, pastBlocks, outcomes] = await Promise.all([
+    weekPicks(sql, week, lastPlan(weekPlans)?.week_start ?? null),
+    activeMilestones(sql),
+    shownTasks(sql, { blocks: range, back, week }),
+    blocksBetween(sql, back),
+    outcomesBetween(sql, back),
+  ]);
+  const records = await loadAnalyticsData(sql, { milestones, tasks, blocks: pastBlocks, outcomes });
   return { week, blocks, settings, calendar: calendar ?? null, sources, weekPlans, picks, queue, records, planning, nextPlanning, inbox };
 }
 

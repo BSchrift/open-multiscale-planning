@@ -45,19 +45,24 @@ export interface QueueItem extends QueueRow {
   reason: string;
 }
 
-/** Turns the needsNewTime rows into queue rows, oldest first. Pass every week plan and the picks to check against. */
+/** The week plan finished last, which the queue checks its rows against. */
+export function lastPlan(plans: readonly WeekPlan[]): WeekPlan | null {
+  return plans.reduce<WeekPlan | null>((last, p) => (p.finished_at && !p.deleted_at && (!last || p.finished_at > last.finished_at!) ? p : last), null);
+}
+
+/**
+ * Turns the needsNewTime rows into queue rows, oldest first. Pass the week plans, the last finished among them, and the
+ * picks of that plan's week to check against.
+ */
 export function queueItems(rows: readonly QueueRow[], plans: readonly WeekPlan[], picks: readonly WeekPick[], clock: Clock): QueueItem[] {
-  const lastPlan = plans.reduce<WeekPlan | null>(
-    (last, p) => (p.finished_at && !p.deleted_at && (!last || p.finished_at > last.finished_at!) ? p : last),
-    null,
-  );
-  const added = new Set(picks.filter((k) => k.week_start === lastPlan?.week_start && !k.deleted_at).map((k) => k.task_id));
+  const last = lastPlan(plans);
+  const added = new Set(picks.filter((k) => k.week_start === last?.week_start && !k.deleted_at).map((k) => k.task_id));
   const date = today(clock);
 
   return rows
     .map((row) => {
       const minutes = row.remaining_min ?? blockMinutes({ start: row.block_start, end: row.block_end });
-      const stale = !!lastPlan && lastPlan.finished_at! > row.answered_at && !added.has(row.id);
+      const stale = !!last && last.finished_at! > row.answered_at && !added.has(row.id);
       const blockDate = localDate(row.block_start, clock.zone());
       const when = blockDate === date ? 'today' : formatDate(blockDate);
       const reason = stale

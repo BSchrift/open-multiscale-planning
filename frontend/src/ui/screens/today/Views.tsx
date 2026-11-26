@@ -104,7 +104,7 @@ export function Banner() {
 }
 
 /** With nothing on the calendar: a few things to start, one from each project or One offs, soonest first. */
-export function NextUp(props: { data: TodayData; pick: string | null }) {
+export function NextUp(props: { data: TodayData; pick: string | null; onStarted?(): void }) {
   const { data, pick } = props;
   const { clock, layout } = useApp();
   const start = useMutation((w, taskId: string) => startTaskNow(w, taskId, clock));
@@ -137,7 +137,7 @@ export function NextUp(props: { data: TodayData; pick: string | null }) {
                 <div className="small quiet">{sub(t)}</div>
               </div>
               {phone && (
-                <Button type="button" aria-label={`Start ${t.title}`} disabled={start.pending} onClick={() => void start.run(t.id)}>
+                <Button type="button" aria-label={`Start ${t.title}`} disabled={start.pending} onClick={() => void start.run(t.id).then(props.onStarted)}>
                   Start
                 </Button>
               )}

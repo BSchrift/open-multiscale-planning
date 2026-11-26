@@ -100,7 +100,9 @@ style keeps its ratio to it, so at the default each matches its Apple text style
 - **Layers, lowest first:** `--z-raised` (a lift within a component), `--z-sticky`, `--z-nav`, `--z-overlay` (scrims
   and sheets), `--z-dialog`, `--z-toast`.
 - **Motion:** `--dur-fast` (120ms: hover and press), `--dur-medium` (200ms: things that appear), `--dur-slow` (250ms:
-  sheets), on one curve, `--ease`. With `prefers-reduced-motion`, fades only.
+  sheets), on one curve, `--ease`. With `prefers-reduced-motion`, fades only. The one exception follows a finger:
+  swiping from day to day settles by a spring from the finger's speed, with the values in `swipePhysics.ts`, and with
+  `prefers-reduced-motion` the day changes as the finger lifts.
 
 ## Focus
 
@@ -128,6 +130,7 @@ word. Answer badges are round, in ink rather than the kind's colour: 16px on Tod
 | Inbox, not yet sorted | Planning's wash with a dashed ink-3 edge, the inbox icon and the word Inbox. Once Process files it, it takes its kind's look. |
 | Another calendar's event | Grey stripes with a line-coloured edge. |
 | Information only | No fill, a dashed line-coloured outline. |
+| Selected, on the phone's Today | Its state's look, raised out of its lane as a card: over both lane edges and its own hour labels, a little taller each way, on the card's radius with `--shadow-3`, and what it can do now on it. It grows from the lane in `--dur-medium` on `--ease`, at once with reduced motion. |
 
 Only Done is ever struck through. The current-time line passes behind blocks, with only its dot in front.
 
@@ -204,3 +207,6 @@ redraws them on Linux, as CI runs; other systems skip the comparison.
   - a looping animation, such as the spinner, which has a period rather than a duration;
   - a size between two text styles that follows the window, such as the clock's `clamp()`.
 - `e2e/reference.spec.ts`: the reference page's screenshots, in both themes at both sizes.
+- `styles/widgetTokens.test.ts`: the iPhone widgets' copy of the roles they draw with
+  (`frontend/ios/App/MultiscaleWidgets/Sources/WidgetUI/Tokens.swift`) and of the font, which a widget can't read from
+  CSS, against `tokens.css` and the web app's own font files. Change a role here and the widgets' copy in the same PR.

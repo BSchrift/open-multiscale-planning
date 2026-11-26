@@ -15,8 +15,8 @@ import { formatRange } from '../../components/blocks/describe';
 import { useToast } from '../../components/Toast';
 import { Button } from '../../components/ds/Button';
 
-export function PlanningNow(props: { block: BlockRow; layout: Layout }) {
-  const { block } = props;
+/** What a planning block in progress offers: its one action, and the line under its name. */
+export function usePlanningNow(block: BlockRow) {
   const { clock } = useApp();
   const nav = useNav();
   const toast = useToast();
@@ -32,29 +32,36 @@ export function PlanningNow(props: { block: BlockRow; layout: Layout }) {
   const open = () => (week ? nav.openFlow('planning', { week }) : nav.openFlow('plan'));
   const started = !!block.started_at;
   const range = formatRange(block.start, block.end, clock.zone());
-  const grow = props.layout === 'phone' ? ' grow' : '';
   const freeIt = async () => {
     const reverse = await free.run();
     if (reverse) toast.show(`Freed ${range}.`, { undo: () => undo.run(reverse), focusUndo: true });
   };
+  return {
+    range,
+    inbox: data?.inbox ?? 0,
+    planned: !!data?.planned,
+    action: data?.planned
+      ? { label: 'Free this time', primary: false, pending: free.pending, run: () => void freeIt() }
+      : { label: started ? 'Keep going' : 'Start planning', primary: true, pending: start.pending, run: () => void (started ? Promise.resolve() : start.run()).then(open) },
+  };
+}
+
+export function PlanningNow(props: { block: BlockRow; layout: Layout }) {
+  const { block } = props;
+  const now = usePlanningNow(block);
+  const grow = props.layout === 'phone' ? ' grow' : '';
   return (
     <section className="now stack" aria-label="Current block">
       <h2>{block.title}</h2>
       <div className="small quiet">
-        {range}
-        {data?.inbox ? ` · ${data.inbox} in your Inbox` : ''}
+        {now.range}
+        {now.inbox ? ` · ${now.inbox} in your Inbox` : ''}
       </div>
-      {data?.planned && <p>This week is already planned.</p>}
+      {now.planned && <p>This week is already planned.</p>}
       <div className="row">
-        {data?.planned ? (
-          <Button className={grow} type="button" disabled={free.pending} onClick={() => void freeIt()}>
-            Free this time
-          </Button>
-        ) : (
-          <Button variant="primary" className={grow} type="button" disabled={start.pending} onClick={() => void (started ? Promise.resolve() : start.run()).then(open)}>
-            {started ? 'Keep going' : 'Start planning'}
-          </Button>
-        )}
+        <Button variant={now.action.primary ? 'primary' : 'secondary'} className={grow} type="button" disabled={now.action.pending} onClick={now.action.run}>
+          {now.action.label}
+        </Button>
       </div>
     </section>
   );

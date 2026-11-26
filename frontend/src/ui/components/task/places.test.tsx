@@ -65,17 +65,25 @@ describe('the task popup opens from', () => {
     await closeBackTo(name);
   });
 
-  for (const layout of ['desktop', 'phone'] as const) {
-    it(`the Now card (${layout})`, async () => {
-      await open('today', layout);
-      const now = await screen.findByRole('region', { name: 'Current block' });
-      const name = within(now).getByRole('button', { name: 'Draft the summary' });
-      await userEvent.click(name);
-      const element = await popup('Draft the summary');
-      expect(within(element).getByText('it').tagName).toBe('STRONG');
-      await closeBackTo(name);
-    });
-  }
+  it('the Now card (desktop)', async () => {
+    await open('today');
+    const now = await screen.findByRole('region', { name: 'Current block' });
+    const name = within(now).getByRole('button', { name: 'Draft the summary' });
+    await userEvent.click(name);
+    const element = await popup('Draft the summary');
+    expect(within(element).getByText('it').tagName).toBe('STRONG');
+    await closeBackTo(name);
+  });
+
+  it("a selected block's Details, on the card it's raised as on Today's day (phone)", async () => {
+    await open('today', 'phone');
+    await userEvent.click(await screen.findByRole('slider', { name: /^Draft the summary, 4pm to 5pm/ }));
+    const details = await waitFor(() => within(document.querySelector<HTMLElement>('.cev.raised:not(.settling)')!).getByRole('button', { name: 'Details' }));
+    await userEvent.click(details);
+    const element = await popup('Draft the summary');
+    expect(within(element).getByText('it').tagName).toBe('STRONG');
+    await closeBackTo(details);
+  });
 
   it('a To schedule card, whose tap still opens its times', async () => {
     await open('today');
@@ -103,13 +111,17 @@ describe('the task popup opens from', () => {
       // On phone a block still to come is a slider, so VoiceOver's swipes move it.
       const block = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
       await userEvent.click(block);
+      // On phone the first tap selects it, and the second opens it.
+      if (layout === 'phone') await userEvent.click(block);
       blockSection(await popup('Draft the summary'));
       await closeBackTo(block);
     });
 
+    // On phone, Week is Today's, whose block opens it as the test above shows.
+    if (layout === 'desktop')
     it(`a block on Week, by a tap on the block itself (${layout})`, async () => {
       await open('week', layout);
-      const block = await screen.findByRole('button', { name: layout === 'phone' ? /^Draft the summary, 4pm to 5pm/ : /^Draft the summary/ });
+      const block = await screen.findByRole('button', { name: /^Draft the summary/ });
       expect(block).toHaveAttribute('aria-haspopup', 'dialog');
       await userEvent.click(block);
       expect(within(blockSection(await popup('Draft the summary'))).getByRole('button', { name: 'Move…' })).toBeVisible();

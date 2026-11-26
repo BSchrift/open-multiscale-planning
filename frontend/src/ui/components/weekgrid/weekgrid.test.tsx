@@ -279,6 +279,24 @@ describe('the week grid', () => {
     expect(t.onChange).toHaveBeenCalledWith('b1', { date: '2026-11-06', start: 17 * 60 + 30, end: 18 * 60 + 30 });
   });
 
+  it.each([
+    [false, 1.6, 42],
+    [true, 2.4, 96],
+  ])('zoomed, editing %s, draws its hours taller, labels each one once there is room, and a drag counts by the hour as drawn', (editing, zoom, hr) => {
+    const t = draw({ editing, zoom, now: { date: '2026-11-04', minutes: 14 * 60 } });
+    expect(screen.getByRole('img', { name: 'Current time' })).toHaveStyle({ top: `${8 * hr}px` });
+    expect(t.container.querySelector('.colbody')).toHaveStyle({ height: `${17 * hr}px` });
+    // A block keeps its time: 5pm is 11 hours below the grid's 6am.
+    expect((editing ? block : (n: RegExp) => screen.getByRole('button', { name: n }))(/^Write the report/)).toHaveStyle({ top: `${11 * hr}px`, height: `${hr}px` });
+    // Every other hour below 48px an hour, as Today labels its calendar; every hour from there.
+    const labels = [...t.container.querySelectorAll('.hours span')].map((s) => s.textContent);
+    expect(labels.slice(0, 3)).toEqual(hr < 48 ? ['6am', '8am', '10am'] : ['6am', '7am', '8am']);
+    if (!editing) return;
+    // Half the drawn hour down is half an hour.
+    drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 100 + hr / 2 });
+    expect(t.onChange).toHaveBeenCalledWith('b1', { date: '2026-11-05', start: 17 * 60 + 30, end: 18 * 60 + 30 });
+  });
+
   it('snaps to a suggested time within 20 minutes', () => {
     const t = draw({ editing: true, ghosts: [{ date: '2026-11-05', start: 19 * 60, end: 20 * 60, label: 'Thu Nov 5, 7pm', onAccept: vi.fn() }] });
     // 100 minutes down lands on 6:45pm, 15 minutes from the suggestion.

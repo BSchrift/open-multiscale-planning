@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { processTo } from './journeys/journey';
 import { expectTapTarget, oneOffRow, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
+import { waitingSheet } from './today';
 
 // Process's choices one by one, beyond the tour of them in inbox.spec.ts, and Capture's ways out and past the Inbox.
 
@@ -186,8 +187,12 @@ test('Add to this week is off again on each new card, and the item it adds waits
   await expect(toast(page)).toContainText('Added Fix the gate to Paint the fence.');
   await exit(page, phone);
 
-  await nav(page).getByRole('button', { name: 'Week' }).click();
-  const lane = page.getByRole('region', { name: 'To schedule' });
+  // Waiting in the week: in To schedule on Week, and on phone in the sheet behind the count on Today's strip.
+  let lane = page.getByRole('region', { name: 'To schedule' });
+  if (phone) {
+    await nav(page).getByRole('button', { name: 'Today' }).click();
+    lane = (await waitingSheet(page)).getByRole('region', { name: 'Waiting for a day' });
+  } else await nav(page).getByRole('button', { name: 'Week' }).click();
   // With no estimate, an item added to a project counts as an hour.
   await expect(lane.getByRole('button', { name: /^Call the bank, Project, 1h\b/ })).toBeVisible();
   await expect(lane.getByRole('button', { name: /^Fix the gate,/ })).toHaveCount(0);
@@ -459,18 +464,17 @@ test('desktop: a click outside the card closes Process, as Exit does, and what w
   expect(errors).toEqual([]);
 });
 
-test('Add details sends a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
+test('Time under the name and Add details send a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
   const capture = await openCapture(page, phone);
   await capture.getByRole('textbox', { name: 'Capture to Inbox' }).fill('Return the books');
-  await capture.getByRole('button', { name: 'Add details' }).click();
-  await capture.getByLabel('Send to').selectOption({ label: 'One offs' });
-  const field = capture.getByRole('textbox', { name: 'Capture to One offs' });
-  await expect(field).toHaveValue('Return the books');
-  if (!phone) await expect(capture.getByText('Saves to One offs')).toBeVisible();
+  // Time shows before Add details, one Tab from the name on desktop.
   const slider = capture.getByRole('slider', { name: 'Time' });
-  await slider.focus();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'No estimate');
+  if (phone) await slider.focus();
+  else await page.keyboard.press('Tab');
+  await expect(slider).toBeFocused();
   // Five minutes a step, each checked before the next.
   for (let m = 5; m < 60; m += 5) {
     await page.keyboard.press('ArrowRight');
@@ -478,6 +482,13 @@ test('Add details sends a task with its time straight to One offs, past the Inbo
   }
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', '1h');
+  await capture.getByRole('button', { name: 'Add details' }).click();
+  await expect(capture.getByRole('slider', { name: 'Time' })).toHaveCount(1);
+  await capture.getByLabel('Send to').selectOption({ label: 'One offs' });
+  const field = capture.getByRole('textbox', { name: 'Capture to One offs' });
+  await expect(field).toHaveValue('Return the books');
+  await expect(slider).toHaveAttribute('aria-valuetext', '1h');
+  if (!phone) await expect(capture.getByText('Saves to One offs')).toBeVisible();
   if (phone) await capture.getByRole('button', { name: 'Save' }).click();
   else await field.press('Enter');
   await expect(phone ? toast(page) : capture.getByRole('status')).toContainText('Saved to One offs');

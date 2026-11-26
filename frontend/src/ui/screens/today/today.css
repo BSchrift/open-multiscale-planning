@@ -41,10 +41,6 @@
 [data-layout='phone'] .cev .time { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The block being dragged rides above the suggested time. */
 [data-layout] .cev.lifted { z-index: calc(var(--z-raised) + 2); box-shadow: var(--shadow-2); }
-/* The stretch banner's × matches its card, and Start reads as an action, as Process does. */
-[data-layout='phone'] .stretchdue { align-items: stretch; }
-[data-layout='phone'] .stretchdue > .icbtn { height: auto; border-color: var(--hairline); border-radius: var(--radius-card); box-shadow: var(--shadow-1); color: var(--ink-3); }
-[data-layout='phone'] .attngo { color: var(--accent-text); font-weight: var(--fw-strong); }
 /* A one off's dates open on a line of their own, under Find a time and Change date. */
 [data-layout] .oorow > .oodate { flex-basis: 100%; }
 
@@ -57,14 +53,14 @@
 [data-layout] .spentring > svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
 [data-layout] .spentring circle, [data-layout] .nowkey circle { fill: none; stroke-width: 7; }
 [data-layout] .nowkey circle { stroke-width: 3; }
-[data-layout] .now .rtrack { stroke: var(--wash); }
-[data-layout] .now .rfill { stroke: var(--accent-text); transition: stroke-dasharray var(--dur-slow) ease-out, stroke var(--dur-slow); }
+[data-layout] .now .rtrack, [data-layout] .raised .rtrack { stroke: var(--wash); }
+[data-layout] .now .rfill, [data-layout] .raised .rfill { stroke: var(--accent-text); transition: stroke-dasharray var(--dur-slow) ease-out, stroke var(--dur-slow); }
 [data-layout] .spentring.paused .rfill { stroke: var(--ink-3); }
 [data-layout] .spentring.paused .rmid { color: var(--ink-3); }
 [data-layout] .rmid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); font-size: var(--fs-meta); font-weight: var(--fw-strong); line-height: 1; }
-[data-layout] .now .sign { flex: none; width: 10px; height: 10px; }
-[data-layout] .now .sign .bars { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
-[data-layout] .now .sign .play { fill: var(--accent-text); }
+[data-layout] .now .sign, [data-layout] .raised .sign { flex: none; width: 10px; height: 10px; }
+[data-layout] .now .sign .bars, [data-layout] .raised .sign .bars { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+[data-layout] .now .sign .play, [data-layout] .raised .sign .play { fill: var(--accent-text); }
 [data-layout] .nowlabel { display: flex; align-items: center; gap: var(--space-1); }
 /* The ⓘ keeps the label's line height: its target overhangs it rather than pushing the countdown down. */
 [data-layout] .nowinfo { flex: none; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-1)); padding: 0; border: 0; border-radius: var(--radius-circle); background: transparent; color: var(--accent-text); }
@@ -90,3 +86,88 @@
 }
 /* Clear of the time-spent ring in the card's corner. */
 [data-layout] .now.timed > .nownotes { padding-right: calc(var(--space-16) + var(--space-2)); }
+
+/* Today on phone (Phone.tsx): the title with its menu, a few quiet rows, what's due as chips, then the day edge to edge. */
+[data-layout='phone'] .tdphone { gap: var(--space-2); }
+[data-layout='phone'] .tdhead { display: flex; align-items: baseline; gap: var(--space-2); min-height: var(--tap); }
+[data-layout='phone'] .tdhead h1 { margin: 0; }
+[data-layout='phone'] .tddate { color: var(--ink-3); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+[data-layout='phone'] .tdmenu { margin-left: auto; align-self: center; }
+[data-layout='phone'] .tdrow { font-size: var(--fs-meta); line-height: var(--lh-meta); text-align: left; }
+[data-layout='phone'] .tdrow .chev { flex: none; color: var(--ink-3); }
+[data-layout='phone'] .tdplan > .btn { flex: none; white-space: nowrap; }
+[data-layout='phone'] .tdplan { align-items: center; min-height: calc(var(--tap) + var(--space-3)); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+[data-layout='phone'] .tdsh { margin: 0; color: var(--ink-2); font-size: var(--fs-label); line-height: var(--lh-label); }
+/* Due: an all-day row on the day's card, chips beside the hour labels' gutter. */
+[data-layout='phone'] .tddue { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) calc(-1 * var(--space-4)) calc(-1 * var(--space-2)); padding: var(--space-2) var(--space-4) var(--space-2) 0; border-top: 1px solid var(--hairline); background: var(--card); }
+[data-layout='phone'] .tdduel { flex: none; width: calc(var(--space-12) + var(--space-1)); padding-right: var(--space-2); color: var(--ink-3); font-size: var(--fs-caption); line-height: var(--lh-caption); text-align: right; }
+[data-layout='phone'] .tdchips { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+[data-layout='phone'] .tdchip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; min-height: var(--tap); padding: 0 var(--space-3); border-radius: var(--radius-block); font: inherit; font-size: var(--fs-label); line-height: var(--lh-label); text-align: left; }
+[data-layout='phone'] .tdchip .blktitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-layout='phone'] .tdchip.notes { border: 1px solid var(--hairline); background: var(--card); color: var(--ink-2); }
+[data-layout='phone'] .tdday { margin: 0 calc(-1 * var(--space-4)); border-top: 1px solid var(--hairline); background: var(--card); }
+[data-layout='phone'] .tdday .daywrap { padding: var(--space-4) calc(var(--space-4) + var(--space-1)) var(--space-3) calc(var(--space-12) + var(--space-1)); }
+[data-layout='phone'] .tdday .tllist { padding: 0 var(--space-4) var(--space-1); }
+/* The hours before the day opens, folded into one row that says what they hold. */
+[data-layout='phone'] .earlier { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: var(--tap); padding: var(--space-2) var(--space-4) var(--space-2) calc(var(--space-12) + var(--space-1)); border: 0; border-bottom: 1px solid var(--hairline); background: var(--wash); color: var(--ink-2); font: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); text-align: left; }
+[data-layout='phone'] .earlier svg { flex: none; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease); }
+[data-layout='phone'] .earlier.open svg { transform: rotate(180deg); }
+/* With nothing under way, the next block says Next, and the now line says the time free till then. */
+[data-layout='phone'] .nexttag { margin-right: var(--space-1); font-weight: var(--fw-strong); }
+[data-layout='phone'] .nowfree { position: absolute; left: var(--space-2); margin-top: var(--space-1); color: var(--ink-3); font-size: var(--fs-caption); line-height: var(--lh-caption); pointer-events: none; }
+/* Free time on a day with nothing left to do: information only, dashed. The stretch you're in offers Start something. */
+[data-layout='phone'] .tdgap { position: absolute; left: 4px; right: 4px; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); border-radius: var(--radius-block); font: inherit; font-size: var(--fs-caption); line-height: var(--lh-caption); text-align: left; }
+[data-layout='phone'] .tdgap svg { flex: none; color: var(--ink-3); }
+[data-layout='phone'] .tdgap.now { z-index: var(--z-raised); align-items: center; min-height: calc(var(--tap) + var(--space-2)); padding-block: 0; color: var(--ink-2); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+/* The selected block, raised out of its lane as a card over both lane edges and its own hour labels. */
+[data-layout='phone'] .cev.raised { left: calc(-1 * (var(--space-8) + var(--space-1))); right: calc(-1 * var(--space-1)); z-index: calc(var(--z-raised) + 2); display: flex; flex-direction: column; padding: var(--space-3); border-radius: var(--radius-card); box-shadow: var(--shadow-3); overflow: visible; white-space: normal; font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: var(--fw-regular); cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+[data-layout='phone'] .cev.raised.s-now { box-shadow: inset 0 0 0 var(--border-emphasis) var(--ink), var(--shadow-3); }
+[data-layout='phone'] .cev.raised.away { visibility: hidden; }
+/* A block selected by Today rather than a tap: within its own times, clear of the hour labels and ticks, a little wider
+   to the right and still raised, so it reads as the one Today picked. Its one line fits any block's height, and lets a
+   button's 44pt target reach past its edges. */
+[data-layout='phone'] .cev.raised.inlane { left: 4px; right: calc(-1 * var(--space-1)); justify-content: center; padding: 0 var(--space-2); overflow: visible; }
+[data-layout='phone'] .cev.raised.inlane .rcin { gap: 0; }
+[data-layout='phone'] .rcline { display: flex; align-items: center; gap: var(--space-2); min-width: 0; white-space: nowrap; }
+[data-layout='phone'] .rcline .blktitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-strong); }
+[data-layout='phone'] .rcline .rcleft { flex: none; }
+/* The next block's Start early and an ended block's How did it go?, on its line: compact, and a chip in the caption's size
+   on a block too short for that. Each is pressed from 44pt around it, past the block's edges if need be. */
+[data-layout='phone'] .rcmini { position: relative; flex: none; min-height: 0; padding: var(--space-1) var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--card); color: var(--ink); font: inherit; font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: var(--fw-strong); white-space: nowrap; cursor: pointer; }
+[data-layout='phone'] .rcmini.go { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+[data-layout='phone'] .rcmini.chip { padding-block: 0; border: 0; border-radius: var(--radius-pill); font-size: var(--fs-caption); line-height: var(--lh-caption); }
+[data-layout='phone'] .rcmini::before { content: ''; position: absolute; top: 50%; left: 50%; width: max(100%, var(--tap)); height: max(100%, var(--tap)); transform: translate(-50%, -50%); }
+[data-layout='phone'] .miniring { flex: none; width: var(--icon-md); height: var(--icon-md); transform: rotate(-90deg); }
+[data-layout='phone'] .miniring circle { fill: none; stroke-width: 9; }
+[data-layout='phone'] .miniring.paused .rfill { stroke: var(--ink-3); }
+[data-layout='phone'] .cev.raised.settling { z-index: calc(var(--z-raised) + 1); pointer-events: none; }
+[data-layout='phone'] .rcin { display: flex; flex-direction: column; gap: var(--space-1); }
+[data-layout='phone'] .rcmeta { display: flex; align-items: center; gap: var(--space-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+[data-layout='phone'] .rctitle { overflow: hidden; color: var(--ink); font-size: var(--fs-heading); line-height: var(--lh-heading); font-weight: var(--fw-strong); white-space: nowrap; text-overflow: ellipsis; }
+[data-layout='phone'] .rcnow { display: flex; align-items: center; gap: var(--space-2); }
+[data-layout='phone'] .rcnowtxt { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-1); min-width: 0; }
+[data-layout='phone'] .raised .spentring { position: relative; top: auto; right: auto; flex: none; width: calc(var(--tap) + var(--space-2)); height: calc(var(--tap) + var(--space-2)); }
+[data-layout='phone'] .raised .rmid { gap: 0; font-size: var(--fs-caption); }
+[data-layout='phone'] .rcacts { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+[data-layout='phone'] .rcacts .btn { flex: 1 1 0; min-width: 0; padding-inline: var(--space-2); }
+[data-layout='phone'] .rcans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin-top: var(--space-2); }
+[data-layout='phone'] .rclink { align-self: flex-start; padding-inline: 0; }
+[data-layout='phone'] .rcans .btn { gap: var(--space-1); min-width: 0; padding-inline: var(--space-1); white-space: nowrap; }
+/* Today's sheets draw their rows as Today's cards do, though they open outside it. */
+[data-layout='phone'] .tdsheet .card > :is(.maintrow, .qrow, .rowline) { padding-inline: var(--space-4); }
+[data-layout='phone'] .tdsheet .card > :is(.maintrow, .qrow, .rowline):first-child { border-top: 0; }
+/* A card held in the waiting sheet lifts out of it, and the sheet steps aside so it can be let go on the day. */
+[data-layout='phone'] .sheet.aside, [data-layout='phone'] .scrim:has(+ .sheet.aside) { visibility: hidden; }
+
+/* The phone's Today with the week's strip over its day (week/Phone.tsx's host). The strip's three pieces meet with no
+   gap, so its day row can stick through the whole day. */
+[data-layout='phone'] .tdweek { display: flex; flex-direction: column; gap: var(--space-3); }
+[data-layout='phone'] .tdweek > .sffold,
+[data-layout='phone'] .tdweek > .sffoot { margin-top: calc(-1 * var(--space-3)); }
+[data-layout='phone'] .tdhead .tdtoday { margin-left: auto; align-self: center; }
+[data-layout='phone'] .tdhead .tdtoday + .tdmenu { margin-left: 0; }
+[data-layout='phone'] .tdpaged { display: flex; flex-direction: column; gap: var(--space-3); }
+/* A row's place, held while its count is read, the same height as the row to come. */
+[data-layout='phone'] .tdheld { visibility: hidden; }
+/* Anything brought into view, by focus or a find, stops clear of the day row stuck at the top. */
+[data-layout='phone'] .pane:has(.sffold) { scroll-padding-top: 100px; }

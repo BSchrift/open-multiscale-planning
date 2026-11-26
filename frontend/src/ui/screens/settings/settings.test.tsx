@@ -22,6 +22,7 @@ function fakeSync() {
     signIn: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
     syncNow: vi.fn(async () => undefined),
+    settled: vi.fn(async () => undefined),
     connectCalendar: vi.fn(async () => undefined),
     refreshCalendar: vi.fn(async () => undefined),
     disconnectCalendar: vi.fn(async () => undefined),
@@ -414,7 +415,8 @@ describe('Settings', () => {
       expect(within(await screen.findByRole('region', { name: 'Planning cadence' })).getByText('Calendar quarters')).toBeVisible();
       await userEvent.click(screen.getByRole('button', { name: 'Change planning cadence' }));
       await waitFor(() => expect(t.nav().route).toMatchObject({ area: 'plan', params: { cadence: 'edit' } }));
-      expect(t.nav().backLabel).toBe('Settings');
+      // Plan is a tab of its own on phone, so back goes to More's tab, where Settings was left.
+      expect(t.nav().backLabel).toBe('More');
     });
 
     it('with none, says so', async () => {
@@ -552,6 +554,25 @@ describe('Settings', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
       expect(await within(away).findByText('Dec 20 to Dec 28')).toBeVisible();
       expect(await listRecords(t.db, 'away_period')).toMatchObject([{ start: '2026-12-20', end: '2026-12-28' }]);
+    });
+
+    it('take the practice sessions on them off the calendar, and say so, with Undo', async () => {
+      const t = await renderScreen('settings', {
+        seed: async (w) => {
+          await w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', preferred_times: [7 * 60], state: 'active' }, 'run');
+          for (const d of ['04', '05', '06']) await w.create('time_block', { practice_id: 'run', start: `2026-11-${d}T13:00:00Z`, end: `2026-11-${d}T13:30:00Z`, tz: 'America/Chicago' }, `session:run:2026-11-${d}`);
+        },
+      });
+      const away = await screen.findByRole('region', { name: 'Away dates' });
+      fireEvent.change(within(away).getByLabelText('From'), { target: { value: '2026-11-04' } });
+      fireEvent.change(within(away).getByLabelText(/^to$/i), { target: { value: '2026-11-05' } });
+      await userEvent.click(within(away).getByRole('button', { name: 'Add' }));
+      expect(await screen.findByText('Added away dates Nov 4 to Nov 5. Took 2 practice sessions off the calendar.')).toBeVisible();
+      const off = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.cancelled).map((b) => b.id);
+      expect(await off()).toEqual(['session:run:2026-11-04', 'session:run:2026-11-05']);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await off()).toEqual([]));
+      expect(await listRecords(t.db, 'away_period')).toEqual([]);
     });
 
     it('leaves out away dates that have passed', async () => {

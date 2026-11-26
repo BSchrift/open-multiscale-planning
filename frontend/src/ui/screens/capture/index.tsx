@@ -1,11 +1,12 @@
-// Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away. It opens with
-// Time first, right under the name, then Send to, where choosing a project, and then one of its milestones, or One offs
-// skips the Inbox, then a description, in which Enter makes a new line and ⌘Enter saves, then attachments, which upload
-// once the task is saved. A goal's backlog can take it straight away too, with no milestone.
+// Capture: one field, with Time, the estimate, right under it. Enter saves to the Inbox and Esc cancels. Add details is
+// optional and folded away: Send to, where choosing a project, and then one of its milestones, or One offs skips the
+// Inbox, then a description, in which Enter makes a new line and ⌘Enter saves, then attachments, which upload once the
+// task is saved. A goal's backlog can take it straight away too, with no milestone.
 // Opened from a hold on a calendar, it's given that time: it says the day and time, the task is saved with a block
 // there, Time is the block's length, and Save's toast has Undo. On desktop it opens beside the draft, with no scrim.
 // There the field is also a search of the tasks you have: its list starts on the new task, which Enter saves as ever,
 // then lists the tasks the calendar's finder offers, and picking one has the finder put that task in the time instead.
+// Time waits there in Add details, first: the drafted time already gives the length, and the list is under the name.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
@@ -267,6 +268,8 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
     </select>
   );
   const slider = <EstimateSlider label="Time" value={est} onChange={setTime} {...(slot ? { onMove: setTime } : {})} />;
+  // Under the name from the start, but in Add details on a draft, whose time already gives the length.
+  const [time, detailsTime] = slot ? [null, slider] : [slider, null];
   // Under the name: when the new task's block will be, and what it overlaps or why it moved.
   const when = slot && (
     <>
@@ -402,10 +405,11 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
             onChange={(e) => type(e.target.value)}
           />
           {list}
+          {time}
           <div>{detailsToggle('link')}</div>
           {details && (
             <>
-              {slider}
+              {detailsTime}
               <div className="stack8">
                 <label className="small quiet" htmlFor={ids.where}>
                   Send to
@@ -463,9 +467,10 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
           />
           {when}
           {list}
+          {time && <div className="captime">{time}</div>}
           {details && !saved && (
             <div className="capdetails">
-              {slider}
+              {detailsTime}
               <div className="capplace">
                 <div className="capfield">
                   <label htmlFor={ids.where}>Send to</label>

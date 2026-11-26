@@ -40,10 +40,14 @@ export async function firstRun(page: Page, goal: string) {
 }
 
 
-/** Opens a main area: a tab on desktop, a tab or a More row on phone. */
+/**
+ * Opens a main area: a tab on desktop, a tab or a More row on phone. The phone has no Week, since its Today draws the
+ * week, so a phone step that read the week opens Today rather than asking for Week here.
+ */
 export async function tab(page: Page, phone: boolean, name: string) {
   const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone && !['Today', 'Week', 'Inbox', 'Goals'].includes(name)) {
+  expect(phone && name === 'Week', "the phone's week is on Today").toBe(false);
+  if (phone && !['Today', 'Plan', 'Inbox', 'Goals'].includes(name)) {
     // More keeps the page it was left on, so the row may be one step back.
     await nav.getByRole('button', { name: 'More' }).click();
     const back = page.getByRole('button', { name: 'Back to More' });

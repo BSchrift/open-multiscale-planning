@@ -1,6 +1,6 @@
 // Every change Week makes, as one transaction each with its message and Undo. Both layouts share it.
 
-import { keepPracticeChange, moveBlock, placeBlock, placeSession, removeBlock, skipPractice, skipSession, unscheduleBlock } from '../../../core/blocks';
+import { moveBlock, placeBlock, placeSession, removeBlock, skipPractice, skipSession, unscheduleBlock } from '../../../core/blocks';
 import { formatTimeOfDay, formatWeekday, nowInstant, weekday } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -15,6 +15,7 @@ import { DAY_NAMES } from '../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../components/editors/PracticeSchedule';
 import { useToast } from '../../components/Toast';
 import { dayName } from '../../components/blocks/describe';
+import { resetWeek } from '../../../core/weekReset';
 import type { Placeable } from './data';
 
 /** A placed block as both layouts hold it. */
@@ -30,15 +31,15 @@ export function useWeekActions() {
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const zone = clock.zone();
 
-  /** `undone` runs as Undo is pressed, before Undo saves. */
-  const withUndo = async (fn: (w: Writer) => Promise<PlanChange>, message: string, focusUndo = false, undone?: () => void) => {
+  /** `undone` runs as Undo is pressed, before Undo saves. A message can be made from what the change did. */
+  const withUndo = async <C extends PlanChange>(fn: (w: Writer) => Promise<C>, message: string | ((done: C) => string), focusUndo = false, undone?: () => void) => {
     const reverse = await run(fn);
     if (reverse) {
       const undo = () => {
         undone?.();
         return run((w) => applyPlanChange(w, reverse));
       };
-      toast.show(message, { undo, focusUndo });
+      toast.show(typeof message === 'function' ? message(reverse as C) : message, { undo, focusUndo });
     }
     return reverse;
   };
@@ -86,6 +87,15 @@ export function useWeekActions() {
     skipDay: (item: Placeable, week: LocalDate) =>
       withUndo((w) => skipSession(w, week, item.practice!.id, item.dates!.from, true, clock), `Skipped ${item.title} on ${DAY_NAMES[weekday(item.dates!.from)]} this week.`),
     markDone: (task: Task) => withUndo((w) => (task.kind === 'one_off' ? tickOneOff(w, task.id, clock) : closeTask(w, task.id, 'done', clock)), `${task.title} done`),
-    keepPractice: (blockId: string, choice: KeepChoice) => withUndo((w) => keepPracticeChange(w, blockId, choice.keep, clock), choice.done),
+    /**
+     * Its other sessions at the old set time follow, in the same Undo. Set times load as it saves: the task popup brings
+     * this file into the first load, and they aren't part of it.
+     */
+    keepPractice: async (blockId: string, choice: KeepChoice) => {
+      const { followMessage, keepSetTime } = await import('../../../core/setTimes');
+      return withUndo((w) => keepSetTime(w, blockId, choice.keep, clock), (done) => [choice.done, followMessage(done)].filter(Boolean).join(' '));
+    },
+    /** Resets a week's plan, with one Undo. The button that did it goes, so focus moves to Undo. */
+    reset: (week: LocalDate, message: (reverse: PlanChange) => string, undone?: () => void) => withUndo((w) => resetWeek(w, week, clock), message, true, undone),
   };
 }

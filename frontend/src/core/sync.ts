@@ -53,6 +53,8 @@ export interface SyncRequest {
   changes: RecordChange[];
   /** This app takes a reset for expired records. Left off while it pulls everything after one. */
   expiry_reset?: boolean;
+  /** During a first sync, the snapshot its first response gave: records deleted by then are left out. */
+  snapshot?: number;
 }
 
 export interface SyncResponse {
@@ -63,6 +65,8 @@ export interface SyncResponse {
   generation?: string;
   /** 'expired' when this device may hold an older copy of an expired record. Nothing it sent was kept. */
   reset?: string;
+  /** Answering a device that holds nothing yet: the server's counter, which it sends for the rest of its first sync. */
+  snapshot?: number;
 }
 
 export type SyncSend = (request: SyncRequest) => Promise<SyncResponse>;
@@ -149,6 +153,7 @@ function resetForRestoredServer(db: Db, generation: string) {
     );
     await setMeta(tx, META.cursor, '0');
     await setMeta(tx, META.generation, generation);
+    await tx.run('DELETE FROM meta WHERE key = :key', { key: META.snapshot });
   });
 }
 
@@ -188,7 +193,8 @@ function assertResponse(res: SyncResponse): void {
     Array.isArray(res.changes) &&
     res.changes.every((change) => change !== null && typeof change === 'object') &&
     (res.generation === undefined || typeof res.generation === 'string') &&
-    (res.reset === undefined || res.reset === 'expired');
+    (res.reset === undefined || res.reset === 'expired') &&
+    (res.snapshot === undefined || (Number.isSafeInteger(res.snapshot) && res.snapshot > 0));
   if (!ok) throw new SyncError('error');
 }
 
@@ -214,11 +220,21 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
   let pulled: Set<string> | null = null;
   let resets = 0;
   let applied = 0;
+  // A pull already asked for, from cursor, sent before the page before it was applied.
+  let ahead: Promise<SyncResponse> | null = null;
+  // A first sync leaves out records deleted before it began: a delete since has a higher sequence number, so it still
+  // comes, and a device that holds nothing has no copy for the delete to reach. Kept until the pull reaches the end, so
+  // one that stops part way resumes with it.
+  let snapshot = Number((await getMeta(db, META.snapshot)) ?? 0);
+  const ask = (from: number, changes: RecordChange[]) =>
+    timedSend(send, { cursor: from, changes, ...(pulled ? {} : { expiry_reset: true }), ...(snapshot ? { snapshot } : {}) });
   for (;;) {
-    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db, refused, oneByOne);
+    const { rows, changes, held, more } = pulled || ahead ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db, refused, oneByOne);
+    const sent = ahead ?? ask(cursor, changes);
+    ahead = null;
     let res: SyncResponse;
     try {
-      res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+      res = await sent;
     } catch (err) {
       // The server refuses a whole request for one record too long, without saying which, so the batch goes again one
       // record at a time, and the one it refuses alone is held. Refused again once held, it can't be held any further.
@@ -234,7 +250,7 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
     const generation = res.generation ?? '';
     if ((res.cursor < cursor && !res.reset) || generation !== seen) {
       await resetForRestoredServer(db, generation);
-      cursor = 0;
+      cursor = snapshot = 0;
       seen = generation;
       received = pulled = null;
       continue;
@@ -248,6 +264,19 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
     }
     // A server that claims more without moving the cursor would otherwise loop forever.
     if (res.more && res.cursor === cursor) throw new SyncError('error');
+    // Only to a request from 0 that sent nothing, so nothing here can be a copy that one of the left-out deletes reaches.
+    if (res.snapshot && received && !snapshot) {
+      snapshot = res.snapshot;
+      await setMeta(db, META.snapshot, String(snapshot));
+    }
+    // With nothing to send, the next page comes down while this one is applied, so a first sync takes about as long as
+    // the slower of the two rather than their sum. Pages are still applied in order, and a cursor is stored only once
+    // its page is, so a crash still only repeats work. Changes made meanwhile go once the pull is done.
+    if (res.more && (pulled || (changes.length === 0 && !more && !(await db.get('SELECT 1 FROM outbox LIMIT 1'))))) {
+      ahead = ask(res.cursor, []);
+      // Awaited on the next turn. If applying this page fails first, its failure has nowhere to go.
+      ahead.catch(() => undefined);
+    }
     await applyRemote(db, res.changes);
     applied += res.changes.length;
     for (const change of res.changes) {
@@ -262,9 +291,13 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
       received = pulled = null;
       continue;
     }
-    await clearSent(db, rows);
+    if (rows.length > 0) await clearSent(db, rows);
     await setMeta(db, META.cursor, String(res.cursor));
     cursor = res.cursor;
+    if (!res.more && snapshot) {
+      await db.run('DELETE FROM meta WHERE key = :key', { key: META.snapshot });
+      snapshot = 0;
+    }
     if (res.more || more) continue;
     if (held > 0) throw new SyncError('too_large');
     return applied;

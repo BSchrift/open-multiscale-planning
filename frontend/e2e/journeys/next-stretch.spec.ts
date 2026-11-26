@@ -1,5 +1,6 @@
 import { expect, test } from '../platform';
-import { startPlanningThenUndo } from '../seed';
+import { skipPlanningOnToday, startPlanningThenUndo } from '../seed';
+import { askOnBlock } from '../today';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
@@ -15,7 +16,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const goal = 'Learn to bake bread';
   const errors = await start(page, chicago('2026-12-07', '09:00')); // Monday, in the last quarter of 2026.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await skipPlanningOnToday(page);
 
   // The first plan is for this stretch, from today to the quarter's end.
   await tab(page, phone, 'Plan');
@@ -43,18 +44,25 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await add.getByRole('slider', { name: 'Each session' }).fill('15');
   await add.getByLabel('Usual time').fill('07:30');
   await add.getByRole('button', { name: 'Add practice' }).click();
-  await expect(page.getByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
+  // Set to 7:30am every day, it lands at that time from tomorrow, today's having passed.
+  await expect(page.getByText('Practice added. Placed 6 sessions at their set times.')).toBeVisible();
 
   // Do the starter's one task now, from Today's Next up, and answer the block. Started on the hour: the clock has run on
   // since 9am while the steps above took real time, and a block starts on the minute but counts from the second it was
   // started, so starting late in a minute counted 29m rather than 30m.
   await tab(page, phone, 'Today');
   await jumpTo(page, chicago('2026-12-07', '10:00'));
+  // On phone, Next up is what Start something offers in the free time.
+  if (phone) await page.getByRole('button', { name: 'Start something' }).click();
   await page.getByRole('region', { name: 'Next up' }).getByRole('button', { name: 'Start Mix the starter' }).click();
   // Saved before the clock moves on, or the block would start at the later time.
-  await expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible();
+  await (phone
+    ? expect(page.locator('.cev.raised:not(.settling)')).toContainText('Mix the starter')
+    : expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible());
   await jumpTo(page, chicago('2026-12-07', '10:31'));
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Done', exact: true }).click();
+  // It asks how it went: in its prompt, and on phone on the block itself.
+  const asked = phone ? await askOnBlock(page, /^Mix the starter, /) : page.getByRole('dialog', { name: 'Block finished' });
+  await asked.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
 
   // The Saturday after Christmas: the stretch ends Dec 31, so it's time to plan Jan 1 to Mar 31.
@@ -199,10 +207,11 @@ test('plans the next stretch from what the last one held', async ({ page }, info
     await page.getByRole('button', { name: /^All picked tasks/ }).click();
     await expect(page.getByRole('dialog', { name: 'All picked tasks' })).toContainText('Read about bread');
   } else {
-    // Monday's 7:30am has gone by, so today's session starts now, and Tuesday's is at the edited time.
+    // Monday's 7:30am had gone by when the app placed the week, so today's session waits and starts now, and the rest of
+    // the week is at the edited time.
     await page.getByRole('button', { name: /^Read about bread/ }).click();
     await expect(page.getByRole('group', { name: /^Read about bread, Mon Jan 4, 9am to 9:20am, Practice\./ })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Use suggested time, Tue Jan 5, 7:30am' })).toBeVisible();
+    await expect(page.getByRole('list', { name: /^At their set times/ }).getByText('Tue, Wed, Thu, Fri, Sat and Sun at 7:30am')).toBeVisible();
   }
   expect(errors).toEqual([]);
 });

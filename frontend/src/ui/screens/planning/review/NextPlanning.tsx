@@ -5,27 +5,28 @@ import { useRef, useState } from 'react';
 import { addWeeks, formatTimeOfDay, thisWeek } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange } from '../../../../core/plan';
-import { blockAhead, isPlanned, loadWeekPlanning, nextPlanningTime, schedulePlanning } from '../../../../core/planning';
+import { blockAhead, isPlanned, nextPlanningTime, schedulePlanning } from '../../../../core/planning';
+import type { WeekPlanning } from '../../../../core/planning';
 import { slotInstants } from '../../../../core/slots';
 import type { Slot } from '../../../../core/slots';
 import type { Instant, LocalDate } from '../../../../core/types';
-import { useApp, useMutation, useQuery } from '../../../app/store';
+import { useApp, useMutation } from '../../../app/store';
 import { PlanningTimes } from '../../../components/planning/PlanningTimes';
-import { longTime, usePlanningTimes } from '../../../components/planning/usePlanning';
+import { longTime } from '../../../components/planning/usePlanning';
+import type { usePlanningTimes } from '../../../components/planning/usePlanning';
 import { dayName } from '../../../components/weekgrid';
 import { Button } from '../../../components/ds/Button';
 
-export function NextPlanning(props: { week: LocalDate; began: Instant }) {
+/** Review reads next week's planning, so Finish plan under this row waits for it too. */
+export function NextPlanning(props: { week: LocalDate; began: Instant; planning: NonNullable<ReturnType<typeof usePlanningTimes>>; ahead: WeekPlanning }) {
   const { clock, layout } = useApp();
+  const { planning, ahead } = props;
   const next = addWeeks(props.week, 1);
-  const planning = usePlanningTimes(next);
-  const ahead = useQuery((sql) => loadWeekPlanning(sql, next), [next]).data;
   const [done, setDone] = useState<{ slot: Slot; reverse: PlanChange } | null>(null);
   const [choosing, setChoosing] = useState(false);
   const undoRef = useRef<HTMLButtonElement>(null);
   const schedule = useMutation((w, slot: Slot) => schedulePlanning(w, next, slotInstants(slot, clock.zone()), clock));
   const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
-  if (!planning || !ahead) return null;
   if (!done && (isPlanned(ahead) || blockAhead(ahead, clock))) return null;
   const found = done ? null : nextPlanningTime(props.week, props.began, planning.estimate.minutes, planning.input, planning.usual);
   const slot = done?.slot ?? found?.slot;

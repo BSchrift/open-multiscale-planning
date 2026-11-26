@@ -89,7 +89,7 @@ test('a 200-character title with nowhere to break stays inside its card', async 
   await openSeeded(page, records);
   const nav = page.getByRole('navigation', { name: 'Main' });
   const tab = async (name: string) => {
-    if (phone && !['Today', 'Week', 'Inbox', 'Goals'].includes(name)) {
+    if (phone && !['Today', 'Plan', 'Inbox', 'Goals'].includes(name)) {
       await nav.getByRole('button', { name: 'More' }).click();
       await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
     } else {

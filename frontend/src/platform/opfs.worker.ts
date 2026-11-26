@@ -87,14 +87,22 @@ async function open(): Promise<boolean> {
 // and the FILE_HASH check once no browser can go back to a bundle from before OPFS, and keep the first import of FILE
 // for browsers that skip this release.
 let copied = 0;
+// The changes the copy waiting to start is timed from. Only a new change starts the wait again: a page that goes on
+// reading, as one busy drawing and loading screens does, would otherwise hold the copy back for as long as it reads.
+let waitingFor = -1;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let copying = Promise.resolve();
 const changes = () => Number(db.changes(true));
 
 function copySoon() {
-  if (changes() === copied) return;
+  const now = changes();
+  if (now === copied || now === waitingFor) return;
+  waitingFor = now;
   clearTimeout(timer);
-  timer = setTimeout(() => (copying = copying.then(copy)), 200);
+  timer = setTimeout(() => {
+    waitingFor = -1;
+    copying = copying.then(copy);
+  }, 200);
 }
 
 async function copy() {
@@ -111,6 +119,7 @@ async function copy() {
 
 async function close() {
   clearTimeout(timer);
+  waitingFor = -1;
   await copying;
   if (changes() !== copied) await copy();
   await driver.close();

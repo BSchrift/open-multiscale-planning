@@ -14,7 +14,7 @@ import { TaskRow } from '../../components/TaskRow';
 import type { TodayData } from './data';
 import { Button } from '../../components/ds/Button';
 
-function Row(props: { row: OneOffRow; onToggle(box: HTMLInputElement): void; onSave(): void }) {
+export function OneOffRowItem(props: { row: OneOffRow; onToggle(box: HTMLInputElement): void; onSave(): void }) {
   const { row } = props;
   const { task, checked } = row;
   const { layout } = useApp();
@@ -41,6 +41,12 @@ function Row(props: { row: OneOffRow; onToggle(box: HTMLInputElement): void; onS
   );
 }
 
+/** One offs dated to today that aren't on the calendar yet, ticked or not. */
+export function oneOffsToday(data: TodayData, clock: ReturnType<typeof useApp>['clock']): OneOffRow[] {
+  const placed = new Set(data.blocks.map((b) => b.task_id));
+  return oneOffRows(data.tasks, data.completions, clock).filter((r) => isOnToday(r.task, data.date) && !placed.has(r.task.id));
+}
+
 export function OneOffsToday(props: { data: TodayData }) {
   const { data } = props;
   const { clock } = useApp();
@@ -49,8 +55,7 @@ export function OneOffsToday(props: { data: TodayData }) {
   const land = useFocusLanding();
   const listRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLHeadingElement>(null);
-  const placed = new Set(data.blocks.map((b) => b.task_id));
-  const rows = oneOffRows(data.tasks, data.completions, clock).filter((r) => isOnToday(r.task, data.date) && !placed.has(r.task.id));
+  const rows = oneOffsToday(data, clock);
   if (rows.length === 0) return null;
   const shown = rows.filter((r) => showCompleted || !r.checked);
   // New dates off today take the row away, so focus lands on the row now in its place, the one before, the heading,
@@ -67,7 +72,7 @@ export function OneOffsToday(props: { data: TodayData }) {
       </h3>
       <div ref={listRef} className="card">
         {shown.map((row, i) => (
-          <Row key={row.task.id} row={row} onToggle={(box) => void ticks.toggle(row, box)} onSave={() => landFrom(i)} />
+          <OneOffRowItem key={row.task.id} row={row} onToggle={(box) => void ticks.toggle(row, box)} onSave={() => landFrom(i)} />
         ))}
         <ShowCompleted count={rows.filter((r) => r.checked).length} list="One offs today" />
       </div>

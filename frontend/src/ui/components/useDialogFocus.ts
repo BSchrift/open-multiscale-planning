@@ -10,8 +10,9 @@ export function useDialogFocus<E extends HTMLElement>(onClose: () => void) {
   const ref = useRef<E>(null);
   const close = useRef(onClose);
   close.current = onClose;
-  // Read while rendering, before an autoFocus field inside can take focus.
-  const [returnTo] = useState(() => (pressed?.isConnected ? pressed : (document.activeElement as HTMLElement | null)));
+  // Read while rendering, before an autoFocus field inside can take focus. A menu's item goes as it's chosen, so a
+  // dialog it opens goes back to where the menu's opener put focus instead.
+  const [returnTo] = useState(() => (pressed?.isConnected && !pressed.closest('[role="menu"]') ? pressed : (document.activeElement as HTMLElement | null)));
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -48,7 +49,12 @@ export function useDialogFocus<E extends HTMLElement>(onClose: () => void) {
       // Only once the dialog has gone: StrictMode also runs this cleanup on mount, with the dialog still there. And
       // only if focus went with it, so a dialog closing on its own (a sync answered it) leaves your typing alone.
       const lost = !document.activeElement || document.activeElement === document.body;
-      if (!element.isConnected && lost) returnTo?.focus?.();
+      if (!element.isConnected && lost) {
+        if (returnTo?.isConnected) returnTo.focus?.();
+        // What opened it can be gone, such as a card drawn again, or take no focus: focus then stays in the dialog
+        // under this one, if there is one.
+        if (!document.activeElement || document.activeElement === document.body) [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')].at(-1)?.focus();
+      }
     };
   }, []);
   return ref;

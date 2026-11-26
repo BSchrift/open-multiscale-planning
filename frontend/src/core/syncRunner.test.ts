@@ -233,6 +233,26 @@ describe('when it syncs', () => {
     await Promise.all([first, second, third]);
     expect(t.send).toHaveBeenCalledTimes(2);
   });
+
+  it('says when the sync under way has finished or failed, without starting one', async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const t = await setup(async () => {
+      await gate;
+      throw new SyncError('offline');
+    });
+    await t.runner.settled();
+    expect(t.send).not.toHaveBeenCalled();
+    t.runner.start();
+    let settled = false;
+    void t.runner.settled().then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    release();
+    await vi.waitFor(() => expect(settled).toBe(true));
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.runner.stop();
+  });
 });
 
 // The sync KPIs in docs/performance.md.

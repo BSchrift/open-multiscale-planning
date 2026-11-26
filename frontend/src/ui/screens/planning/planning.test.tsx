@@ -324,6 +324,21 @@ describe('the Review step', () => {
       expect(await screen.findByRole('button', { name: 'Schedule planning for Sunday, Nov 15 at 5pm' })).toBeVisible();
     });
 
+    it('shows with the rest of Review, so Finish plan under it never moves down from under the pointer as it loads', async () => {
+      // Its estimate is a read of its own, which can come after the rest of Review. On 24 November it came between a
+      // test's aim at Finish plan and its click, and the click landed on the row instead.
+      const early: string[] = [];
+      const finish = () => [...document.querySelectorAll('button')].some((b) => b.textContent === 'Finish plan');
+      const row = () => !!document.querySelector('[aria-label="Next planning"]');
+      const watch = new MutationObserver(() => void (finish() && !row() && early.push('Finish plan without the row above it')));
+      watch.observe(document.body, { childList: true, subtree: true });
+      await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
+      expect(await screen.findByRole('region', { name: 'Next planning' })).toBeVisible();
+      watch.disconnect();
+      expect(screen.getByRole('button', { name: 'Finish plan' })).toBeVisible();
+      expect(early).toEqual([]);
+    });
+
     it('offers Choose a time for next week too', async () => {
       await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
       const next = await screen.findByRole('region', { name: 'Next planning' });

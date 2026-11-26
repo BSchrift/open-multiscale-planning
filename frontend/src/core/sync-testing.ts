@@ -80,11 +80,16 @@ export function fakeSyncServer(options: { pageSize?: number; now?: () => number 
       const live = page.filter((r) => !expired(r.fields));
       if (req.expiry_reset && holds && live.length < page.length) return reset;
       const more = pending.length > page.length;
+      // A first sync leaves out what was deleted before it began, and only that: a delete since has a higher seq.
+      const snapshot = req.snapshot ?? 0;
+      const sent = live.filter((r) => !(r.seq <= snapshot && r.fields.deleted_at && r.fields.deleted_at.v !== null));
       return {
         // The last page has seen everything up to the counter, which a removed record's gap may sit below.
         cursor: more ? page.at(-1)!.seq : counter,
         more,
-        changes: live.map(({ type, id, fields }) => ({ type, id, fields })),
+        changes: sent.map(({ type, id, fields }) => ({ type, id, fields })),
+        // To a device that holds nothing yet, the counter it read, for the rest of its first sync.
+        ...(holds || counter === 0 ? {} : { snapshot: counter }),
         ...echo(),
       };
     },

@@ -21,7 +21,8 @@ const median = (values: number[]) => {
 
 /**
  * Each query's median over five runs, in milliseconds, as of the history's end, which is when its last week is current,
- * and how many records the device holds, to show the whole history arrived.
+ * and how many live records the device holds, to show the whole history arrived. Live, since a first sync leaves out
+ * what was deleted before it began.
  */
 export async function timeHistoryQueries(sql: Sql, now: () => number = () => performance.now()) {
   const clock = fixedClock(HISTORY.now, HISTORY.zone);
@@ -50,7 +51,7 @@ export async function timeHistoryQueries(sql: Sql, now: () => number = () => per
       const notes = await notesList(sql);
       return time(async () => searchNotes(notes, 'émile'));
     })(),
-    records: (await sql.get<{ n: number }>('SELECT COUNT(*) AS n FROM records'))!.n,
+    records: (await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM records WHERE json_type(data, '$.deleted_at') IS NOT 'text'"))!.n,
     // Which a first sync needn't bring, so the report shows them beside what came down.
     deleted_records: (await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM records WHERE json_type(data, '$.deleted_at') = 'text'"))!.n,
   };

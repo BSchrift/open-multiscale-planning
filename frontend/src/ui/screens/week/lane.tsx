@@ -1,7 +1,8 @@
 // To schedule, on both layouts: work in the week waiting for a time, as cards that drag onto a day or open their
 // suggested times.
 
-import { formatDate, formatMinutes, formatTimeOfDay, weekday } from '../../../core/dates';
+import { formatDate, formatMinutes, formatTimeOfDay, formatWeekday, weekday } from '../../../core/dates';
+import { whySaid } from '../../../core/setTimes';
 import { practiceTime } from '../../../core/slots';
 import type { Slot, SlotContext } from '../../../core/slots';
 import { useApp } from '../../app/store';
@@ -9,11 +10,13 @@ import { dragCard } from '../../components/weekgrid';
 import { KIND_WORD } from '../../components/blocks/describe';
 import { DAY_NAMES, sayMinutes, sayTime } from '../../components/editors/PracticeSchedule';
 import { TaskName } from '../../components/task/TaskName';
+import { useOpenPractice } from '../../components/blocks/BlockName';
 import { dayName } from '../../components/weekgrid';
 import type { LaneItem } from './data';
 // The card styles, for Today too.
 import './week.css';
 import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint', planning: 'k-planning' } as const;
 
@@ -33,10 +36,12 @@ const sessionDay = (item: LaneItem) => {
 /** What a card says to a screen reader after its name: '30 minutes on Friday around 9:30 AM', or its line and dates. */
 export function laneWords(item: LaneItem): string {
   const s = sessionDay(item);
+  if (s && item.why) return `${sayMinutes(item.length)} on ${DAY_NAMES[s.day]}, ${sayTime(item.why.time)} ${item.why.why}`;
   if (s) return `${sayMinutes(item.length)} on ${DAY_NAMES[s.day]}${s.time === null ? '' : ` around ${sayTime(s.time)}`}`;
   if (item.practice) return item.line.replace(' · ', ', ');
   const when = datesText(item.dates);
-  return `${item.line}${when ? `, ${when}` : ''}`;
+  const why = item.why ? `, ${sayTime(item.why.time)} ${item.why.why}` : '';
+  return `${item.line}${when ? `, ${when}` : ''}${why}`;
 }
 
 export function LaneCard(props: {
@@ -48,6 +53,9 @@ export function LaneCard(props: {
   onToggle(): void;
   onPreview(slot: Slot | null): void;
   onDrop(slot: Slot): void;
+  /** As it lifts to drag, and as it's put down: To schedule's sheet on Today steps aside meanwhile. */
+  onLift?(): void;
+  onPut?(): void;
 }) {
   const { item } = props;
   const { platform } = useApp();
@@ -57,11 +65,18 @@ export function LaneCard(props: {
       className={`lanecard ${KIND_CLASS[item.kind]}${props.open ? ' on' : ''}`}
       aria-expanded={props.open}
       aria-label={`${item.title}, ${KIND_WORD[item.kind]}, ${laneWords(item)}, to schedule`}
-      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic }) : undefined}
+      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic, lift: props.onLift, put: props.onPut }) : undefined}
       onClick={props.onToggle}
     >
       <span className="strong lanet">{item.title}</span>
-      <span className="small quiet">{item.line}</span>
+      {item.why && item.dates ? (
+        <span className="small quiet lanewarn">
+          <Icon name="warning" size={16} />
+          {`${formatWeekday(item.dates.from)} · ${whySaid(item.why, false)}`}
+        </span>
+      ) : (
+        <span className="small quiet">{item.line}</span>
+      )}
     </button>
   );
 }
@@ -81,6 +96,7 @@ export function LaneActions(props: {
 }) {
   const { item, canPlace } = props;
   const { layout } = useApp();
+  const openPractice = useOpenPractice();
   const btn = { size: 'compact' as const };
   const when = datesText(item.dates);
   const s = sessionDay(item);
@@ -92,8 +108,18 @@ export function LaneActions(props: {
   return (
     <>
       <div>
-        {/* A task's name opens its popup; a practice's session has none. */}
-        <div className="strong mhead">{item.task ? <TaskName id={item.task.id} title={item.title} details={!!item.task.notes} /> : item.title}</div>
+        {/* A task's name opens its popup, and a practice's opens its own, with no block yet. */}
+        <div className="strong mhead">
+          {item.task ? (
+            <TaskName id={item.task.id} title={item.title} details={!!item.task.notes} />
+          ) : item.practice ? (
+            <button className="taskname" type="button" onClick={() => openPractice({ practice: item.practice!.id })}>
+              {item.title}
+            </button>
+          ) : (
+            item.title
+          )}
+        </div>
         <div className="small quiet">{sub}</div>
       </div>
       {canPlace && (

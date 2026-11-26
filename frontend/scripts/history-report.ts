@@ -1,7 +1,7 @@
 // The history-scale test's verdict: each number its specs measured against its budget, as a table. Exits 1 when a
 // budget is missed or a surface measured nothing, which HISTORY_REPORT_ONLY=1 only reports, since they're about speed.
-// A device that holds fewer records than were seeded, or a history that wasn't seeded, fails either way: that's whether
-// the data arrived. Run by scripts/test-history.sh, the numbers in one <surface>.json each in the folder given, and
+// A device that holds fewer live records than were seeded, or a history that wasn't seeded, fails either way: that's
+// whether the data arrived. Live, since a first sync leaves out what was deleted before it began. Run by scripts/test-history.sh, the numbers in one <surface>.json each in the folder given, and
 // what was seeded in facts.json.
 //   node scripts/history-report.ts <folder> [--skip iphone]
 
@@ -114,14 +114,15 @@ function main(argv: string[]) {
   const reportOnly = process.env.HISTORY_REPORT_ONLY === '1';
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-  const seeded = read('facts')?.records;
-  if (seeded === undefined) {
+  const facts = read('facts');
+  if (facts?.records === undefined) {
     console.error("The history wasn't seeded, so no device's records could be checked: see the seed above.");
     return 1;
   }
-  // At least, since a server keeps deleted records until its retention purges them, and the seed sends none.
+  const seeded = facts.records - (facts.deleted ?? 0);
+  // At least, since a record the seed sent as live may have been made live again elsewhere, never the other way.
   const short = (['web', 'mac', 'iphone'] as const).filter((surface) => (results[surface]?.records ?? seeded) < seeded);
-  for (const surface of short) console.error(`${surface} holds ${results[surface]!.records} of the ${seeded} records seeded.`);
+  for (const surface of short) console.error(`${surface} holds ${results[surface]!.records} of the ${seeded} live records seeded.`);
   const slow: string[] = [];
   if (missing > 0) slow.push(`${plural(missing, 'number was', 'numbers were')} not measured: see the failing spec above.`);
   if (missed > 0) slow.push(`${plural(missed, 'budget', 'budgets')} missed.`);

@@ -124,6 +124,11 @@ export interface Task extends BaseRecord {
   order?: number;
   schedule?: TaskSchedule | null;
   next_due?: LocalDate | null;
+  /**
+   * A one off's time of day on its date, or a repeating one's next: it lands then by itself when that's free
+   * (setTimes.ts). Kept beside the dates rather than in them, so a released app that changes the dates keeps it.
+   */
+  time?: TimeOfDay | null;
   done_at?: Instant | null;
   cancelled_at?: Instant | null;
   /**

@@ -74,7 +74,7 @@ test('a new install of the five-year account: first sync, then Today and Week', 
     const queries = await timeQueries(page, 'electron');
     // Recorded before the count is checked, so the report sees a short count even when only reporting.
     record('mac', { first_sync_ms: firstSync, ...queries, ...(await synced()) });
-    expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
+    expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).live);
     record('mac', { estimate_drag_ms: await timeEstimateDrag(page) });
     expect(errors).toEqual([]);
   } finally {

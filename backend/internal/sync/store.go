@@ -23,7 +23,6 @@ import (
 const (
 	// maxAttempts bounds tries on the counter race. Past it the device tries again later.
 	maxAttempts = 3
-	pageSize    = 500
 	// All of a user's records share one partition, which writes about 1,000 units a second, and a transactional write
 	// costs two per KB, so a transaction far above this is refused however long it waits.
 	maxTransactionBytes = 256 << 10
@@ -47,6 +46,15 @@ var throttleWait = func(try int) time.Duration { return min(time.Duration(try+1)
 
 // throttleBudget is how long one push waits out throttling, to stop inside the API's 25 seconds.
 var throttleBudget = 15 * time.Second
+
+// A pull's page holds at most pageSize records, counting those it leaves out as it reads, and stops before pageBytes of
+// them, measured as a device sends a record: its fields in JSON. A record larger than that still goes, alone. Bigger
+// pages spread each request's fixed cost, so a five-year history comes down in 20 requests rather than 78. No app reads
+// either: each pulls until more is false.
+var (
+	pageSize  = 2000
+	pageBytes = 2 << 20
+)
 
 // DB is the part of DynamoDB the store uses, so tests can inject what DynamoDB Local never does.
 type DB interface {
@@ -81,6 +89,9 @@ type Response struct {
 	// Reset is ResetExpired when records the device hasn't seen were removed as expired. It answers only a request with
 	// expiry_reset, and nothing was merged.
 	Reset string `json:"reset,omitempty"`
+	// Snapshot answers a device that holds nothing yet, at cursor 0 with nothing to send: the counter this pull read. It
+	// sends it back for the rest of its first sync, which then leaves out what was deleted by then.
+	Snapshot int64 `json:"snapshot,omitempty"`
 }
 
 // ResetExpired tells a device to pull everything from 0, keep only what comes back or what it made since it last synced,
@@ -138,11 +149,14 @@ func (s *Store) Sync(ctx context.Context, sub string, req Request) (Response, St
 	if stats.ExpiryReset {
 		return reset, stats, nil
 	}
-	res, skipped, err := s.pull(ctx, sub, req.Cursor, stats.counter)
+	res, skipped, err := s.pull(ctx, sub, req.Cursor, stats.counter, req.Snapshot)
 	if err != nil {
 		return Response{}, stats, err
 	}
 	res.Generation = stats.generation
+	if !holdsRecords(req.Cursor, req.Changes) {
+		res.Snapshot = stats.counter
+	}
 	stats.Pulled, stats.Skipped = len(res.Changes), skipped
 	// The pull left out an expired record whose last write this device hasn't had, so it may hold an older copy: it pulls
 	// everything instead, which leaves the copy out. What it sent merged, and sending it again changes nothing.
@@ -706,60 +720,84 @@ func isConflict(err error) bool {
 // transaction the counter already includes has landed whole.
 // It leaves out records that have expired but that DynamoDB hasn't removed yet, which can take days, and returns how
 // many. The cursor still moves past them.
-func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Response, int, error) {
+// With a snapshot, from a first sync, it also leaves out records deleted at or below it. The device holds no copy for
+// such a delete to reach, and a delete since has a higher sequence number, so it still arrives. These aren't counted:
+// they never mean the device may hold an older copy, which is what the count resets a device for.
+func (s *Store) pull(ctx context.Context, sub string, cursor, counter, snapshot int64) (Response, int, error) {
 	if cursor >= counter {
 		return Response{Cursor: cursor, Changes: []Change{}}, 0, nil
-	}
-	out, err := s.DB.Query(ctx, &dynamodb.QueryInput{
-		TableName:              aws.String(s.Table),
-		IndexName:              aws.String("by_seq"),
-		ConsistentRead:         aws.Bool(true),
-		Limit:                  aws.Int32(pageSize),
-		KeyConditionExpression: aws.String("pk = :user AND seq BETWEEN :from AND :to"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":user": &types.AttributeValueMemberS{Value: userKey(sub)},
-			":from": number(cursor + 1),
-			":to":   number(counter),
-		},
-	})
-	if err != nil {
-		return Response{}, 0, fmt.Errorf("sync: pull: %w", err)
 	}
 	var now time.Time
 	if s.Expiry != nil {
 		now = s.Expiry.Now()
 	}
-	skipped := 0
-	res := Response{Cursor: cursor, More: len(out.LastEvaluatedKey) > 0, Changes: make([]Change, 0, len(out.Items))}
-	for _, item := range out.Items {
-		sk, _ := item["sk"].(*types.AttributeValueMemberS)
-		if sk == nil {
-			return Response{}, 0, errors.New("sync: pull: item has no sort key")
-		}
-		recordType, id, ok := strings.Cut(strings.TrimPrefix(sk.Value, recordPrefix), "#")
-		if !ok {
-			return Response{}, 0, errors.New("sync: pull: malformed sort key")
-		}
-		if res.Cursor, err = numberAttr(item["seq"]); err != nil {
-			return Response{}, 0, err
-		}
-		fields, err := fieldsFromItem(item)
+	res := Response{Cursor: cursor, Changes: []Change{}}
+	read, skipped, bytes := 0, 0, 0
+	// A query stops at 1 MB of items, so a page can take several, each from the last item the one before it read.
+	var start map[string]types.AttributeValue
+	for {
+		out, err := s.DB.Query(ctx, &dynamodb.QueryInput{
+			TableName:              aws.String(s.Table),
+			IndexName:              aws.String("by_seq"),
+			ConsistentRead:         aws.Bool(true),
+			Limit:                  aws.Int32(int32(pageSize - read)),
+			ExclusiveStartKey:      start,
+			KeyConditionExpression: aws.String("pk = :user AND seq BETWEEN :from AND :to"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":user": &types.AttributeValueMemberS{Value: userKey(sub)},
+				":from": number(cursor + 1),
+				":to":   number(counter),
+			},
+		})
 		if err != nil {
-			return Response{}, 0, err
+			return Response{}, 0, fmt.Errorf("sync: pull: %w", err)
 		}
-		// By the record, not the TTL attribute, which a record deleted before expiry lacks: one that went out of its
-		// deleted period then would otherwise go to every new device, which would then fill in an expiry for it.
-		if expires, ok := s.expiry(fields); s.Expiry != nil && ok && expires.Before(now) {
-			skipped++
-			continue
+		for i, item := range out.Items {
+			sk, _ := item["sk"].(*types.AttributeValueMemberS)
+			if sk == nil {
+				return Response{}, 0, errors.New("sync: pull: item has no sort key")
+			}
+			recordType, id, ok := strings.Cut(strings.TrimPrefix(sk.Value, recordPrefix), "#")
+			if !ok {
+				return Response{}, 0, errors.New("sync: pull: malformed sort key")
+			}
+			seq, err := numberAttr(item["seq"])
+			if err != nil {
+				return Response{}, 0, err
+			}
+			fields, err := fieldsFromItem(item)
+			if err != nil {
+				return Response{}, 0, err
+			}
+			// By the record, not the TTL attribute, which a record deleted before expiry lacks: one that went out of its
+			// deleted period then would otherwise go to every new device, which would then fill in an expiry for it.
+			if expires, ok := s.expiry(fields); s.Expiry != nil && ok && expires.Before(now) {
+				skipped++
+			} else if seq <= snapshot && fields["deleted_at"].V != nil {
+				// Left out of a first sync.
+			} else {
+				size := recordBytes(fields)
+				if len(res.Changes) > 0 && bytes+size > pageBytes {
+					res.More = true
+					return res, skipped, nil
+				}
+				bytes += size
+				res.Changes = append(res.Changes, Change{Type: recordType, ID: id, Fields: fields})
+			}
+			read, res.Cursor = read+1, seq
+			if read == pageSize {
+				res.More = i < len(out.Items)-1 || len(out.LastEvaluatedKey) > 0
+				return res, skipped, nil
+			}
 		}
-		res.Changes = append(res.Changes, Change{Type: recordType, ID: id, Fields: fields})
+		if len(out.LastEvaluatedKey) == 0 {
+			break
+		}
+		start = out.LastEvaluatedKey
 	}
 	// The last page has read everything up to the counter. A record removed as expired leaves a gap that can sit above
 	// the last one read, and a cursor left below it would be behind the mark for good.
-	if !res.More {
-		res.Cursor = counter
-	}
+	res.Cursor = counter
 	return res, skipped, nil
 }
 

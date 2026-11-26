@@ -34,10 +34,16 @@ export function timezoneWithRoom(now = new Date()): string | undefined {
  * finished, the missed blocks sheet and Have you started?. On a shared test user, a block a failed run left on the
  * calendar asks once it has ended, and on desktop its question sits in the corner over the page: on prod, on 18
  * November, over the block on the last day that the journey pressed to drag. Esc puts each away for the session, as
- * Answer later and Later do, and answers nothing.
+ * Answer later and Later do, and answers nothing: the one way to put away each of them, since a practice's Block
+ * finished and Have you started? have no Later. Its key event is sent to the question itself, not pressed. A key press
+ * focuses the question, then goes wherever focus is by then, and the clean-up's own removal, whose toast takes focus for
+ * its Undo once the change is saved, can take it in between: the question stays open, and the step waiting behind it
+ * times out (staging's compat run, 26 November).
  */
 export async function putPromptsAway(page: Page): Promise<void> {
-  await page.addLocatorHandler(page.getByRole('dialog', { name: /^(Block finished|\d+ missed blocks?|Have you started\?)$/ }), (prompt) => prompt.press('Escape'));
+  await page.addLocatorHandler(page.getByRole('dialog', { name: /^(Block finished|\d+ missed blocks?|Have you started\?)$/ }), (prompt) =>
+    prompt.dispatchEvent('keydown', { key: 'Escape' }),
+  );
 }
 
 /** The journey, with checks titled `title`, on a page past first-run setup, at the desktop layout. */

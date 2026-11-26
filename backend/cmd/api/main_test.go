@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +21,7 @@ import (
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/account"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
 )
 
 func gatewayEvent(method, path, query, body string, claims map[string]string) events.APIGatewayV2HTTPRequest {
@@ -85,6 +91,59 @@ func TestAdapterDecodesABase64Body(t *testing.T) {
 	if err != nil || res.StatusCode != 400 {
 		t.Fatalf("%+v %v", res, err)
 	}
+}
+
+// API Gateway reads a response body as text unless it's marked as base64, so a gzipped one goes base64 and arrives as
+// the bytes the handler wrote.
+func TestAdapterSendsAnEncodedBodyAsBase64(t *testing.T) {
+	compressed := []byte{0x1f, 0x8b, 0x08, 0x00, 0xff, 0xfe}
+	handle := adapter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(compressed)
+	}))
+	res, err := handle(context.Background(), gatewayEvent("POST", "/sync", "", "{}", nil))
+	if err != nil || !res.IsBase64Encoded || res.Headers["Content-Encoding"] != "gzip" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got, err := base64.StdEncoding.DecodeString(res.Body); err != nil || !bytes.Equal(got, compressed) {
+		t.Fatalf("body %q %v", res.Body, err)
+	}
+}
+
+func TestAdapterOverTheRealSyncRouteGzipsWhenAsked(t *testing.T) {
+	changes := make([]sync.Change, 50)
+	for i := range changes {
+		changes[i] = sync.Change{Type: "task", ID: fmt.Sprintf("r%02d", i), Fields: sync.Fields{"title": {V: "Paint the fence", C: "1800000000000-000000-a"}}}
+	}
+	server := &api.Server{Sync: fixedSync{sync.Response{Cursor: 50, Changes: changes}}, Log: obs.NewLogger(io.Discard), Now: time.Now}
+	event := gatewayEvent("POST", "/sync", "", `{"cursor":0,"changes":[]}`, map[string]string{"sub": "user-1"})
+	// As API Gateway passes headers on: in lower case.
+	event.Headers["accept-encoding"] = "gzip, deflate, br"
+	res, err := adapter(server.Handler())(context.Background(), event)
+	if err != nil || res.StatusCode != 200 || !res.IsBase64Encoded || res.Headers["Content-Encoding"] != "gzip" || res.Headers["Vary"] != "Accept-Encoding" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(res.Body)
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got sync.Response
+	if err := json.NewDecoder(zr).Decode(&got); err != nil || got.Cursor != 50 || len(got.Changes) != 50 {
+		t.Fatalf("%+v %v", got, err)
+	}
+
+	delete(event.Headers, "accept-encoding")
+	res, err = adapter(server.Handler())(context.Background(), event)
+	if err != nil || res.IsBase64Encoded || res.Headers["Content-Encoding"] != "" || !strings.HasPrefix(res.Body, `{"cursor":50,`) {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+type fixedSync struct{ res sync.Response }
+
+func (f fixedSync) Sync(context.Context, string, sync.Request) (sync.Response, sync.Stats, error) {
+	return f.res, sync.Stats{}, nil
 }
 
 func TestAdapterGivesNoSubWithoutAnAuthorizer(t *testing.T) {

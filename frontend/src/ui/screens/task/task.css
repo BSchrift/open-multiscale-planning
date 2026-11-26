@@ -113,6 +113,8 @@
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* Only ever up and down, even should a field grow too wide, so a finger can't slide it sideways. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
   padding: var(--space-2) var(--space-4) var(--space-3);
   border-top: 1px solid var(--hairline);
@@ -136,6 +138,11 @@
 [data-layout] .taskpopdelete {
   margin-right: auto;
   color: var(--danger);
+}
+
+/* With nothing to save, as for planning, Close stands where Save would. */
+[data-layout] .taskpopclosebar {
+  margin-left: auto;
 }
 
 [data-layout='desktop'] .overlay:has(> .sheet.taskpop) {

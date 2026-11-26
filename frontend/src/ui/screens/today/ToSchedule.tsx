@@ -9,58 +9,77 @@ import { useNav } from '../../app/nav';
 import { useApp, useQuery } from '../../app/store';
 import { Sheet } from '../../components/Sheet';
 import { loadWeek, weekModel } from '../week/data';
+import type { WeekModel } from '../week/data';
 import { LaneActions, LaneCard, laneCount } from '../week/lane';
 import { useWeekActions } from '../week/useWeekActions';
 import { useLanding } from '../week/landing';
 import type { Slot } from '../../../core/slots';
 import { Button } from '../../components/ds/Button';
 
-export function ToSchedule(props: { date: LocalDate }) {
-  const { clock, layout } = useApp();
-  const nav = useNav();
-  const act = useWeekActions();
-  const week = weekStart(props.date);
+type Item = WeekModel['unscheduled'][number];
+
+/** This week's work waiting for a time on `date`: dated that day, or with no day of its own. Planning has its own row. */
+export function useToSchedule(date: LocalDate) {
+  const { clock } = useApp();
+  const week = weekStart(date);
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
-  const [openId, setOpenId] = useState<string | null>(null);
-  // A card let go on a block asks first: keep both, replace it, or leave it.
-  const { landing, takeOff, asking } = useLanding(model?.blocks ?? [], week);
   if (!model) return null;
-  const dropCard = async (x: (typeof model.unscheduled)[number], slot: Slot) => {
-    const { go, off } = await landing(x.title, slot);
-    if (go && (await act.place(x, slot))) takeOff(off);
-  };
-  const phone = layout === 'phone';
-  // Planning has its own row on Today.
   // A count's sessions wait on any day without one of its sessions; a set day's, on its own day only.
-  const hasSession = (x: (typeof model.unscheduled)[number]) => !!x.practice && !x.dates && model.blocks.some((b) => b.practice_id === x.practice!.id && b.date === props.date);
-  const items = model.unscheduled.filter((x) => x.kind !== 'planning' && !hasSession(x) && (!x.dates || (x.dates.from <= props.date && props.date <= x.dates.to)));
-  const item = items.find((x) => x.id === openId);
-  const close = () => setOpenId(null);
-  const actions = item && (
+  const hasSession = (x: Item) => !!x.practice && !x.dates && model.blocks.some((b) => b.practice_id === x.practice!.id && b.date === date);
+  const items = model.unscheduled.filter((x) => x.kind !== 'planning' && !hasSession(x) && (!x.dates || (x.dates.from <= date && date <= x.dates.to)));
+  return { week, model, items };
+}
+
+/** A card's suggested times and what else can be done with it, as on Week; Choose a time opens Week to place it by hand. */
+export function ToScheduleActions(props: { item: Item; week: LocalDate; onClose(): void }) {
+  const { item, week, onClose } = props;
+  const nav = useNav();
+  const act = useWeekActions();
+  return (
     <LaneActions
       item={item}
       canPlace
       onPlace={(slot) => {
-        close();
+        onClose();
         void act.place(item, slot);
       }}
       onChoose={() => nav.go('week', { place: item.id })}
       onSkipDay={() => {
-        close();
+        onClose();
         void act.skipDay(item, week);
       }}
       onTakeOut={() => {
-        close();
+        onClose();
         void act.takeOut(item, week);
       }}
       onDone={() => {
-        close();
+        onClose();
         void act.markDone(item.task!);
       }}
-      onClose={close}
+      onClose={onClose}
     />
   );
+}
+
+export function ToSchedule(props: { date: LocalDate }) {
+  const { layout } = useApp();
+  const nav = useNav();
+  const act = useWeekActions();
+  const lane = useToSchedule(props.date);
+  const [openId, setOpenId] = useState<string | null>(null);
+  // A card let go on a block asks first: keep both, replace it, or leave it.
+  const { landing, takeOff, asking } = useLanding(lane?.model.blocks ?? [], lane?.week ?? weekStart(props.date));
+  if (!lane) return null;
+  const { model, items, week } = lane;
+  const dropCard = async (x: Item, slot: Slot) => {
+    const { go, off } = await landing(x.title, slot);
+    if (go && (await act.place(x, slot))) takeOff(off);
+  };
+  const phone = layout === 'phone';
+  const item = items.find((x) => x.id === openId);
+  const close = () => setOpenId(null);
+  const actions = item && <ToScheduleActions item={item} week={week} onClose={close} />;
   const planOne = (
     <Button size="compact" type="button" onClick={() => nav.openFlow('planning', { week, step: 'schedule' })}>
       Schedule one at a time

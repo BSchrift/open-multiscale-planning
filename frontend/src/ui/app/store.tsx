@@ -32,6 +32,8 @@ export interface App {
   sync?: AppSync;
   /** Over-the-air updates; only in the apps, for an environment that publishes them. */
   updates?: Updater;
+  /** When the running bundle was built: its commit's time in seconds. What's new dates an update by it. */
+  build?: number;
 }
 
 const AppContext = createContext<App | null>(null);
@@ -60,10 +62,10 @@ function useLayout(platform: Platform, forced?: Layout): Layout {
   return narrow ? 'phone' : 'desktop';
 }
 
-export function AppProvider(props: { platform: Platform; clock: Clock; layout?: Layout; sync?: AppSync; updates?: Updater; children: ReactNode }) {
-  const { platform, clock, sync, updates, children } = props;
+export function AppProvider(props: { platform: Platform; clock: Clock; layout?: Layout; sync?: AppSync; updates?: Updater; build?: number; children: ReactNode }) {
+  const { platform, clock, sync, updates, build, children } = props;
   const layout = useLayout(platform, props.layout);
-  const app = useMemo(() => ({ platform, db: platform.db, clock, layout, sync, updates }), [platform, clock, layout, sync, updates]);
+  const app = useMemo(() => ({ platform, db: platform.db, clock, layout, sync, updates, build }), [platform, clock, layout, sync, updates, build]);
   return <AppContext.Provider value={app}>{children}</AppContext.Provider>;
 }
 

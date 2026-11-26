@@ -15,6 +15,8 @@ import { nextStretch } from '../core/plan';
 import { historyChanges } from '../core/history-testing';
 import { KEEP, KEPT } from '../core/perf';
 import { applyRemote, getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
+import { newestId, writeSeen } from '../core/whatsNew';
+import { WHATS_NEW } from '../whatsNew';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
@@ -84,6 +86,8 @@ async function erase(platform: Platform): Promise<string> {
   await LocalNotifications.removeAllDeliveredNotifications();
   await platform.widgets?.clear();
   localStorage.clear();
+  // A new install has seen every What's new line, which setup records; the seeds skip setup, so it's recorded here.
+  writeSeen(newestId(WHATS_NEW));
   const left = (await platform.db.all('SELECT id FROM records')).length;
   const session = await platform.tokens.get('auth.session');
   return left === 0 && session === null ? 'erased' : `erase left ${left} records and ${session === null ? 'no' : 'a'} session`;
@@ -97,7 +101,12 @@ const MINUTE_MS = 60_000;
  * clock can't be set, so the UI tests run a seeded app on a page clock shifted to the morning, except where they need
  * the real one (launchApp in MultiscaleUITests.swift).
  */
-async function seed(db: Db, blocks: readonly { title: string; from: number; to: number; started?: boolean }[], picked: readonly string[] = []): Promise<string> {
+async function seed(
+  db: Db,
+  blocks: readonly { title: string; from: number; to: number; started?: boolean }[],
+  picked: readonly string[] = [],
+  dated: readonly { title: string; inDays: number }[] = [],
+): Promise<string> {
   const clock = systemClock;
   const on = today(clock);
   const now = clock.now();
@@ -115,6 +124,10 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
     for (const title of picked) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title, estimate_min: 30 });
       await setWeekPick(w, thisWeek(clock), task, 30);
+    }
+    for (const d of dated) {
+      const from = addDays(on, d.inDays);
+      await w.create('task', { kind: 'one_off', title: d.title, schedule: { type: 'once', from, to: null }, next_due: from });
     }
     for (const b of blocks) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title: b.title, estimate_min: 120 });
@@ -303,6 +316,8 @@ button('Seed today', () =>
 button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
 // A block half an hour out, still to come with free time after it, for Week's day to move.
 button('Seed later', () => seed(platform.db, [{ title: 'Shape the loaf', from: 30, to: 90 }]));
+// A one off dated two weeks out, so its popup has a date field with a date in it, which iOS draws its own way.
+button('Seed dated one off', () => seed(platform.db, [], [], [{ title: 'Return the drill', inDays: 14 }]));
 // The performance runner's data and numbers (PerfUITests, scripts/test-perf-ios.sh): a year of history ending now, as a
 // sync would apply it; the app's measures kept from now on; and then what it kept, by name, with the app's peak memory
 // in the run before this page's, the session that was timed.

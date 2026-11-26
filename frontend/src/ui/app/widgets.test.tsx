@@ -145,15 +145,17 @@ describe('what the widget’s buttons queued', () => {
 });
 
 describe('the widgets’ links', () => {
-  it('open the Inbox, Week, Plan your week and Today', async () => {
+  it("open the Inbox, Week (Today's week on phone), Plan your week and Today", async () => {
     const t = await renderApp({ seed, kind: 'ios', layout: 'phone' });
     const shows = (area: string) => waitFor(() => expect(document.documentElement.dataset.screen).toBe(area), { timeout: 5000 });
     await shows('today');
     act(() => t.platform.openAppLink({ screen: 'inbox' }));
     await shows('inbox');
     expect(await screen.findByRole('heading', { name: 'Inbox', level: 1 }, { timeout: 5000 })).toBeVisible();
+    // The This week widget's link: on phone, Today draws the week over its day.
     act(() => t.platform.openAppLink({ screen: 'week' }));
-    await shows('week');
+    await shows('today');
+    expect(await screen.findByRole('group', { name: 'Choose a day' }, { timeout: 5000 })).toBeVisible();
     act(() => t.platform.openAppLink({ screen: 'plan' }));
     await shows('planning');
     act(() => t.platform.openAppLink({ screen: 'today' }));
@@ -177,8 +179,9 @@ describe('the widgets’ links', () => {
     };
     const t = await renderApp({ seed: started, kind: 'ios', layout: 'phone' });
     await waitFor(() => expect(document.documentElement.dataset.screen).toBe('today'), { timeout: 5000 });
-    act(() => t.platform.openAppLink({ screen: 'week' }));
-    await waitFor(() => expect(document.documentElement.dataset.screen).toBe('week'), { timeout: 5000 });
+    // Away from Today first, on the Inbox: Week's link is Today's own on phone.
+    act(() => t.platform.openAppLink({ screen: 'inbox' }));
+    await waitFor(() => expect(document.documentElement.dataset.screen).toBe('inbox'), { timeout: 5000 });
     act(() => t.platform.openAppLink({ screen: 'today', block: 'later' }));
     await waitFor(() => expect(document.activeElement?.getAttribute('data-block')).toBe('later'), { timeout: 5000 });
   }, 30_000);

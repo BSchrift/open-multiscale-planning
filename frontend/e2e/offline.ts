@@ -8,6 +8,7 @@ import type { BrowserContext, Page, Request } from '@playwright/test';
 import initSqlJs from 'sql.js';
 import { settled } from './seed';
 import type { SqlJsStatic } from 'sql.js';
+import { SAVED_TIMEOUT_MS } from './seed';
 
 /** Every screen registry.tsx loads on first use, by the URL the dev server rewrites its import to. */
 export const SCREEN_URLS = [...readFileSync(join(import.meta.dirname, '../src/ui/app/registry.tsx'), 'utf8').matchAll(/import\('\.\.\/screens\/([\w-]+)'\)/g)].map(
@@ -65,7 +66,7 @@ type Fields = Record<string, unknown>;
 /**
  * Records of a type as the database file the browser keeps in IndexedDB has them, which is what a reload reads on phone.
  * Phone WebKit keeps the database in memory and saves it there whole 200ms after a change, so a reload any sooner loses
- * the change; desktop Chromium's OPFS file is on disk as each change commits, and copied there as late.
+ * the change; desktop Chromium's OPFS file is on disk as each change commits, and copied there 2 seconds after the last.
  */
 async function savedRecords(page: Page, type: string): Promise<Fields[]> {
   const base64 = await page.evaluate(async (url) => {
@@ -92,7 +93,7 @@ async function savedRecords(page: Page, type: string): Promise<Fields[]> {
  */
 export async function expectSaved(page: Page, type: string, which: string | Fields, fields: Fields): Promise<void> {
   const matches = (r: Fields) => (typeof which === 'string' ? r.id === which : Object.entries(which).every(([k, v]) => r[k] === v));
-  await expect.poll(async () => (await savedRecords(page, type)).find(matches), { message: `${type} ${JSON.stringify(which)} saved` }).toMatchObject(fields);
+  await expect.poll(async () => (await savedRecords(page, type)).find(matches), { message: `${type} ${JSON.stringify(which)} saved`, timeout: SAVED_TIMEOUT_MS }).toMatchObject(fields);
 }
 
 /** Back online, reloads: what shows then was saved, not only held by the page. */

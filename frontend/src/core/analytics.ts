@@ -62,18 +62,14 @@ export interface AnalyticsData {
   avoided_slots: AvoidedSlot[];
 }
 
-/** Every record analytics reads, or, given some of the milestones, tasks, blocks and answers, those in place of the whole tables. */
-export async function loadAnalyticsData(
-  sql: Sql,
-  only: Partial<Pick<AnalyticsData, 'milestones' | 'tasks' | 'blocks' | 'outcomes'>> = {},
-): Promise<AnalyticsData> {
+export async function loadAnalyticsData(sql: Sql): Promise<AnalyticsData> {
   const [objectives, projects, milestones, tasks, blocks, outcomes, practices, away, settings] = await Promise.all([
     listRecords(sql, 'objective'),
     listRecords(sql, 'project'),
-    only.milestones ?? listRecords(sql, 'milestone'),
-    only.tasks ?? listRecords(sql, 'task'),
-    only.blocks ?? listRecords(sql, 'time_block'),
-    only.outcomes ?? listRecords(sql, 'block_outcome'),
+    listRecords(sql, 'milestone'),
+    listRecords(sql, 'task'),
+    listRecords(sql, 'time_block'),
+    listRecords(sql, 'block_outcome'),
     listRecords(sql, 'practice'),
     listRecords(sql, 'away_period'),
     getSettings(sql),

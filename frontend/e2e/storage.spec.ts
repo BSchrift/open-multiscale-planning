@@ -6,6 +6,9 @@
 
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, PlaywrightWorkerArgs, PlaywrightWorkerOptions, TestInfo } from '@playwright/test';
+import type { RecordChange } from '../src/core/types';
+import { FILE_HASH, STORE } from '../src/platform/web-file';
+import { signIn } from './api';
 import { openSeeded, pane, saved } from './seed';
 import type { Seed } from './seed';
 
@@ -114,7 +117,7 @@ test('opens the IndexedDB file a bundle from before OPFS kept, and keeps it curr
   await saved(page, 'Before the update');
   await page.close();
 
-  // This one moves the data to OPFS, and copies each change back to IndexedDB soon after.
+  // This one moves the data to OPFS, and copies it back to IndexedDB once 2 seconds pass without a change.
   page = await context.newPage();
   await launch(page, ['Ask about the boiler', 'Before the update']);
   expect(await onOpfs(page)).toBe(true);
@@ -135,11 +138,71 @@ test('opens the IndexedDB file a bundle from before OPFS kept, and keeps it curr
   await context.close();
 });
 
-test('copies a change to IndexedDB soon after it, though the page goes on reading', async ({ playwright, browserName }, info) => {
+/** The hash of the copy the OPFS worker last made in IndexedDB, or null before the first. */
+const copyHash = (page: Page) =>
+  page.evaluate(
+    ({ store, key }) =>
+      new Promise<string | null>((resolve, reject) => {
+        // The database web-file.ts opens. Never made here: one without its store would break the app's.
+        const open = indexedDB.open('multiscale-dev');
+        open.onupgradeneeded = () => open.transaction!.abort();
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const read = open.result.transaction(store).objectStore(store).get(key);
+          read.onerror = () => reject(read.error);
+          read.onsuccess = () => resolve((read.result as string | undefined) ?? null);
+          open.result.close();
+        };
+      }),
+    { store: STORE, key: FILE_HASH },
+  );
+
+test('copies the database to IndexedDB once a first sync has gone quiet, not between its pages', async ({ playwright, browserName, baseURL }, info) => {
+  const context = await profile(playwright, browserName, info);
+  const page = await context.newPage();
+  // A first sync of four pages, each answered half a second after it was asked for, as a slow link answers. A copy
+  // between pages would read and write the whole file while the next page waits behind it.
+  const clock = (n: number) => `${String(Date.parse('2026-11-02T09:00:00Z') + n).padStart(13, '0')}-000000-other-device`;
+  const pages: RecordChange[][] = Array.from({ length: 4 }, (_, p) =>
+    Array.from({ length: 50 }, (_, i) => ({ type: 'task', id: `synced-${p}-${i}`, fields: { kind: { v: 'inbox', c: clock(p) }, title: { v: `Synced ${p}-${i}`, c: clock(p) } } })),
+  );
+  pages.at(-1)!.push({ type: 'settings', id: 'settings', fields: { setup_done_at: { v: '2026-01-01T00:00:00.000Z', c: clock(9) } } });
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type' };
+  // The copy as each page after the first is answered, which a copy between pages would have changed.
+  const between: (string | null)[] = [];
+  await context.route(
+    (url) => url.origin !== new URL(baseURL!).origin,
+    async (route) => {
+      const request = route.request();
+      if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      const json = (body: unknown) => route.fulfill({ headers: cors, contentType: 'application/json', body: JSON.stringify(body) });
+      if (!request.url().endsWith('/sync')) return json({});
+      const { cursor } = request.postDataJSON() as { cursor: number };
+      if (cursor >= pages.length) return json({ cursor, more: false, changes: [] });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (cursor > 0) between.push(await copyHash(page));
+      return json({ cursor: cursor + 1, more: cursor + 1 < pages.length, changes: pages[cursor] });
+    },
+  );
+  // Opened, so its IndexedDB store is there to sign in to.
+  await page.goto('/');
+  await page.waitForFunction(() => 'multiscaleSeed' in window);
+  await signIn(page);
+  await page.reload();
+  // Current within a few seconds of the sync's last change.
+  await saved(page, 'Synced 3-49');
+  expect(between).toHaveLength(pages.length - 1);
+  expect(new Set(between).size, 'copies made between pages').toBe(1);
+  expect(await onOpfs(page)).toBe(true);
+  await context.close();
+});
+
+test('copies a change to IndexedDB once changes stop, though the page goes on reading', async ({ playwright, browserName }, info) => {
   const context = await profile(playwright, browserName, info);
   const page = await context.newPage();
   await openSeeded(page);
-  // A read every 50ms, well inside the 200ms the copy waits, as a page busy drawing and loading screens reads on.
+  // A read every 50ms, well inside the 2 seconds without a change the copy waits for (platform/opfs.worker.ts), as a
+  // page busy drawing and loading screens reads on.
   await page.evaluate(() => {
     const read = (window as unknown as { multiscaleRecord(type: string, id: string): Promise<unknown> }).multiscaleRecord;
     setInterval(() => void read('settings', 'settings'), 50);

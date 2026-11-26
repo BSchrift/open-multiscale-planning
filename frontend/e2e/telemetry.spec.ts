@@ -24,9 +24,10 @@ test('signed in, it reports each minute the syncs it made and their bytes', asyn
   await openSeeded(page);
   // Its screen loaded, as a module of its own, so the reload cancels none.
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-  await signIn(page);
-  // Saved before the reload, which otherwise can come before phone WebKit's save and open a first-run app.
+  // Saved before the reload, which otherwise can come before phone WebKit's save and open a first-run app. Before the
+  // sign-in, too, since that can take a few seconds on OPFS, and a page signed in that long syncs before the reload.
   await saved(page, 'setup_done_at');
+  await signIn(page);
   await page.reload();
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
   await expect.poll(() => api.syncs).toBe(1);

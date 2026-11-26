@@ -464,8 +464,13 @@ test("phone: blocks at the same time sit side by side on Today's day, and each o
   await expect(dayShown(page)).toHaveText('Friday');
   const plan = page.getByRole('slider', { name: 'Plan the week of Nov 9, 5:30pm to 6:45pm, Planning. Overlaps Plan meals for the week.' });
   const meals = page.getByRole('slider', { name: 'Plan meals for the week, 5:30pm to 6:30pm, Practice. Overlaps Plan the week of Nov 9.' });
+  // Both boxes are read in one frame. Just after a day is tapped, the strip's fold can still be settling, which scrolls
+  // the day under it, so two boxes read one after the other can each be from a different scroll.
   const sideBySide = async () => {
-    const [left, right] = [(await plan.boundingBox())!, (await meals.boundingBox())!];
+    const { left, right } = await plan.evaluate(
+      (a, b) => ({ left: a.getBoundingClientRect().toJSON() as DOMRect, right: b.getBoundingClientRect().toJSON() as DOMRect }),
+      await meals.elementHandle(),
+    );
     expect(left.y).toBeCloseTo(right.y, 0);
     expect(left.x + left.width).toBeLessThanOrEqual(right.x);
     expect(left.width).toBeCloseTo(right.width, 0);

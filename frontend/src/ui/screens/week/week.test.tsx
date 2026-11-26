@@ -294,6 +294,47 @@ describe('Week on desktop', () => {
     expect(screen.getByText(/^of \d+h( \d+m)? available$/)).toBeVisible();
   });
 
+  it("zooms the grid with Today's buttons a step at a time, each stopping at its end, and keeps the level across weeks and editing", async () => {
+    await open({ seed: planned });
+    const zoom = await screen.findByRole('group', { name: 'Calendar zoom' });
+    expect(within(zoom).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Zoom out', 'Zoom in']);
+    // Above the grid, in its card, and never over a day.
+    expect(zoom.closest('.wkgrid')).not.toBeNull();
+    expect(screen.getByRole('group', { name: 'Week calendar' })).not.toContainElement(zoom);
+    const [zoomOut, zoomIn] = [within(zoom).getByRole('button', { name: 'Zoom out' }), within(zoom).getByRole('button', { name: 'Zoom in' })];
+    // The drawn day is 17 hours, 26px an hour at first, as before.
+    const day = () => document.querySelector<HTMLElement>('.colbody')!.style.height;
+    const report = () => screen.getByRole('button', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+    expect(day()).toBe(`${17 * 26}px`);
+    expect(zoomOut).toBeDisabled();
+    for (const hr of [42, 62, 83]) {
+      await userEvent.click(zoomIn);
+      expect(day()).toBe(`${17 * hr}px`);
+      // The block keeps its time: 6pm is 12 hours below 6am.
+      expect(report()).toHaveStyle({ top: `${12 * hr}px`, height: `${hr}px` });
+    }
+    expect(zoomIn).toBeDisabled();
+    await userEvent.click(zoomOut);
+    expect(day()).toBe(`${17 * 62}px`);
+
+    // Next week and back keep it, though each week draws afresh.
+    await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(await screen.findByText('Nov 9 to Nov 15')).toBeVisible();
+    expect(day()).toBe(`${17 * 62}px`);
+    await userEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    await screen.findByText('Nov 2 to Nov 8');
+    expect(day()).toBe(`${17 * 62}px`);
+
+    // Editing draws its taller hours at the same step: 2.4 times 40px.
+    await userEvent.click(screen.getByRole('button', { name: "Edit this week's plan" }));
+    await screen.findByRole('heading', { name: 'Editing this week' });
+    expect(day()).toBe(`${17 * 96}px`);
+    expect(screen.getByRole('group', { name: 'Calendar zoom' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Done editing' }));
+    await screen.findByRole('heading', { name: 'This week' });
+    expect(day()).toBe(`${17 * 62}px`);
+  });
+
   it('mid-week, counts only time still ahead: a past day shows what happened, never free or packed', async () => {
     await midweek();
     const used = await screen.findByRole('region', { name: "How this week's time is used" });
@@ -1144,6 +1185,28 @@ describe('hold to create on Week', () => {
       press(column('2026-11-05'), gridY(16 * 60, 40) + 1, 'desktop');
       await pass(450);
       expect(draft()).toHaveAttribute('title', '4pm to 5pm');
+    });
+
+    it('zoomed in, a hold drafts at the time under the mouse and moves by the hour as drawn, viewing or editing', async () => {
+      await open({ seed: planned });
+      const zoomIn = await screen.findByRole('button', { name: 'Zoom in' });
+      await userEvent.click(zoomIn);
+      await userEvent.click(zoomIn);
+      // 2.4 times the usual hour: 62px, or 96 while editing.
+      press(column('2026-11-05'), gridY(16 * 60, 62) + 1, 'desktop');
+      await pass(450);
+      expect(draft()).toHaveAttribute('title', '4pm to 5pm');
+      fireEvent.pointerMove(window, { clientX: 20, clientY: gridY(17 * 60, 62) + 1, pointerType: 'mouse', pointerId: 1 });
+      await waitFor(() => expect(draft()).toHaveAttribute('title', '5pm to 6pm'));
+      letGo(gridY(17 * 60, 62) + 1, 'desktop');
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(draft()).toBeNull());
+
+      await userEvent.click(screen.getByRole('button', { name: "Edit this week's plan" }));
+      await screen.findByRole('heading', { name: 'Editing this week' });
+      press(column('2026-11-05'), gridY(16 * 60 + 30, 96) + 1, 'desktop');
+      await pass(450);
+      expect(draft()).toHaveAttribute('title', '4:30pm to 5:30pm');
     });
   });
 });

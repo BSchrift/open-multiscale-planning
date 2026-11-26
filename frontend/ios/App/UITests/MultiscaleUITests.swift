@@ -89,13 +89,18 @@ extension XCUIApplication {
         XCTFail("\(tab) never showed. On screen:\n\(debugDescription)", file: file, line: line)
     }
 
-    /// Taps a field, then types with the keyboard. WebKit now and then drops the page from the tree for a moment as the
+    /// Types into a field with the keyboard. Each field the tests type into takes focus as it opens, which brings the
+    /// keyboard up with the tap that opened it, so the field is tapped only when no keyboard came, as when the field
+    /// opens after that tap is over. A tap on a field that already has focus is what failed on CI: on setup's goal it put
+    /// the keyboard away for good, and on Capture's field, still under the keyboard before WebKit pans the page up to
+    /// it, it landed on the keyboard and typed a Q. WebKit now and then drops the page from the tree for a moment as the
     /// keyboard comes up, and typing into the field by name fails at once when the field can't be found then. The
-    /// keyboard types into whatever has focus, which the tap gave the field.
+    /// keyboard types into whatever has focus, which is the field.
     func type(_ text: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         MultiscaleUITests.exists(field, file: file, line: line)
-        field.tap()
-        XCTAssertTrue(keyboards.element.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(debugDescription)", file: file, line: line)
+        let keyboard = keyboards.element
+        if !keyboard.waitForExistence(timeout: 5) { field.tap() }
+        XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(debugDescription)", file: file, line: line)
         typeText(text)
     }
 
@@ -199,7 +204,9 @@ final class SeedTimeTests: XCTestCase {
  * Goals did the same. Waiting longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or
  * screen changes didn't bring the content in reliably. Hiding the page and showing it again did, every time: so the
  * test goes to another tab and back, each time waiting for the app to say it shows it, so a lost tap can't leave the
- * page as it was.
+ * page as it was. The app must already show the tab, as `show(tab:)` makes sure: the app says so only when its screen
+ * changes, so after a lost tap on Goals, a tap on Today, the screen it was still on, said nothing, and the test waited
+ * out both tries.
  */
 private func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
@@ -277,7 +284,7 @@ final class ShellUITests: XCTestCase {
         app.launchLoaded()
         exists(app.webButton("Goals"), timeout: launchPatience)
         XCTAssertFalse(app.webText("Welcome").exists)
-        app.tapWeb("Goals")
+        app.show(tab: "Goals")
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
     }
 
@@ -331,7 +338,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webText("Added Return the library books to One offs."))
 
         // Each landed where it was sent: the project's task under its Done, which opens folded behind its milestone.
-        app.tapWeb("Goals")
+        app.show(tab: "Goals")
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
@@ -369,7 +376,7 @@ final class ShellUITests: XCTestCase {
 
     func testAPracticeOnMondayTuesdayAndFridaySavesWithUndo() {
         let app = launchApp(seed: "Seed plan")
-        app.tapWeb("Goals")
+        app.show(tab: "Goals")
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
         app.tapWeb(startingWith: "Learn to bake bread")
         // The goal's own, which comes before the one for practices with no goal.
@@ -402,7 +409,7 @@ final class ShellUITests: XCTestCase {
 
     func testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBarWithTheKeyboardUp() {
         let app = launchApp(seed: "Seed to schedule")
-        app.tapWeb("Goals")
+        app.show(tab: "Goals")
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")

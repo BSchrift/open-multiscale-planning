@@ -38,6 +38,38 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** Rows of planner statistics on the records table, 0 before any. */
+async function statistics(db: Db): Promise<number> {
+  if (!(await db.get("SELECT 1 FROM sqlite_schema WHERE name = 'sqlite_stat1'"))) return 0;
+  return (await db.all("SELECT 1 FROM sqlite_stat1 WHERE tbl = 'records'")).length;
+}
+
+describe('the planner statistics', () => {
+  const tasks = (n: number) => Array.from({ length: n }, (_, i) => ({ type: 'task', id: `task-${i}`, fields: { kind: { v: 'inbox', c: `1793541600000-000000-other` }, title: { v: `Task ${i}`, c: `1793541600000-000000-other` } } }));
+
+  // As another device sends them, 99 to a request.
+  const seed = async (t: Awaited<ReturnType<typeof setup>>, changes: ReturnType<typeof tasks>) => {
+    for (let i = 0; i < changes.length; i += 99) await t.server.send({ cursor: 0, changes: changes.slice(i, i + 99) });
+  };
+
+  it('are made after a sync that brought down a large history, as a launch would make them', async () => {
+    const t = await setup();
+    await seed(t, tasks(1200));
+    expect(await statistics(t.db)).toBe(0);
+    await t.runner.syncNow();
+    expect(await getMeta(t.db, META.cursor)).not.toBe('0');
+    expect(await statistics(t.db)).toBeGreaterThan(0);
+  });
+
+  it('are left alone after an ordinary sync', async () => {
+    const t = await setup();
+    await seed(t, tasks(20));
+    await t.runner.syncNow();
+    expect(await getMeta(t.db, META.cursor)).not.toBe('0');
+    expect(await statistics(t.db)).toBe(0);
+  });
+});
+
 describe('when it syncs', () => {
   it('at launch', async () => {
     const t = await setup();

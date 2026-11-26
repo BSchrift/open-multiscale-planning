@@ -14,8 +14,7 @@
 #   history web app
 #                on staging, the web app suite as a desktop browser of that user, once its account is seeded: its long
 #                first sync, a reload during one, OPFS, the journey, planning and the console (frontend/e2e/deployed,
-#                project history), so a long history's slow reads meet them before prod's shared test user does.
-#                Reported only for now: its result never fails the run
+#                project history), so a long history's slow reads meet them before prod's shared test user does
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve, and
 #   EXPECT_FEEDS the feeds that must serve it too: desktop and iphone, as a release switched them.
@@ -75,19 +74,6 @@ run() {
     failed+=("$name")
   fi
 }
-# A suite on probation: its result is shown and kept, but never fails the run. To make one gate, run it with run.
-reported=()
-report() {
-  local name="$1" log="$logs/${1// /-}.log"
-  shift
-  echo "== $name (reported only)"
-  if "$@" 2>&1 | tee "$log"; then
-    echo "== $name passed"
-  else
-    echo "== $name FAILED, which is reported only; its output is in $log"
-    reported+=("$name")
-  fi
-}
 run "web app" npx playwright test -c e2e/deployed/playwright.config.ts
 if [ "${WEB_ONLY:-}" = 1 ]; then
   [ ${#failed[@]} -eq 0 ] || { echo "$env_name: failed: web app" >&2; exit 1; }
@@ -116,14 +102,13 @@ if [ "$env_name" = staging ] && [ "${SKIP_HISTORY:-}" != 1 ]; then run "history"
 # On staging only: prod has no history user. Its own user, as scripts/test-history.sh reads it.
 if [ "$env_name" = staging ] && [ "${SKIP_HISTORY_WEB:-}" != 1 ]; then
   if history_target="$(MULTISCALE_TEST_USER=history node scripts/test-target.mjs)"; then
-    report "history web app" env MULTISCALE_HISTORY_TARGET="$history_target" npx playwright test -c e2e/deployed/playwright.config.ts --project=history
+    run "history web app" env MULTISCALE_HISTORY_TARGET="$history_target" npx playwright test -c e2e/deployed/playwright.config.ts --project=history
   else
     echo "== history web app FAILED: couldn't read the staging history user. See \"The history-scale test\" in docs/setup.md."
-    reported+=("history web app")
+    failed+=("history web app")
   fi
 fi
 
-[ ${#reported[@]} -eq 0 ] || echo "$env_name: failed, reported only: ${reported[*]}"
 if [ ${#failed[@]} -gt 0 ]; then
   echo "$env_name: failed: ${failed[*]}" >&2
   exit 1

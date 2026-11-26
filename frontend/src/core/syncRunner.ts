@@ -20,7 +20,7 @@ import { sweepOrphans } from './attachments';
 import { createAuth, tokenSubject } from './auth';
 import type { Clock } from './clock';
 import { nowInstant } from './dates';
-import { getMeta, META, setMeta } from './db';
+import { getMeta, META, refreshStatistics, setMeta } from './db';
 import type { Db } from './db';
 import { backfillExpiry, expireLocal } from './expiry';
 import { createFiles } from './files';
@@ -38,6 +38,8 @@ const PERIOD_MS = 5 * 60_000;
 const CONNECT_POLL_MS = 5000;
 const CONNECT_POLLS = 24;
 const LEAVE_MS = 10_000;
+/** A sync that brought down this many changes, a first sync above all, makes new planner statistics, as a launch does. */
+const STATISTICS_AFTER_CHANGES = 1000;
 
 async function recordFailure(db: Db, code: SyncErrorCode): Promise<void> {
   await setMeta(db, META.lastSyncError, code);
@@ -93,7 +95,11 @@ export function createSyncRunner(deps: {
     perf.start('sync.pull');
     try {
       await rebaseClocks(db, clock);
-      if ((await runSync(db, send)) === 0) perf.cancel('sync.pull');
+      const pulled = await runSync(db, send);
+      if (pulled === 0) perf.cancel('sync.pull');
+      // A first sync of a long history leaves the planner with the statistics of the empty database it opened, which
+      // lead it to read whole tables until the next launch makes new ones.
+      if (pulled >= STATISTICS_AFTER_CHANGES) await refreshStatistics(db);
       await db.transaction(async (tx) => {
         await setMeta(tx, META.lastSyncAt, nowInstant(clock));
         await tx.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
@@ -142,6 +148,8 @@ export function createSyncRunner(deps: {
 
   return {
     syncNow,
+    /** Resolves once the sync under way, if any, has finished or failed, without starting one. Never rejects. */
+    settled: (): Promise<void> => running ?? Promise.resolve(),
     start(): void {
       void syncNow();
       const period = setInterval(() => void syncNow(), PERIOD_MS);
@@ -453,6 +461,11 @@ export function startAppSync(
       }
     },
     syncNow: runner.syncNow,
+    /**
+     * Resolves once the sync under way has finished or failed, such as the first after opening or the one a return to the
+     * foreground starts, so what the app does on its own then works from what other devices did. Never rejects.
+     */
+    settled: runner.settled,
     /** The link to an export of everything the account has, once the server has built it. Throws ExportError or SyncError. */
     exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), isFilesLink }),
     /**

@@ -18,6 +18,7 @@ import { useNav, useOverlay } from '../../app/nav';
 import type { Layout } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { PracticeAdd, PracticeFields, practiceRule, ProjectAdd, useLeave } from '../../components/editors';
+import type { SaidChange } from '../../components/editors';
 import { SheetOnPhone } from '../../components/editors/SheetOnPhone';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { AddMenu } from '../../components/AddMenu';
@@ -194,7 +195,7 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
   };
   // The editor takes focus as it opens, in place of the Edit that opened it.
   useEffect(() => cardRef.current?.focus(), [editing]);
-  const write = (id: string) => (text: string, change: PlanChange) => act(`edit-${id}`, text, (w) => applyPlanChange(w, change));
+  const write = (id: string) => (build: (w: Writer) => Promise<SaidChange>) => act(`edit-${id}`, (done) => (done as SaidChange).said, build);
   const practices = data.practices.filter((p) => p.state !== 'ended');
   const goalLine = (p: Practice) => {
     const goal = data.objectives.find((g) => g.id === p.objective_id);
@@ -638,9 +639,10 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
     go(steps[Math.min(at + 1, steps.length - 1)]!);
   };
 
-  const act: Act = async (key, text, build, goingOn = false) => {
+  const act: Act = async (key, words, build, goingOn = false) => {
     const reverse = await write.run(build);
     if (!reverse) return false;
+    const text = typeof words === 'function' ? words(reverse) : words;
     logChange(key, text, reverse, goingOn);
     setSession((s) => (goingOn && s.at(-1) === key ? s : [...s, key]));
     setSaid(text);

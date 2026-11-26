@@ -48,7 +48,9 @@
 :where([data-layout='phone']) .wday.tight .wfree{color:var(--warn);font-weight:var(--fw-strong)}
 :where([data-layout='phone']) .wday.nofit:not(.on){color:var(--ink-3)}
 :where([data-layout='phone']) .wshape{display:flex;flex-direction:column;flex:1 1 auto;justify-content:flex-start;width:28px}
-:where([data-layout='phone']) .sl{display:block;height:2px;margin:0;background:var(--line)}
+/* The strip's day: free time a light track, as the time bar draws it; time closed or gone by, nothing. */
+:where([data-layout='phone']) .sl{display:block;height:2px;margin:0}
+:where([data-layout='phone']) .sl.free{background:var(--wash)}
 :where([data-layout='phone']) .sl.closed{background:transparent}
 :where([data-layout='phone']) .sl.planned{background:var(--accent)}
 :where([data-layout='phone']) .sl.planned.practice{background:var(--practice)}
@@ -78,6 +80,9 @@
 :where([data-layout='phone']) .skey:first-child{margin-left:0}
 :where([data-layout='phone']) .skey.planned{background:var(--accent)}
 :where([data-layout='phone']) .skey.busy{background:var(--line)}
+:where([data-layout='phone']) .skey.free{background:var(--wash)}
+/* Nothing is drawn there, so its key is an outline. */
+:where([data-layout='phone']) .skey.closed{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
 :where([data-layout='phone']) .tlnoslot{display:block;width:100%;min-height:44px;margin-bottom:var(--space-2);padding:var(--space-2) var(--space-3);border:1.5px dashed var(--accent);border-radius:var(--radius-control);background:var(--card);color:var(--project-ink);font-size:var(--fs-meta);text-align:left}
 :where([data-layout='phone']) .candbtn{display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);width:100%;min-height:48px;padding:var(--space-2) 0;border:0;background:transparent;text-align:left}
 :where([data-layout='phone']) .candsel{padding:0 0 var(--space-3)}

@@ -58,7 +58,10 @@ What the runs showed beside the numbers:
   96 ms, the first after the sync slower than the rest. The edit budget is met only on a quiet Mac, by 0.2 ms.
 - **Today and Week** both read whole tables on every change, as the `shortcut:` comments in
   `frontend/src/ui/screens/today/data.ts` and `frontend/src/ui/screens/week/data.ts` say: every task, project, pick and
-  week plan, and for Week the analytics data too. Every query on a screen still mounted reads again on every change;
+  week plan, and for Week the analytics data too. Since 24 November 2026 they read what they show instead: open tasks,
+  every task and milestone of an active project, the tasks their blocks and picks name, the weeks of picks and plans
+  they look at, and for Week the blocks of the four weeks it counts as pushed back lately
+  (`src/platform/history-checks.test.ts` checks they work out the same as from every record). Every query on a screen still mounted reads again on every change;
   since 19 November 2026 a read that finds what the last one did draws nothing (`useQuery` in
   `frontend/src/ui/app/store.tsx`), where before each one drew its screen again, which on a long history took a
   slowed-down browser seconds for one change.
@@ -156,7 +159,9 @@ and 1.9 s in the Mac app; 291 KB fetched on a cold first load.
 `web.initial`, the gzipped bytes of the scripts and styles the web app's page links, is exact, so it blocks a merge
 from the first day: the frontend CI job runs `node scripts/bundle-budget.ts dist` on its build and fails over the
 200 KB in `config/perf.ts`. On 14 November 2026 it was 173.3 KB in 15 files. Given the base's build too
-(`--base <dist>`), it notes a change that adds more than 5 KB, which the PR check puts in its comment. `web.firstload`,
+(`--base <dist>`), it notes a change that adds more than 5 KB, which the PR check puts in its comment. Capture, a task's
+popup and the phone's More tab load once the app has drawn, ahead of a tap, rather than with the page, and the script
+fails if one is back in those files: moving them out took it from 199.0 KB to 167.3 KB on 25 November 2026. `web.firstload`,
 everything a cold first load fetches until Today is interactive, is counted by the runner's cold starts in a browser:
 291 KB on that day, gzipped.
 

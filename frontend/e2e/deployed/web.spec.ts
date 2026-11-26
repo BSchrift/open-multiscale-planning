@@ -20,7 +20,8 @@ const NETWORK = { timeout: 60_000 };
 // On prod's shared test user, which held tens of thousands of deleted records, it ran past 70 seconds on 15 November.
 const CATCH_UP = 180_000;
 // The history project (playwright.config.ts) signs in as staging's history user, whose five-year account
-// (history-seed.setup.ts) is about 33,000 records: some 67 pages of 500 for a new browser. Fewer means it isn't seeded.
+// (history-seed.setup.ts) is about 33,000 records: 78 to 83 pages for a new browser on staging's runs from 19 to 23
+// November, of about 400 records each. Fewer means it isn't seeded.
 const HISTORY_PAGES = 50;
 const HISTORY_ONLY = 'The history project checks only what a long history changes: sign-in, a reload, OPFS, the journey, planning and the console';
 
@@ -291,13 +292,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");
   // Looking writes nothing to the plan: no Continue, no Finish, and Add is opened and closed.
   const phone = info.project.name === 'phone';
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  if (phone) {
-    await nav.getByRole('button', { name: 'More' }).click();
-    await page.getByRole('button', { name: /^Plan/ }).click();
-  } else {
-    await nav.getByRole('button', { name: 'Plan' }).click();
-  }
+  // Plan is a tab on both layouts: on phone it took Week's place, since Today draws the week. This test meets only this
+  // release's web app, so no step allows for the one before, which kept Plan under More on phone.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
   // Plan opens on its page, and the steps only from a way in. Which way in depends on the shared test user: prod's first
   // stretch was begun and is never planned there, so it offers Continue planning, while staging's compat suite finishes a
   // plan on every run, so staging offers the next stretch's.
@@ -324,9 +321,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November prod's release step
-  // found the steps still open: on prod's large history, Save and exit's writes outlasted the 5 seconds checks waited
-  // then, as they take 3.6 to 5.2 seconds locally with 60,000 deleted records on desktop.
+  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November, and again on 25
+  // November past 15 seconds, prod's release step found the steps still open: on prod's large history, Save and exit's
+  // writes waited behind every open screen's reads. Writes now go ahead of reads still waiting (core/db.ts).
   await expect(steps).toHaveCount(0);
   await expect(wayIn).toBeVisible();
 });

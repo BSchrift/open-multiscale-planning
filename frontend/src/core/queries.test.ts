@@ -7,6 +7,7 @@ import { sqlJsDriver } from '../platform/sqljs-driver';
 import { INDEXES, openDb, refreshStatistics } from './db';
 import type { Db } from './db';
 import {
+  blockRow,
   blocksInRange,
   completionsSince,
   doneCompletions,
@@ -92,6 +93,14 @@ function answers(open: () => Promise<Db>) {
     expect(rows.map((r) => r.task_kind)).toEqual(['project', null, 'one_off']);
     const last = await blocksInRange(db, { from_utc: '2026-10-26T05:00:00Z', to_utc: '2026-11-02T05:00:00Z' });
     expect(last[0]!.result).toBe('partly');
+  });
+
+  it('one block by its id, as the range has it, and none once it is off the calendar', async () => {
+    const [, piano] = await blocksInRange(db, week);
+    expect(await blockRow(db, 'b2')).toEqual(piano);
+    expect((await blockRow(db, 'b3'))?.result).toBe('partly');
+    expect(await blockRow(db, 'b4')).toBeUndefined();
+    expect(await blockRow(db, 'nothing')).toBeUndefined();
   });
 
   it('placed time counts only what wasn’t picked, and only what is still to come', async () => {

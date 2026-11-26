@@ -2,7 +2,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixedClock } from '../../../core/clock';
-import { getRecord } from '../../../core/records';
+import { getRecord, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
 import { moreLine } from './moreLine';
@@ -121,6 +121,61 @@ describe('One offs on desktop', () => {
     await waitFor(() => expect(lineOf('Tidy the shed')).toBe('Nov 4'));
     expect(checkboxes().slice(0, 3)).toEqual(['Mend the gate done', 'Tidy the shed done', 'Return the drill done']);
     expect((await getRecord(t.db, 'task', 'undated'))?.next_due).toBe('2026-11-04');
+  });
+});
+
+describe('a one off at a time of day', () => {
+  const timed = async (w: Writer) => {
+    await w.create('task', { kind: 'one_off', title: 'Renew passport', schedule: { type: 'once', from: '2026-11-04' }, next_due: '2026-11-04', estimate_min: 30, time: 540 }, 'pass');
+    await w.create('time_block', { task_id: 'pass', start: '2026-11-04T15:00:00Z', end: '2026-11-04T15:30:00Z', tz: 'America/Chicago' }, 'due:pass:2026-11-04');
+  };
+  const block = (t: { db: Parameters<typeof getRecord>[0] }, date: string) => getRecord(t.db, 'time_block', `due:pass:${date}`);
+
+  it('asks for a time only with one date, and one added with a time lands then, said with Undo', async () => {
+    const t = await renderScreen('oneoffs', { seed: seedList });
+    const form = await screen.findByRole('form', { name: 'Add a one off' });
+    const time = () => within(form).queryByLabelText('At a time of day (optional)');
+    expect(time()).toBeNull();
+    await userEvent.type(within(form).getByLabelText('Title'), 'Renew passport');
+    fireEvent.change(within(form).getByLabelText('Date (optional)'), { target: { value: '2026-11-04' } });
+    expect(time()).toHaveAccessibleDescription("With a time, it's placed then by itself when that time is free.");
+    await userEvent.click(within(form).getByRole('button', { name: '+ End date' }));
+    fireEvent.change(within(form).getByLabelText('End date'), { target: { value: '2026-11-05' } });
+    expect(time()).toBeNull();
+    fireEvent.change(within(form).getByLabelText('End date'), { target: { value: '' } });
+    fireEvent.change(time()!, { target: { value: '09:00' } });
+    await userEvent.click(within(form).getByRole('button', { name: 'Add one off' }));
+    expect(await screen.findByText('Placed Renew passport at its set time, Wed 9am.')).toBeVisible();
+    await waitFor(() => expect(lineOf('Renew passport')).toBe('Nov 4, 9am, 30m'));
+    const blocks = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.id.startsWith('due:') && !b.cancelled);
+    expect((await blocks()).map((b) => b.start)).toEqual(['2026-11-04T15:00:00Z']);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await blocks()).toEqual([]));
+  });
+
+  it('moves its block when its popup gives it a new time, with Undo', async () => {
+    const t = await renderScreen('oneoffs', { seed: timed });
+    await userEvent.click(await screen.findByRole('button', { name: 'Renew passport' }));
+    const popup = await screen.findByRole('dialog', { name: 'Renew passport' });
+    fireEvent.change(within(popup).getByLabelText('At a time of day (optional)'), { target: { value: '10:30' } });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved Renew passport. Moved Renew passport to Wed 10:30am.')).toBeVisible();
+    expect((await block(t, '2026-11-04'))?.start).toBe('2026-11-04T16:30:00Z');
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await block(t, '2026-11-04'))?.start).toBe('2026-11-04T15:00:00Z'));
+    expect((await getRecord(t.db, 'task', 'pass'))?.time).toBe(540);
+  });
+
+  it('takes its block to a new date set in place, with Undo', async () => {
+    const t = await renderScreen('oneoffs', { seed: timed });
+    await userEvent.click(await screen.findByRole('button', { name: 'Change date for Renew passport' }));
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-05' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
+    expect(await screen.findByText('Renew passport, Nov 5. Placed Renew passport at its set time, Thu 9am.')).toBeVisible();
+    expect((await block(t, '2026-11-04'))?.cancelled).toBe(true);
+    expect((await block(t, '2026-11-05'))?.start).toBe('2026-11-05T15:00:00Z');
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await block(t, '2026-11-04'))?.cancelled).toBeNull());
   });
 });
 

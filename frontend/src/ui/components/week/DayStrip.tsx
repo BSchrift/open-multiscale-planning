@@ -20,7 +20,7 @@ const packed = (date: LocalDate, ctx: SlotContext) => free(date, ctx) < dayBaseA
 /** The week's free time from now on, as the strip counts it. */
 export const weekFree = (week: LocalDate, ctx: SlotContext): Minutes => DAYS.reduce((sum, i) => sum + free(addDays(week, i), ctx), 0);
 
-/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy or closed. Open time gone by is drawn as closed. */
+/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy, free or closed. Open time gone by is drawn as closed. */
 function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: LocalDate; draft?: Slot | null; suggested?: Slot | null }) {
   const { ctx, date } = props;
   const hit = (x: Slot | null | undefined, m: number) => !!x && x.date === date && x.start < m + 30 && m < x.end;
@@ -42,7 +42,7 @@ function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: Loca
                   ? 'busy'
                   : isPast(date, m, ctx)
                     ? 'closed'
-                    : '';
+                    : 'free';
         return <span key={m} className={`sl ${cls}`} />;
       })}
     </span>
@@ -71,6 +71,8 @@ export function DayStrip(props: {
   hint?(date: LocalDate): DayHint;
   /** Names each day's suggested time on a line of its own, as Schedule does. */
   suggestions?: boolean;
+  /** What each day says under its shape, in place of its free time: the phone's Today says the hours planned. */
+  under?(date: LocalDate): { text: string; say: string };
   onPick(date: LocalDate): void;
 }) {
   const { week, ctx, draft } = props;
@@ -84,7 +86,8 @@ export function DayStrip(props: {
         const freeText = date < today ? '' : formatMinutes(free(date, ctx));
         const { suggested, noFit, waiting } = props.hint?.(date) ?? {};
         const time = suggested && formatTimeOfDay(suggested.start);
-        const say = (time ? `, suggested ${time}` : noFit ? ', no slot for this task' : '') + (waiting ? `, ${waiting} to schedule` : '');
+        const under = props.under?.(date);
+        const say = (under?.say ? `, ${under.say}` : '') + (time ? `, suggested ${time}` : noFit ? ', no slot for this task' : '') + (waiting ? `, ${waiting} to schedule` : '');
         return (
           <button
             key={date}
@@ -108,7 +111,7 @@ export function DayStrip(props: {
                 <span className="wsug">{time || (noFit ? 'No slot' : '')}</span>
               </>
             ) : (
-              <span className="wfree">{noFit ? 'No slot' : freeText}</span>
+              <span className="wfree">{noFit ? 'No slot' : under ? under.text : freeText}</span>
             )}
           </button>
         );

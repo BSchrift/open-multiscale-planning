@@ -86,24 +86,43 @@ async function rollback(driver: SqlDriver): Promise<void> {
   await driver.exec('ROLLBACK').catch(() => undefined);
 }
 
-/** Serializes all work on one connection, and adds parameters, transactions and change events. */
+/**
+ * Serializes all work on one connection, and adds parameters, transactions and change events. Writes go in their own
+ * order, ahead of reads still waiting: every change has every mounted screen read again, and on a long history a save
+ * queued behind those reads waited seconds for them (Save and exit, on prod's shared test user). A read already under
+ * way finishes first. A read is many statements, which writes could already come between, so none relies on its order.
+ */
 export function createDb(driver: SqlDriver): Db {
   const sql = bind(driver);
   const listeners = new Set<(change: DbChange) => void>();
-  let tail: Promise<unknown> = Promise.resolve();
+  const writes: (() => Promise<void>)[] = [];
+  const reads: (() => Promise<void>)[] = [];
+  let busy = false;
 
-  const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
-    const result = tail.then(work, work);
-    tail = result.catch(() => undefined);
-    return result;
+  const next = () => {
+    const job = writes.shift() ?? reads.shift();
+    if (!job) return;
+    busy = true;
+    void job().finally(() => {
+      busy = false;
+      next();
+    });
   };
+  const enqueue = <T>(lane: (() => Promise<void>)[], work: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      // A statement that throws before it starts, as with a missing parameter, still settles and frees the queue.
+      lane.push(() => new Promise<T>((started) => started(work())).then(resolve, reject));
+      if (!busy) next();
+    });
+  const read = <T>(work: () => Promise<T>) => enqueue(reads, work);
+  const write = <T>(work: () => Promise<T>) => enqueue(writes, work);
 
   return {
-    all: (s, p) => enqueue(() => sql.all(s, p)),
-    get: (s, p) => enqueue(() => sql.get(s, p)),
-    run: (s, p) => enqueue(() => sql.run(s, p)),
+    all: (s, p) => read(() => sql.all(s, p)),
+    get: (s, p) => read(() => sql.get(s, p)),
+    run: (s, p) => write(() => sql.run(s, p)),
     transaction: (fn) =>
-      enqueue(async () => {
+      write(async () => {
         await driver.exec('BEGIN IMMEDIATE');
         try {
           const result = await fn(sql);
@@ -128,7 +147,7 @@ export function createDb(driver: SqlDriver): Db {
         }
       }
     },
-    close: () => enqueue(() => driver.close()),
+    close: () => read(() => driver.close()),
   };
 }
 
@@ -147,6 +166,7 @@ export const RECORD_FIELDS = {
     'order',
     'schedule',
     'next_due',
+    'time',
     'done_at',
     'cancelled_at',
     'cancelled_by',
@@ -266,12 +286,15 @@ export const MIGRATIONS: Migration[] = [
 /**
  * Indexes made at open, as the views are, rather than by a migration, which bundles up to c88b04d would refuse. A bundle
  * from before one never reads it, and SQLite keeps it up to date through that bundle's writes, so one left behind after
- * a rollback does no harm. They let Done read a day's finishes without reading every task.
+ * a rollback does no harm. They let Done read a day's finishes without reading every task, Today's queue find a task's
+ * finishes without reading every one, and Today find the notes shown on its day without reading every note.
  */
 export const INDEXES: Readonly<Record<string, string>> = {
   task_done: "CREATE INDEX task_done ON records (json_extract(data, '$.done_at')) WHERE type = 'task'",
   completion_done: "CREATE INDEX completion_done ON records (json_extract(data, '$.done_at')) WHERE type = 'task_completion'",
   milestone_met: "CREATE INDEX milestone_met ON records (json_extract(data, '$.met_at')) WHERE type = 'milestone'",
+  completion_task: "CREATE INDEX completion_task ON records (json_extract(data, '$.task_id')) WHERE type = 'task_completion'",
+  memo_show_on: "CREATE INDEX memo_show_on ON records (json_extract(data, '$.show_on')) WHERE type = 'memo'",
 };
 
 /** Keys in the meta table. */

@@ -146,11 +146,14 @@ export const capture: Action = async (page, phone) => {
   await keep(page);
 };
 
-/** Today, Week, Done and Analytics in turn, each a nav measure; on phone, Done and Analytics are under More. */
+/**
+ * Today, Week, Done and Analytics in turn, each a nav measure; on phone, Done and Analytics are under More, and there's
+ * no Week, since Today draws the week.
+ */
 export const screens: Action = async (page, phone) => {
   const main = page.getByRole('navigation', { name: 'Main' });
   const tab = (name: string): Locator => main.getByRole('button', { name: new RegExp(`^${name}`) });
-  for (const screen of ['Week', 'Done', 'Analytics', 'Today']) {
+  for (const screen of [...(phone ? [] : ['Week']), 'Done', 'Analytics', 'Today']) {
     const name = `nav.${screen.toLowerCase()}`;
     if (phone && (screen === 'Done' || screen === 'Analytics')) {
       await tab('More').click();

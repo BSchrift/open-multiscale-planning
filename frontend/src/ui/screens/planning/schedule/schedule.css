@@ -39,3 +39,16 @@
 [data-layout='phone'] .schsheet .morerow { flex: 1; min-width: 0; border-top: 0; }
 [data-layout='phone'] .schsheet > .is-practice .schname { padding-left: var(--space-3); border-left: 4px double var(--practice); }
 [data-layout='phone'] .schedx { flex: none; width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; color: var(--ink-3); font-size: var(--fs-body); }
+/* Sessions at their set times: placed already, so ticked, and taken off one by one from the list Show opens. */
+[data-layout] .setmark svg { color: var(--ok); }
+[data-layout] .schwarn { display: flex; align-items: center; gap: var(--space-1); }
+[data-layout] .schwarn svg, [data-layout] .schedmark:not(.setmark) svg, [data-layout] .schmark:not(.setmark) svg { flex: none; color: var(--warn); }
+[data-layout='desktop'] .setrow { gap: var(--space-2); padding: var(--space-2); color: var(--ink); }
+[data-layout='phone'] .schsheet > .setrow { padding: var(--space-2) 0; color: var(--ink); }
+[data-layout] .setbody { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+[data-layout] .setbody .subline { overflow-wrap: anywhere; }
+[data-layout] .setbody .subline.small { color: var(--ink-3); }
+[data-layout] .setsessions { margin: var(--space-1) 0 0; padding: 0; list-style: none; }
+[data-layout] .setsessions > li { min-height: 32px; }
+[data-layout='phone'] .setsessions > li { min-height: var(--tap); }
+[data-layout='phone'] .setsessions .link { min-height: var(--tap); }

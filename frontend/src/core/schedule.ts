@@ -5,7 +5,7 @@
 import { RRule } from 'rrule';
 import type { Options } from 'rrule';
 import type { Clock } from './clock';
-import { addDays, addMonths, diffDays, formatDate, formatMinutes, formatWeekday, instantMs, isDay, localDate, nowInstant, today, toInstant, weekStart } from './dates';
+import { addDays, addMonths, diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, instantMs, isDay, localDate, nowInstant, today, toInstant, weekStart } from './dates';
 import { occurrenceId } from './records';
 import type { Fields, Instant, LocalDate, RepeatUnit, Task, TaskCompletion, TaskSchedule, TimeBlock } from './types';
 
@@ -361,6 +361,13 @@ function nextText(s: TaskSchedule, due: LocalDate | null | undefined): string {
 export function rowLine({ task, checked }: OneOffRow): string {
   const s = task.schedule ?? { type: 'once' as const };
   if (checked) return s.type === 'once' ? 'Done today' : `Done today, ${nextText(s, task.next_due)}`;
-  const line = s.type === 'once' ? onceWhen(s) || 'No date' : `${scheduleLabel(s)}, ${nextText(s, task.next_due)}`;
+  const when = s.type === 'once' ? onceWhen(s) || 'No date' : `${scheduleLabel(s)}, ${nextText(s, task.next_due)}`;
+  // A time of day goes with the one date it's on.
+  const line = task.time != null && hasOneDate(s) ? `${when}, ${formatTimeOfDay(task.time)}` : when;
   return task.estimate_min ? `${line}, ${formatMinutes(task.estimate_min)}` : line;
+}
+
+/** A schedule with one day at a time to put a time of day on: one date, or a repeat whose next is a day. */
+export function hasOneDate(s: TaskSchedule): boolean {
+  return s.type === 'once' ? !!s.from && (!s.to || s.to === s.from) : s.type === 'recurring' || s.type === 'float' || s.type === 'rule';
 }

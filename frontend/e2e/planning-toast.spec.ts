@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openSeeded } from './seed';
+import { openSeeded, startPlanningOnToday } from './seed';
 
 // On phone, planning keeps a toast above its bottom bar, and the sheet in Schedule sits on top of it. Any press puts the
 // toast away, so the sheet drops into its place while the finger is still down, and the release lands on whatever has
@@ -21,7 +21,7 @@ test('phone: a press that puts a toast away still presses the button under it', 
     { type: 'week_pick', id: `pick:${WEEK}:t1`, fields: { week_start: WEEK, task_id: 't1', minutes: 120 } },
     { type: 'task', id: 'i1', fields: { kind: 'inbox', title: 'Rake the leaves' } },
   ]);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await startPlanningOnToday(page);
   await page.getByRole('button', { name: 'Process 1 item' }).click();
   await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: /^Add to a project or One offs/ }).click();
   await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: 'Write the report' }).click();

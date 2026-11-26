@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectTapTarget, go, openSeeded } from './seed';
+import { openBlock } from './today';
 import type { Seed } from './seed';
 
 // The task popup's ways out: Delete task with Undo, Cancel dropping changes, and the others (Esc, the close button, a
@@ -41,7 +42,7 @@ test('Delete task takes the task and its block off Today, and Undo, which takes 
   const errors = await open(page);
   // On phone a block still to come is a slider.
   const block = page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
-  await block.click();
+  await openBlock(page, block, phone);
   const popup = popupOf(page, 'Draft the summary');
   const del = popup.getByRole('button', { name: 'Delete task' });
   if (phone) await expectTapTarget(del);

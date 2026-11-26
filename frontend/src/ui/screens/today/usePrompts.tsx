@@ -3,11 +3,13 @@
 // without answering puts it away for this session; missed blocks keep a Review row so there's always a way back. The
 // sheet, once up, stays for its last row. Today's pane stays mounted behind the other tabs, so the prompts show on
 // every tab.
+// On phone, today's blocks ask on themselves, raised on the day, so their questions don't open by themselves: a
+// notification's tap still does. Missed blocks from earlier days wait behind the Review in Today's waiting row.
 
 import { useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
-import { instantMs } from '../../../core/dates';
+import { instantMs, localDate } from '../../../core/dates';
 import { nextBlock } from '../../../core/blocks';
 import { checkInDue, missedBlocks, practicesToLog } from '../../../core/reminders';
 import { PaneShown } from '../../app/nav';
@@ -29,7 +31,11 @@ type Open = { kind: 'end'; id: string } | { kind: 'sheet' } | null;
 export type PutAway = [ReadonlySet<string>, Dispatch<SetStateAction<ReadonlySet<string>>>];
 export const usePutAway = (): PutAway => useState<ReadonlySet<string>>(() => new Set());
 
-export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNode; missed: { title: string; review(): void } | null } {
+export function usePrompts(
+  data: TodayData,
+  putAway: PutAway,
+  opts: { onItself?: boolean } = {},
+): { prompt: ReactNode; missed: { title: string; count: number; review(): void } | null } {
   const { clock } = useApp();
   const snoozed = useSnoozes();
   const request = usePromptRequest();
@@ -37,7 +43,8 @@ export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNo
   const [later, setLater] = putAway;
 
   const now = clock.now();
-  const missed = [
+  const day = localDate(now, clock.zone());
+  const all = [
     ...missedBlocks(
       data.recent.filter((b) => instantMs(b.end) > now - MISSED_WINDOW_MS),
       data.away,
@@ -45,6 +52,7 @@ export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNo
     ),
     ...practicesToLog(data.blocks, data.away, clock),
   ].sort((a, b) => instantMs(a.start) - instantMs(b.start));
+  const missed = opts.onItself ? all.filter((b) => localDate(b.start, clock.zone()) !== day) : all;
   const sheetKey = `missed:${missed.map((b) => b.id).join()}`;
   const starting = checkInDue(data.blocks, data.settings.reminders, data.away, clock, snoozed);
   const find = (id: string) => data.recent.find((b) => b.id === id && !b.result);
@@ -59,7 +67,7 @@ export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNo
   };
 
   // The sheet opens by itself for two or more, and stays up as they're answered, until none are left.
-  if (!open && !request && missed.length > 1 && !later.has(sheetKey)) setOpen({ kind: 'sheet' });
+  if (!open && !request && !opts.onItself && missed.length > 1 && !later.has(sheetKey)) setOpen({ kind: 'sheet' });
   if (open?.kind === 'sheet' && missed.length === 0) setOpen(null);
 
   let prompt: ReactNode = null;
@@ -71,7 +79,7 @@ export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNo
     prompt = end(open.id);
   } else if (open?.kind === 'sheet' && missed.length > 0) {
     prompt = <MissedSheet blocks={missed} onClose={close(sheetKey)} />;
-  } else if (missed.length === 1 && !later.has(missed[0]!.id)) {
+  } else if (!opts.onItself && missed.length === 1 && !later.has(missed[0]!.id)) {
     prompt = end(missed[0]!.id);
   } else if (starting && !later.has(`start:${starting.id}:${snoozed[starting.id] ?? ''}`)) {
     // Keyed by its snooze too, so "Ask again" brings it back while closing it doesn't.
@@ -90,5 +98,5 @@ export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNo
   // app always opens on Today; move the prompts into the Shell if it ever opens elsewhere.
   const host = document.querySelector<HTMLElement>('[data-layout]');
   const shown = prompt && <PaneShown.Provider value>{prompt}</PaneShown.Provider>;
-  return { prompt: shown && host ? createPortal(shown, host) : shown, missed: missed.length > 0 && !askingMissed ? { title, review } : null };
+  return { prompt: shown && host ? createPortal(shown, host) : shown, missed: missed.length > 0 && !askingMissed ? { title, count: missed.length, review } : null };
 }

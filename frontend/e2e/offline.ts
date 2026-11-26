@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { expect } from '@playwright/test';
 import type { BrowserContext, Page, Request } from '@playwright/test';
 import initSqlJs from 'sql.js';
+import { settled } from './seed';
 import type { SqlJsStatic } from 'sql.js';
 
 /** Every screen registry.tsx loads on first use, by the URL the dev server rewrites its import to. */
@@ -25,7 +26,9 @@ export function everyScreenLoaded(page: Page): () => Promise<void> {
   page.on('request', (request) => requested.add(new URL(request.url()).pathname));
   return async () => {
     await expect.poll(() => SCREEN_URLS.filter((url) => !requested.has(url)), { timeout: 15_000 }).toEqual([]);
-    await page.waitForLoadState('networkidle');
+    // Then until each screen's loading, the app's own, has finished with all it imports. The network going quiet can't
+    // say that: once a page has been quiet, waiting for quiet returns at once, however much is still loading.
+    await settled(page);
   };
 }
 

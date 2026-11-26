@@ -6,11 +6,11 @@
 // Focus starts on the name, read as the heading, so the phone's keyboard stays down until a field is tapped. Save and
 // Delete each offer Undo. The actions and attachments save as they go, each with its own Undo, rather than on Save. A
 // goal's backlog is a place too: a task moved there loses its milestone and any date, and a repeating one off can't go.
+// Its frame, PopupShell, is the one a practice's and a planning block's popups have too.
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { backlogGoal, backlogTitle, fileToBacklog, isBacklog } from '../../../core/backlog';
-import { MAX_TITLE } from '../../../core/captureTitle';
 import { formatDate, formatWeekday, localDate } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { applyPlanChange } from '../../../core/plan';
@@ -22,9 +22,7 @@ import type { Fields, LocalDate, Task, TaskCompletion } from '../../../core/type
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
-import { LeavePopup } from '../../components/blocks/BlockSection';
 import { useLeave } from '../../components/editors/useLeave';
-import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { NotesField } from '../../components/notes/NotesField';
 import { draftOf } from '../../components/oneoff/draft';
@@ -36,9 +34,9 @@ import { useToast } from '../../components/Toast';
 import { datesError, datesFields, TaskDates } from './TaskDates';
 import type { DatesFor } from './TaskDates';
 import { TaskActions } from './TaskActions';
+import { PopupShell } from './PopupShell';
 import './task.css';
 import { Button } from '../../components/ds/Button';
-import { Icon } from '../../components/ds/Icon';
 
 const INBOX = 'inbox';
 const ONE_OFFS = 'oneoffs';
@@ -175,8 +173,15 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
   const { layout, clock } = useApp();
   const today = useToday();
   const toast = useToast();
-  const apply = usePlanChange();
   const remove = useDeleteTask();
+  // A one off at a time of day takes its block along with a new date, time or estimate, in the same Undo.
+  const write = useMutation(async (w, fields: Fields<'task'>) => {
+    const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] });
+    // Loaded as it saves, since the popup is part of the first load and this isn't.
+    const { followOneOff } = await import('../../../core/setTimes');
+    const follow = await followOneOff(w, task, { ...task, ...fields } as Task, clock);
+    return { writes: [...follow.writes, ...back.writes], said: follow.said };
+  });
   // Into a backlog, made if it's new, with any other edits in the same change.
   const file = useMutation(async (w, goalId: string, edits: Fields<'task'>) => {
     const edited = Object.keys(edits).length ? await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields: edits }] }) : { writes: [] };
@@ -186,7 +191,6 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
   const noteId = useId();
   const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const [title, setTitle] = useState(task.title);
-  const [renaming, setRenaming] = useState(false);
   const [estimate, setEstimate] = useState(task.estimate_min ?? 0);
   const [place, setPlace] = useState(placeOf(task));
   const [notes, setNotes] = useState(task.notes ?? '');
@@ -194,11 +198,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
   const [opened] = useState<OneOffDraft>(() => draftOf(task, today));
   const [draft, setDraft] = useState(opened);
   const [error, setError] = useState('');
-  const head = useRef<HTMLHeadingElement>(null);
   const phone = layout === 'phone';
-
-  // After the dialog takes focus, which its own effect does first.
-  useEffect(() => head.current?.focus(), []);
 
   const name = title.trim();
   const notesValue = notes.trim() ? notes : null;
@@ -235,98 +235,63 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
       return;
     }
     // A failed save keeps the popup open as it was, and has said so.
-    const saved = await apply(() => ({ writes: [{ type: 'task', id: task.id, fields }] }), {
-      message: moved ? `Moved ${name} to ${moved.label}.${moved.projectId && repeats ? " Repeats stay with One offs, so it won't repeat." : ''}` : `Saved ${name}.`,
-    });
-    if (saved) close();
+    const saved = await write.run(fields);
+    if (!saved) return;
+    const message = moved ? `Moved ${name} to ${moved.label}.${moved.projectId && repeats ? " Repeats stay with One offs, so it won't repeat." : ''}` : `Saved ${name}.`;
+    toast.show([message, saved.said].filter(Boolean).join(' '), { undo: () => undo.run(saved) });
+    close();
   };
 
   const deleteTask = () => void remove.run(task, close);
 
   const choices = places.some((p) => p.value === place) ? places : [{ value: place, label: 'Where it is now' }, ...places];
   return (
-    <Sheet label={task.title} className="taskpop" onClose={leave}>
-      <form className="taskpopform" onSubmit={save} noValidate>
-        <div className="taskpoptop">
-          {phone && <div className="taskpopgrab" aria-hidden="true" />}
-          <div className="taskpophead">
-            {renaming ? (
-              <input
-                className="field taskpopnamefield"
-                aria-label="Name"
-                autoFocus
-                maxLength={MAX_TITLE}
-                value={title}
-                onChange={(event) => {
-                  setTitle(event.target.value);
-                  setError('');
-                }}
-              />
-            ) : (
-              <h2 ref={head} tabIndex={-1}>
-                <button className="taskpopname" type="button" aria-label={`Rename ${title}`} onClick={() => setRenaming(true)}>
-                  <span>{title}</span>
-                  <span className="pen" aria-hidden="true">
-                    <Icon name="pen" />
-                  </span>
-                </button>
-              </h2>
-            )}
-            {!phone && (
-              <button className="taskpopclose" type="button" aria-label="Close" onClick={leave}>
-                <Icon name="close" />
-              </button>
-            )}
-          </div>
+    <PopupShell
+      label={task.title}
+      name={title}
+      rename={(name) => {
+        setTitle(name);
+        setError('');
+      }}
+      leave={leave}
+      close={close}
+      top={
+        <>
           {props.note && <p className="small quiet">{props.note}</p>}
           {task.done_at && task.became && <Became became={task.became} onGo={close} />}
-        </div>
-        <div className="taskpopbody">
-          <LeavePopup.Provider value={leave}>{props.block || <TaskActions task={task} />}</LeavePopup.Provider>
-          <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />
-          <SearchSelect
-            className="popfield"
-            label="Belongs to"
-            phone={phone}
-            value={place}
-            options={choices.map((p) => ({ value: p.value, label: p.label, off: repeats && p.goalId ? 'Not for a repeating task' : undefined }))}
-            placeholder="Search places"
-            describedBy={note ? noteId : undefined}
-            onChange={setPlace}
-          />
-          {/* In the field's description, so it's heard as it appears and on returning to the field. */}
-          <div id={noteId} className="small quiet" role="status">
-            {note}
-          </div>
-          <TaskDates
-            kind={dates}
-            draft={draft}
-            said={!!note}
-            put={(patch) => {
-              setDraft((d) => ({ ...d, ...patch }));
-              setError('');
-            }}
-          />
-          <NotesField value={notes} onChange={setNotes} />
-          <Attachments taskId={task.id} />
-          {error && (
-            <div className="fielderr" role="alert">
-              {error}
-            </div>
-          )}
-        </div>
-        <div className="taskpopbar">
-          <button className="link taskpopdelete" type="button" onClick={deleteTask}>
-            Delete task
-          </button>
-          <Button type="button" onClick={close}>
-            Cancel
-          </Button>
-          <Button ref={saveRef} variant="primary" type="submit">
-            Save
-          </Button>
-        </div>
-      </form>
-    </Sheet>
+        </>
+      }
+      error={error}
+      remove={{ label: 'Delete task', run: deleteTask }}
+      save={{ ref: saveRef, submit: save }}
+    >
+      {props.block || <TaskActions task={task} />}
+      <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />
+      <SearchSelect
+        className="popfield"
+        label="Belongs to"
+        phone={phone}
+        value={place}
+        options={choices.map((p) => ({ value: p.value, label: p.label, off: repeats && p.goalId ? 'Not for a repeating task' : undefined }))}
+        placeholder="Search places"
+        describedBy={note ? noteId : undefined}
+        onChange={setPlace}
+      />
+      {/* In the field's description, so it's heard as it appears and on returning to the field. */}
+      <div id={noteId} className="small quiet" role="status">
+        {note}
+      </div>
+      <TaskDates
+        kind={dates}
+        draft={draft}
+        said={!!note}
+        put={(patch) => {
+          setDraft((d) => ({ ...d, ...patch }));
+          setError('');
+        }}
+      />
+      <NotesField value={notes} onChange={setNotes} />
+      <Attachments taskId={task.id} />
+    </PopupShell>
   );
 }

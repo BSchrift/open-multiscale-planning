@@ -81,10 +81,12 @@ test('writes a description with the bar, shows it formatted, and opens its links
   await expect(editor.getByRole('textbox', { name: 'Description' })).toBeFocused();
   await editor.getByRole('button', { name: 'Cancel' }).click();
 
-  // The Now card shows its first two lines, plain.
+  // Desktop's Now card shows its first two lines, plain. The phone's raised block leaves them to its popup.
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Today' }).click();
-  const now = page.getByRole('region', { name: 'Current block' });
-  await expect(now.locator('.nownotes')).toHaveText('Use the Q3 numbers first.\nCheck the totals with finance');
+  if (!phone) {
+    const now = page.getByRole('region', { name: 'Current block' });
+    await expect(now.locator('.nownotes')).toHaveText('Use the Q3 numbers first.\nCheck the totals with finance');
+  }
   expect(errors).toEqual([]);
 });
 

@@ -127,7 +127,8 @@ p {
   white-space: nowrap;
 }
 
-.sheet ol.howto {
+.sheet ol.howto,
+.sheet ul.whatsnew {
   margin: 0;
   padding-left: 1.3em;
   display: flex;
@@ -251,6 +252,19 @@ p {
   max-height: calc(86dvh - var(--keyboard, 0px));
   overflow-y: auto;
   padding-bottom: max(var(--space-8), env(safe-area-inset-bottom));
+}
+
+/* iOS draws a date field as its own control, which kept its width past the field's width: 100%, so a popup holding one
+   grew wider than its sheet and slid sideways. Without that look it's a box like the others, the width of its row. */
+[data-layout='phone'] input[type='date'].field {
+  display: block;
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+}
+[data-layout='phone'] input[type='date'].field::-webkit-date-and-time-value {
+  text-align: left;
 }
 
 /* WebKit ignores min-height on a native select, which would leave it under 44pt on iPhone. */

@@ -49,13 +49,18 @@ import { DeleteTask } from '../task';
 import type { DayData } from './data';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
+import { ZoomButtons } from '../../components/CalendarZoom';
+import { hourHeight, hourLabelStep, ZOOM as LEVELS } from '../../components/zoom';
 import { Segmented } from '../../components/ds/Controls';
 import { minutesWords, Raised, Settling } from './Raised';
 import { earlierRow, raiseOf, toAnswer } from './selection';
 
 /** Phone's zoom: big enough for a block's name and time on two lines, as the day opens at the right hour. */
 export const PHONE_ZOOM = 72;
-export const ZOOM = [30, 48, 72, 96];
+/** An hour's height at the first zoom. */
+const HOUR_PX = 30;
+/** An hour's height at each of the zoom buttons' steps: 30, 48, 72 and 96px. */
+export const ZOOM = LEVELS.map((z) => hourHeight(HOUR_PX, z));
 /**
  * What the phone's Today hands its day: the header's view and zoom, the block raised out of its lane and how a tap
  * changes it, where today opens with the hours before it folded into the Earlier row, and Start something.
@@ -252,7 +257,7 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
   const y = (m: number) => ((m - from) * ph) / 60;
   const nowMin = localMinutes(clock.now(), zone);
   const hours: number[] = [];
-  for (let h = from / 60; h < to / 60; h += ph < 48 ? 2 : 1) hours.push(h);
+  for (let h = from / 60; h < to / 60; h += hourLabelStep(ph)) hours.push(h);
   const others = (i: Item) => laneOf.get(i.id)?.with ?? [];
   const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}${overlapNote(others(i))}`;
   const overlaps = (i: Item) => items.some((o) => o !== i && !o.block !== !i.block && o.from < i.to && i.from < o.to);
@@ -750,18 +755,6 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
       </div>
     </div>
   );
-  // Beside Calendar and List, out of the calendar, so they never cover a block.
-  const zoom = (
-    <div className="zoomgroup" role="group" aria-label="Calendar zoom">
-      <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
-        <Icon name="zoom-out" />
-      </button>
-      <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
-        <Icon name="zoom-in" />
-      </button>
-    </div>
-  );
-
   const list = items.map((i) => {
     if (!i.block) {
       return phone ? (
@@ -824,7 +817,8 @@ export function DayTimeline(props: { data: DayData; events: readonly CalendarEve
         <div className="between tlhead">
           <h3>Timeline</h3>
           <div className="row">
-            {view === 'calendar' && zoom}
+            {/* Beside Calendar and List, out of the calendar, so they never cover a block. */}
+            {view === 'calendar' && <ZoomButtons zoom={ph / HOUR_PX} onZoom={(z) => setPh(hourHeight(HOUR_PX, z))} />}
             <Segmented label="Timeline view" options={[['calendar', 'Calendar'], ['list', 'List']]} value={view} onChange={setView} />
           </div>
         </div>

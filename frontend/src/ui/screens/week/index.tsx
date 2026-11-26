@@ -22,6 +22,7 @@ import { loadDoneWeek } from '../done/data';
 import { loadWeek, weekModel } from './data';
 import type { WeekData, WeekModel } from './data';
 import { DesktopWeek } from './Desktop';
+import { ZOOM } from '../../components/zoom';
 import './week.css';
 
 /** What both layouts get: the week, its figures, and how to move between weeks and modes. */
@@ -91,10 +92,12 @@ function weekTitle(offset: number, editing: boolean) {
 
 export default function WeekScreen(props: ScreenProps) {
   const shared = useWeekScreen(props, 'week');
+  // The desktop grid's zoom, here rather than in the grid, so it carries from week to week. Phone pinches its day instead.
+  const [zoom, setZoom] = useState(ZOOM[0]!);
   if (!shared) return null;
   // Keyed by week, so what's open on one week doesn't carry to the next. On phone, Week is Today's (areaOn), so this is
   // never reached there.
-  return props.layout === 'phone' ? null : <DesktopWeek key={shared.data.week} {...shared} />;
+  return props.layout === 'phone' ? null : <DesktopWeek key={shared.data.week} {...shared} zoom={zoom} onZoom={setZoom} />;
 }
 
 /**

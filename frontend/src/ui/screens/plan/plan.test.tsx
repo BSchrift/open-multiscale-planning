@@ -595,10 +595,10 @@ describe('Planning ahead', () => {
       expect((await record(t, 'practice', 'pr1'))?.days).toEqual([0, 1, 2, 3, 4]);
     });
 
-    it('ending a practice in its editor takes it off the list, with focus on Add practice', async () => {
+    it('discontinuing a practice in its editor takes it off the list, with focus on Add practice', async () => {
       const { t } = await flow(layout, 'practices');
       await userEvent.click(await screen.findByRole('button', { name: 'Edit Stretch' }));
-      await userEvent.click(screen.getByRole('button', { name: 'End practice' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Discontinue practice' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('ended'));
       expect(await screen.findByText('No practices yet.')).toBeVisible();
       expect(screen.getByRole('button', { name: 'Add practice' })).toHaveFocus();

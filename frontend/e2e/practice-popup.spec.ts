@@ -6,7 +6,7 @@ import type { Seed } from './seed';
 
 // A practice's session and a planning block open one popup everywhere, in the task popup's frame: from Today's
 // calendar and list, Week's grid and phone day, the Now card, Done, To schedule, the prompts and Goals. Its block's section
-// comes first, then the practice's goal, schedule and notes, then End practice, Cancel and Save.
+// comes first, then the practice's goal, schedule and notes, then Discontinue practice, Cancel and Save.
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -61,10 +61,10 @@ async function expectFrame(popup: Locator, first: 'Time block' | 'Actions', phon
   await expect(popup.getByRole('region', { name: first })).toBeVisible();
   await expect(popup.getByLabel('Goal')).toBeVisible();
   await expect(popup.getByRole('group', { name: 'How often' })).toBeVisible();
-  await expect(popup.locator('.taskpopbar').getByRole('button')).toHaveText(['End practice', 'Cancel', 'Save']);
+  await expect(popup.locator('.taskpopbar').getByRole('button')).toHaveText(['Discontinue practice', 'Cancel', 'Save']);
   if (phone) {
     for (const button of await popup.getByRole('region', { name: first }).getByRole('button').all()) await expectTapTarget(button);
-    for (const name of ['End practice', 'Cancel', 'Save']) await expectTapTarget(popup.locator('.taskpopbar').getByRole('button', { name }));
+    for (const name of ['Discontinue practice', 'Cancel', 'Save']) await expectTapTarget(popup.locator('.taskpopbar').getByRole('button', { name }));
   }
 }
 

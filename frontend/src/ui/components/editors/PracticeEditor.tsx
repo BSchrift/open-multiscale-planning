@@ -1,5 +1,5 @@
 // A practice's settings, changed as a draft that Save writes in one go and Cancel drops: name, goal (or none, never a
-// project) and its schedule (PracticeSchedule). Pause and End act at once, each with Undo. A practice at set times keeps
+// project) and its schedule (PracticeSchedule). Pause and Discontinue act at once, each with Undo. A practice at set times keeps
 // its sessions at them (core/setTimes.ts): Save moves those at the old set time and places new days, Pause takes off
 // what's still to come and Resume puts it back, and a new one is placed as it's added, each in the same Undo. Sessions
 // moved by hand stay put. The practice's popup (screens/practice) shares the draft and the actions.
@@ -253,8 +253,8 @@ export function usePracticeDraft(
 }
 
 /**
- * Pause or Resume, and End practice, which act at once, each with Undo. Pause takes its sessions still to come off, and
- * Resume puts them back where their time is free. onEnded runs before End's toast.
+ * Pause or Resume, and Discontinue practice, which act at once, each with Undo. Pause takes its sessions still to come off, and
+ * Resume puts them back where their time is free. onEnded runs before Discontinue's toast.
  */
 export function usePracticeActions(p: Practice, onEnded?: () => void) {
   const { clock } = useApp();
@@ -274,14 +274,14 @@ export function usePracticeActions(p: Practice, onEnded?: () => void) {
     end: async () => {
       const reverse = await ending.run();
       onEnded?.();
-      if (reverse) toast.show(`${p.title} ended. Its history stays.`, { undo: () => undo.run(reverse) });
+      if (reverse) toast.show(`Discontinued ${p.title}. Its history stays.`, { undo: () => undo.run(reverse) });
     },
   };
 }
 
 /**
  * Edits a practice as a draft. Nothing is written until Save, which writes every change at once, with Undo; Cancel
- * drops them. A blank name or no days is never saved. Pause and End act at once, apart from Save and Cancel.
+ * drops them. A blank name or no days is never saved. Pause and Discontinue act at once, apart from Save and Cancel.
  */
 export function PracticeFields(props: {
   practice: Practice;
@@ -356,7 +356,7 @@ export function PracticeFields(props: {
           {p.state === 'paused' ? 'Resume' : 'Pause'}
         </Button>
         <Button size="compact" type="button" onClick={end}>
-          End practice
+          Discontinue practice
         </Button>
       </div>
       <HomeNotes home={{ type: 'practice', id: p.id }} />

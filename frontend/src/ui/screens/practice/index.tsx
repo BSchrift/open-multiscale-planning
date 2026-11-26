@@ -3,9 +3,9 @@
 // opens the task's popup (BlockPopup). Where a session is named away from a calendar, such as the Now card, Done and the
 // prompts, it opens over the page with the same section (BlockName), and a practice's card in To schedule and its row on
 // Goals open it with no block. Top to bottom: its name, which a tap renames; the block's section, or Pause or Resume practice with no
-// block; its goal, its schedule (how often, each session's length and its time) and its notes; then End practice,
+// block; its goal, its schedule (how often, each session's length and its time) and its notes; then Discontinue practice,
 // Cancel and Save. The fields save together on Save, with Undo, as the editor on Goals saves them; the actions save as
-// they go, each with its own Undo. An ended practice shows its block and says it ended. Planning has no fields: it's
+// they go, each with its own Undo. A discontinued practice shows its block and says so. Planning has no fields: it's
 // the app's own task, finished by finishing the plan, so its popup has its block's section and Close.
 
 import { useEffect } from 'react';
@@ -78,7 +78,7 @@ function PracticePopup(props: { practice: Practice; goals: readonly Objective[];
     return (
       <PopupShell label={p.title} name={p.title} leave={closed(close)} close={close}>
         {props.block}
-        <p className="small quiet">{p.title} has ended. Its history stays.</p>
+        <p className="small quiet">{p.title} is discontinued. No sessions are planned, and its history stays.</p>
       </PopupShell>
     );
   }
@@ -90,7 +90,7 @@ function PracticePopup(props: { practice: Practice; goals: readonly Objective[];
       leave={draft.leave}
       close={close}
       error={draft.error}
-      remove={{ label: 'End practice', run: () => void end() }}
+      remove={{ label: 'Discontinue practice', run: () => void end() }}
       save={{
         ref: draft.saveRef,
         submit: (event) => {

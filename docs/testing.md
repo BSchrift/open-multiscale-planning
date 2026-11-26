@@ -223,7 +223,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A task moved to another milestone, by popup or by holding it | covered (milestones: "a task's popup moves it to another milestone with Undo…") | covered (same, held on phone) | missing | missing |
 | Practices: add and edit, link to a goal | covered (goals: "edits a practice with no goal and links it to one"; journeys/capture-and-process) | covered (same) | covered (journeys/capture-and-process, journeys/next-stretch) | missing |
 | Practice schedules: set days with their own times, times a week | covered (goals: "builds Mon, Tue and Fri with Friday at 9:30…"; practices: "Times a week with a longer session…"; stack/sync: two devices) | covered (same) | missing | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| Practices: Pause practice, Resume practice, End practice, in the practice's popup | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
+| Practices: Pause practice, Resume practice, Discontinue practice, in the practice's popup | covered (practices: "Pause marks a practice Paused until Resume, and Discontinue practice…") | covered (same) | missing | missing |
 | Practices at their set times: placed on opening, this week and next once its planning appears, said once with Undo; a taken time waits, saying why | covered (set-times: "on opening, next week lands at its set times…", "Week shows them as planned…"; unit: core/setTimes.test.ts, ui/app/setTimes.test.tsx) | covered (same) | missing | missing |
 | Set times: two devices placing the same sessions offline make one each day, and a take-off on one wins | covered (stack/set-times: "two devices placing the same practice offline…"; unit: core/setTimes.test.ts) | n/a | missing | missing |
 | Set times: the bundle before shows, skips and moves what the update placed, and the update leaves them | covered (compat: "the update places a practice at its set times…") | n/a | n/a | n/a |
@@ -266,7 +266,7 @@ A practice's session and a planning block open one popup, in the task popup's fr
 | The same sections in the same order from Today's calendar and list, Week (editing too), the Now card, Done, To schedule, the prompts and Goals | covered (practice-popup: "Today: a session opens its popup…", "To schedule and Done…", "Goals: a practice's row opens the same popup…", "Week: a session opens the same popup…", "the prompt that logs a session…"; each opener in practice.test.tsx, Goals in goals.test.tsx) | covered (same, with 44pt checks) | missing | missing |
 | Its block's own section: Start, Mark done, Did it, Some and Skipped, Move…, Remove from calendar, and Length on Week's phone day | covered (practice-popup; Some's minutes in practice.test.tsx) | covered (same) | missing | missing |
 | Name, goal and schedule saved together with Undo; Cancel, and Esc with unsaved changes | covered (practice-popup: "Today: … Save changes its goal with Undo"; the rest in practice.test.tsx) | covered (same) | missing | missing |
-| Pause practice with no block, and End practice, each with Undo | covered (practice-popup: "To schedule and Done…"; End practice in practice.test.tsx) | covered (same) | missing | missing |
+| Pause practice with no block, and Discontinue practice, each with Undo | covered (practice-popup: "To schedule and Done…"; Discontinue practice in practice.test.tsx) | covered (same) | missing | missing |
 | A planning block: Start planning, Move…, Remove from calendar, and Close | covered (practice-popup: "Today: …"; Start planning opening planning in practice.test.tsx) | covered (same) | missing | missing |
 
 ### Done and Analytics
@@ -376,7 +376,7 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Stop for now, Start now while another counts, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
-| Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
+| Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: Discontinue practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
 | One offs | oneoffs-repeats: dates in place, the popup's Delete task | missing | missing |
 | The task popup | details: Save; popup: Delete task; attachments: link removed; task-actions: Mark done, Start now, a placed time | missing | missing |
 | Notes | notes-list: Delete note's Undo takes focus; unit tests: Save as note's Undo (process/note.test.tsx), Save and Belongs to: Inbox (notes/notes.test.tsx) | missing | missing |

@@ -4,7 +4,7 @@ import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
 // A practice's popup on Goals, the one its sessions open everywhere: a number of times a week with a session length and
-// no set time, and Pause practice, Resume practice and End practice, which act at once.
+// no set time, and Pause practice, Resume practice and Discontinue practice, which act at once.
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -30,7 +30,7 @@ async function edit(page: Page) {
   return page.getByRole('dialog', { name: 'Stretch' });
 }
 
-test('Pause marks a practice Paused until Resume, and End practice takes it off Goals with Undo', async ({ page }, info) => {
+test('Pause marks a practice Paused until Resume, and Discontinue practice takes it off Goals with Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const { errors, open } = await openPractice(page);
   const row = page.getByRole('button', { name: /^Stretch/ });
@@ -39,7 +39,7 @@ test('Pause marks a practice Paused until Resume, and End practice takes it off 
   const pause = editor.getByRole('button', { name: 'Pause practice' });
   if (phone) {
     await expectTapTarget(pause);
-    await expectTapTarget(editor.getByRole('button', { name: 'End practice' }));
+    await expectTapTarget(editor.getByRole('button', { name: 'Discontinue practice' }));
   }
   await pause.click();
   // It acts at once, and the editor stays open with its way back.
@@ -58,8 +58,17 @@ test('Pause marks a practice Paused until Resume, and End practice takes it off 
   await expect(row).toContainText('Paused');
 
   editor = await open();
-  await editor.getByRole('button', { name: 'End practice' }).click();
-  await expect(page.getByText('Stretch ended. Its history stays.')).toBeVisible();
+  await editor.getByRole('button', { name: 'Discontinue practice' }).scrollIntoViewIfNeeded();
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`practice-actions-${scheme}-${info.project.name}.png`) });
+  }
+  await editor.getByRole('button', { name: 'Discontinue practice' }).click();
+  await expect(page.getByText('Discontinued Stretch. Its history stays.')).toBeVisible();
+  for (const scheme of ['dark', 'light'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`practice-discontinued-${scheme}-${info.project.name}.png`) });
+  }
   await expect(editor).toHaveCount(0);
   await expect(row).toHaveCount(0);
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();

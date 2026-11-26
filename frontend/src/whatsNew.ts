@@ -8,6 +8,7 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
+  { id: 19, text: "End practice is now Discontinue practice, so it isn't mistaken for ending the session under way." },
   { id: 17, text: "On your phone, Plan has its own tab, with this week's and next week's plans on top." },
   { id: 16, text: "On your phone, Today shows the week above your day: tap or swipe to see any day." },
   { id: 15, text: "Today opens on your day's calendar, and a tap on a block shows what you can do with it now." },

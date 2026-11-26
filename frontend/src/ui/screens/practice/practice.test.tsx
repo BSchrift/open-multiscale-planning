@@ -83,7 +83,7 @@ describe("a practice's popup", () => {
       expect(buttonsIn(sectionOf(popup))).toEqual(['Start now', 'Mark done', 'Move…', 'Take off calendar', 'Change its set times']);
       expect(within(sectionOf(popup)).getByText('Mon Nov 2, 4pm to 4:30pm')).toBeVisible();
       expect(within(popup).getByLabelText('Goal')).toHaveDisplayValue('Play music');
-      expect(bar(popup)).toEqual(['End practice', 'Cancel', 'Save']);
+      expect(bar(popup)).toEqual(['Discontinue practice', 'Cancel', 'Save']);
       expect(within(popup).queryByRole('button', { name: 'Close' }) === null).toBe(layout === 'phone');
     });
   }
@@ -256,15 +256,29 @@ describe("a practice's popup", () => {
     expect(screen.getByRole('dialog', { name: 'Piano practice' })).toBeVisible();
   });
 
-  it('End practice ends it, closing the popup, with Undo', async () => {
+  it('Discontinue practice discontinues it, closing the popup, with Undo', async () => {
     const t: Harness = await open('today', later);
     await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 4pm to 4:30pm/ }));
-    await userEvent.click(within(await popupOf('Piano practice')).getByRole('button', { name: 'End practice' }));
+    await userEvent.click(within(await popupOf('Piano practice')).getByRole('button', { name: 'Discontinue practice' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(await screen.findByText('Piano practice ended. Its history stays.')).toBeVisible();
+    expect(await screen.findByText('Discontinued Piano practice. Its history stays.')).toBeVisible();
     expect((await getRecord(t.db, 'practice', 'pr'))?.state).toBe('ended');
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.state).toBe('active'));
+  });
+
+  it('once discontinued, its session under way opens a popup that says so', async () => {
+    await open('today', async (w) => {
+      await later(w);
+      await session(w, 'bn', '13:45', '14:30');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 4pm to 4:30pm/ }));
+    await userEvent.click(within(await popupOf('Piano practice')).getByRole('button', { name: 'Discontinue practice' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Piano practice' })).toBeNull());
+    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, 1:45pm to 2:30pm/ }));
+    const popup = await popupOf('Piano practice');
+    expect(within(popup).getByText('Piano practice is discontinued. No sessions are planned, and its history stays.')).toBeVisible();
+    expect(within(popup).queryByRole('button', { name: 'Discontinue practice' })).toBeNull();
   });
 });
 

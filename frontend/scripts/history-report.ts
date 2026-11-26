@@ -11,7 +11,9 @@ import { pathToFileURL } from 'node:url';
 
 type Surface = 'web' | 'mac' | 'iphone';
 type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'week_figures_ms' | 'estimate_drag_ms' | 'done_query_ms' | 'notes_list_ms' | 'notes_search_ms';
-type Results = Partial<Record<Surface, Partial<Record<Measure | 'records', number>>>>;
+/** What a first sync brought down, from the sync API's answers on the web and the Mac, and what each device then held. */
+type Count = 'sync_requests' | 'sync_records' | 'sync_deleted' | 'sync_bytes' | 'deleted_records';
+type Results = Partial<Record<Surface, Partial<Record<Measure | Count | 'records', number>>>>;
 
 const LABELS: Record<Measure, string> = {
   first_sync_ms: 'First sync to a usable app',
@@ -48,6 +50,11 @@ export const BUDGETS: { measure: Measure; surface: Surface; budget: number; repo
 const format = (measure: Measure, ms: number) => (measure === 'first_sync_ms' ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
 const formatBudget = (measure: Measure, ms: number) => (measure === 'first_sync_ms' ? `${ms / 1000} s` : `${ms} ms`);
 
+const table = (rows: string[][]) => {
+  const widths = rows[0]!.map((_, i) => Math.max(...rows.map((row) => row[i]!.length)));
+  return rows.map((row) => row.map((cell, i) => cell.padEnd(widths[i]!)).join('  ').trimEnd());
+};
+
 export function report(results: Results, skip: readonly string[]) {
   const rows = [['Budget', 'Surface', 'Measured', 'Budget', '']];
   let missed = 0;
@@ -64,9 +71,30 @@ export function report(results: Results, skip: readonly string[]) {
     if (over && !reportOnly) missed++;
     rows.push([LABELS[measure], surface, format(measure, value), formatBudget(measure, budget), over ? (reportOnly ? 'over, report only' : 'MISSED') : 'ok']);
   }
-  const widths = rows[0]!.map((_, i) => Math.max(...rows.map((row) => row[i]!.length)));
-  const lines = rows.map((row) => row.map((cell, i) => cell.padEnd(widths[i]!)).join('  ').trimEnd());
-  return { lines, missed, missing };
+  return { lines: table(rows), missed, missing };
+}
+
+/**
+ * What each first sync brought down, beside its time: requests, records, deleted records and the bytes on the wire,
+ * gzipped or not, then the deleted records the device held after. So a first sync that brings deleted records it needn't,
+ * or bytes gzip should have shrunk, shows up.
+ */
+export function traffic(results: Results, skip: readonly string[]) {
+  const rows = [['Surface', 'Requests', 'Records', 'Deleted', 'On the wire', 'Deleted held']];
+  const cell = (value: number | undefined, shown: (n: number) => string = String) => (typeof value === 'number' ? shown(value) : 'not measured');
+  for (const surface of SURFACES) {
+    if (skip.includes(surface)) continue;
+    const r = results[surface] ?? {};
+    rows.push([
+      surface,
+      cell(r.sync_requests),
+      cell(r.sync_records),
+      cell(r.sync_deleted),
+      cell(r.sync_bytes, (bytes) => `${(bytes / 1_000_000).toFixed(1)} MB`),
+      cell(r.deleted_records),
+    ]);
+  }
+  return table(rows);
 }
 
 function main(argv: string[]) {
@@ -82,6 +110,7 @@ function main(argv: string[]) {
   for (const surface of SURFACES) results[surface] = read(surface);
   const { lines, missed, missing } = report(results, skip);
   console.log(lines.join('\n'));
+  console.log(`\n${traffic(results, skip).join('\n')}`);
   const reportOnly = process.env.HISTORY_REPORT_ONLY === '1';
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 

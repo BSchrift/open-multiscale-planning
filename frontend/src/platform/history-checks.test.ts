@@ -70,8 +70,8 @@ describe('the history on a device', () => {
     }
   }, 60_000);
 
-  it("times Today, Week, Week's figures, Done and Notes as of the history end, the median of five runs each, and counts the live records that arrived", async () => {
-    const { today_query_ms, week_query_ms, week_figures_ms, done_query_ms, notes_list_ms, notes_search_ms, records } = await timeHistoryQueries(db);
+  it("times Today, Week, Week's figures, Done and Notes as of the history end, the median of five runs each, and counts the live and deleted records that arrived", async () => {
+    const { today_query_ms, week_query_ms, week_figures_ms, done_query_ms, notes_list_ms, notes_search_ms, records, deleted_records } = await timeHistoryQueries(db);
     expect(today_query_ms).toBeGreaterThan(0);
     expect(week_query_ms).toBeGreaterThan(0);
     expect(week_figures_ms).toBeGreaterThan(0);
@@ -79,6 +79,7 @@ describe('the history on a device', () => {
     expect(notes_list_ms).toBeGreaterThan(0);
     expect(notes_search_ms).toBeGreaterThan(0);
     expect(records).toBe(historyFacts().live);
+    expect(deleted_records).toBe(historyFacts().deleted);
   }, 60_000);
 });
 

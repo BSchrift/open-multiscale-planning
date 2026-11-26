@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { historyFacts } from '../../src/core/history-testing';
 import { account, go, pane } from '../seed';
-import { historyTarget, keptChanges, NETWORK, record, timeEstimateDrag, timeQueries, usableAt } from './history';
+import { historyTarget, keptChanges, NETWORK, record, timeEstimateDrag, timeQueries, usableAt, watchSync } from './history';
 
 const t = historyTarget();
 
@@ -88,6 +88,7 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(watchDatabase);
   const { openInbox } = historyFacts(keptChanges());
+  const synced = watchSync(page);
 
   // The shipped web app has no Skip: a new browser signs in first.
   await page.goto('/');
@@ -112,7 +113,7 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   await quiet(page);
   const queries = await timeQueries(page, 'web');
   // Recorded before the count is checked, so the report sees a short count even when only reporting.
-  record('web', { first_sync_ms: firstSync, ...queries });
+  record('web', { first_sync_ms: firstSync, ...queries, ...(await synced()) });
   expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).live);
 
   // A setting turned off and on twice, so the account ends as it began.

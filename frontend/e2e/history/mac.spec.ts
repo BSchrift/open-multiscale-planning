@@ -10,7 +10,7 @@ import { appIdentity } from '../../electron/identity';
 import type { AppEnv } from '../../src/core/appConfig';
 import { historyFacts } from '../../src/core/history-testing';
 import { account, go } from '../seed';
-import { historyTarget, keptChanges, NETWORK, record, timeEstimateDrag, timeQueries, usableAt } from './history';
+import { historyTarget, keptChanges, NETWORK, record, timeEstimateDrag, timeQueries, usableAt, watchSync } from './history';
 
 declare global {
   var browserUrls: string[];
@@ -29,6 +29,7 @@ test('a new install of the five-year account: first sync, then Today and Week', 
   });
   try {
     const page = await app.firstWindow();
+    const synced = watchSync(page);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await expect(page.getByRole('heading', { name: 'Welcome' })).toBeVisible();
@@ -72,7 +73,7 @@ test('a new install of the five-year account: first sync, then Today and Week', 
     await expect(account(page).getByText('Synced', { exact: true })).toBeVisible(NETWORK);
     const queries = await timeQueries(page, 'electron');
     // Recorded before the count is checked, so the report sees a short count even when only reporting.
-    record('mac', { first_sync_ms: firstSync, ...queries });
+    record('mac', { first_sync_ms: firstSync, ...queries, ...(await synced()) });
     expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).live);
     record('mac', { estimate_drag_ms: await timeEstimateDrag(page) });
     expect(errors).toEqual([]);

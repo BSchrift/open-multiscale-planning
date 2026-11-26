@@ -314,6 +314,9 @@ export class MultiscaleStack extends Stack {
     // By ARN rather than the alias resource: CloudFormation makes the alias wait on its deployment group, whose alarms watch
     // the API, so the API's grant on the alias resource would make a loop it refuses (test/cycles.test.ts).
     const accountLiveArn = `${accountFunction.functionArn}:${accountAlias.aliasName}`;
+    // Lambda's CPU grows with its memory: at 1,024 MB the API gets four times the 256 MB share, for building and gzipping
+    // a first sync's pages of up to 2,000 records. It costs four times as much a millisecond and runs shorter.
+    const apiMemoryMb = 1024;
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
       ACCOUNT_FUNCTION_NAME: accountLiveArn,
@@ -323,7 +326,7 @@ export class MultiscaleStack extends Stack {
       // The integration suite's users, which no request deletes.
       ...(protectedEmails.length ? { PROTECTED_EMAILS: protectedEmails.join(',') } : {}),
       ...google,
-    });
+    }, undefined, apiMemoryMb);
     const apiAlias = live(apiFunction);
 
     const integration = new HttpLambdaIntegration('ApiIntegration', apiAlias);

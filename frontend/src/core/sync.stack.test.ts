@@ -120,7 +120,14 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
     await a.sync(a.db);
     expect(await outboxSize(a.db)).toBe(0);
     const b = await device(clock, send);
-    await b.sync(b.db);
+    const events: string[] = [];
+    b.db.subscribe(() => events.push('applied'));
+    await runSync(b.db, async (request) => {
+      events.push('sent');
+      return send(request);
+    });
+    // The second page is asked for before the first is applied.
+    expect(events.slice(0, 3)).toEqual(['sent', 'sent', 'applied']);
     for (const id of [ids[0]!, ids[1050]!, ids[2099]!]) expect(await fieldsOf(b.db, id)).toEqual(await fieldsOf(a.db, id));
   }, 60_000);
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	gosync "sync"
 	"sync/atomic"
@@ -213,21 +214,27 @@ func TestExtremeNumbersAreAccepted(t *testing.T) {
 	}
 }
 
-func TestPaging(t *testing.T) {
-	s, _ := newStore(t)
-	const total = 510
+// pushMany pushes total records titled with title, in requests as full as a device sends.
+func pushMany(t *testing.T, s *msync.Store, user string, total int, title func(i int) map[string]msync.Field) {
+	t.Helper()
 	var batch []msync.Change
 	for i := range total {
-		batch = append(batch, task(fmt.Sprintf("r%04d", i), title("x", clock(1, "a"))))
+		batch = append(batch, task(fmt.Sprintf("r%04d", i), title(i)))
 		if len(batch) == msync.MaxChanges || i == total-1 {
-			if err := pushOnly(s, "abc", batch); err != nil {
+			if err := pushOnly(s, user, batch); err != nil {
 				t.Fatal(err)
 			}
 			batch = nil
 		}
 	}
+}
+
+func TestPaging(t *testing.T) {
+	s, _ := newStore(t)
+	const total = 2010
+	pushMany(t, s, "abc", total, func(int) map[string]msync.Field { return title("x", clock(1, "a")) })
 	page := mustSync(t, s, "abc", 0)
-	if !page.More || len(page.Changes) != 500 || page.Cursor != 500 {
+	if !page.More || len(page.Changes) != 2000 || page.Cursor != 2000 {
 		t.Fatalf("first page: more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
 	}
 	page = mustSync(t, s, "abc", page.Cursor)
@@ -237,6 +244,204 @@ func TestPaging(t *testing.T) {
 	page = mustSync(t, s, "abc", page.Cursor)
 	if page.More || len(page.Changes) != 0 || page.Cursor != total {
 		t.Fatalf("drained: %+v", page)
+	}
+}
+
+// shortQueryDB answers each Query with at most Max items, as DynamoDB does when a call reaches 1 MB, and runs Before
+// ahead of each one.
+type shortQueryDB struct {
+	msync.DB
+	Max     int32
+	Before  func()
+	Queries int
+}
+
+func (d *shortQueryDB) Query(ctx context.Context, in *dynamodb.QueryInput, opts ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	d.Queries++
+	if d.Before != nil {
+		d.Before()
+	}
+	short := *in
+	if short.Limit == nil || *short.Limit > d.Max {
+		short.Limit = aws.Int32(d.Max)
+	}
+	return d.DB.Query(ctx, &short, opts...)
+}
+
+func TestAPageFollowsDynamoDBAcrossQueries(t *testing.T) {
+	s, _ := newStore(t)
+	pushMany(t, s, "abc", 10, func(int) map[string]msync.Field { return title("x", clock(1, "a")) })
+	short := &shortQueryDB{DB: s.DB, Max: 3}
+	s.DB = short
+	page := mustSync(t, s, "abc", 0)
+	if page.More || len(page.Changes) != 10 || page.Cursor != 10 {
+		t.Fatalf("more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
+	}
+	if short.Queries != 4 {
+		t.Fatalf("%d queries, want 4: three full and one with the last record", short.Queries)
+	}
+}
+
+func TestAPageNeverPassesTheCounterItRead(t *testing.T) {
+	s, raw := newStore(t)
+	pushMany(t, s, "abc", 10, func(int) map[string]msync.Field { return title("x", clock(1, "a")) })
+	other := &msync.Store{DB: raw, Table: s.Table}
+	short := &shortQueryDB{DB: s.DB, Max: 3}
+	// Another device writes between the pull's queries, after the counter was read.
+	short.Before = func() {
+		if short.Queries == 2 {
+			if err := pushOnly(other, "abc", []msync.Change{task("later", title("y", clock(2, "b")))}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	s.DB = short
+	page := mustSync(t, s, "abc", 0)
+	if page.More || len(page.Changes) != 10 || page.Cursor != 10 {
+		t.Fatalf("more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
+	}
+	for _, change := range page.Changes {
+		if change.ID == "later" {
+			t.Fatal("the page holds a record written after its counter")
+		}
+	}
+	s.DB = raw
+	if next := mustSync(t, s, "abc", page.Cursor); len(next.Changes) != 1 || next.Changes[0].ID != "later" || next.Cursor != 11 {
+		t.Fatalf("next %+v", next)
+	}
+}
+
+func TestAPageStopsAtTwoMegabytes(t *testing.T) {
+	s, _ := newStore(t)
+	// 25 records of about 100 KiB, one to a request, as the transaction limit has them go.
+	big := strings.Repeat("x", msync.MaxRecordBytes-200)
+	for i := range 25 {
+		if err := pushOnly(s, "abc", []msync.Change{task(fmt.Sprintf("r%02d", i), title(big, clock(1, "a")))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := mustSync(t, s, "abc", 0)
+	var bytes int
+	for _, change := range page.Changes {
+		b, _ := json.Marshal(change.Fields)
+		bytes += len(b)
+	}
+	if !page.More || len(page.Changes) != 20 || bytes > 2<<20 {
+		t.Fatalf("more=%v changes=%d bytes=%d", page.More, len(page.Changes), bytes)
+	}
+	page = mustSync(t, s, "abc", page.Cursor)
+	if page.More || len(page.Changes) != 5 || page.Cursor != 25 {
+		t.Fatalf("second page: more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
+	}
+}
+
+func TestARecordLargerThanAPageGoesAlone(t *testing.T) {
+	defer msync.SetPageLimits(2000, 1000)()
+	s, _ := newStore(t)
+	pushMany(t, s, "abc", 3, func(int) map[string]msync.Field { return title(strings.Repeat("x", 1500), clock(1, "a")) })
+	cursor := int64(0)
+	for want := range 3 {
+		page := mustSync(t, s, "abc", cursor)
+		if len(page.Changes) != 1 || page.Changes[0].ID != fmt.Sprintf("r%04d", want) || page.More != (want < 2) {
+			t.Fatalf("page %d: more=%v changes=%d", want, page.More, len(page.Changes))
+		}
+		cursor = page.Cursor
+	}
+}
+
+func deleted(id, at, c string) msync.Change {
+	return task(id, map[string]msync.Field{"deleted_at": {V: at, C: c}})
+}
+
+func syncWith(t *testing.T, s *msync.Store, req msync.Request) msync.Response {
+	t.Helper()
+	res, _, err := s.Sync(context.Background(), "abc", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func changeIDs(changes []msync.Change) []string {
+	out := []string{}
+	for _, c := range changes {
+		out = append(out, c.ID)
+	}
+	return out
+}
+
+func TestAFirstSyncLeavesOutWhatWasDeletedBeforeItsSnapshot(t *testing.T) {
+	s, _ := newStore(t)
+	// r0 to r3 at 1 to 4, then r1 and r3 deleted, which moves them to 5 and 6.
+	var made []msync.Change
+	for i := range 4 {
+		made = append(made, task(fmt.Sprintf("r%d", i), title("x", clock(1, "a"))))
+	}
+	if err := pushOnly(s, "abc", made); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushOnly(s, "abc", []msync.Change{deleted("r1", "2026-11-02T14:00:00Z", clock(2, "a")), deleted("r3", "2026-11-02T14:00:00Z", clock(2, "a"))}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A device that holds nothing gets the counter, and its first page as it is.
+	first := syncWith(t, s, msync.Request{Cursor: 0})
+	if first.Snapshot != 6 || len(first.Changes) != 4 {
+		t.Fatalf("first page: snapshot=%d changes=%v", first.Snapshot, changeIDs(first.Changes))
+	}
+	// With the snapshot, the deletes at or below it are left out, and the cursor passes them.
+	res := syncWith(t, s, msync.Request{Cursor: 1, Snapshot: 6})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r2"}) || res.Cursor != 6 || res.More {
+		t.Fatalf("with a snapshot: changes=%v cursor=%d more=%v", got, res.Cursor, res.More)
+	}
+	if res.Snapshot != 0 {
+		t.Fatalf("a device past 0 got a snapshot: %d", res.Snapshot)
+	}
+
+	// A delete since, and a delete undone since, both arrive.
+	if err := pushOnly(s, "abc", []msync.Change{deleted("r2", "2026-11-02T15:00:00Z", clock(3, "a"))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushOnly(s, "abc", []msync.Change{task("r1", map[string]msync.Field{"deleted_at": {V: nil, C: clock(4, "a")}})}); err != nil {
+		t.Fatal(err)
+	}
+	res = syncWith(t, s, msync.Request{Cursor: 1, Snapshot: 6})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r2", "r1"}) {
+		t.Fatalf("after the snapshot: %v", got)
+	}
+
+	// Without one, as from an app before it, everything comes.
+	res = syncWith(t, s, msync.Request{Cursor: 1})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r3", "r2", "r1"}) {
+		t.Fatalf("without a snapshot: %v", got)
+	}
+	// A device that sends something at 0 may hold a copy one of those deletes should reach, so it gets no snapshot.
+	if res := syncWith(t, s, msync.Request{Cursor: 0, Changes: []msync.Change{task("mine", title("y", clock(5, "b")))}}); res.Snapshot != 0 {
+		t.Fatalf("a device sending at 0 got a snapshot: %d", res.Snapshot)
+	}
+}
+
+func TestASnapshotSkipStillMovesTheCursorAcrossPages(t *testing.T) {
+	defer msync.SetPageLimits(2, 1<<20)()
+	s, _ := newStore(t)
+	var made []msync.Change
+	for i := range 3 {
+		made = append(made, task(fmt.Sprintf("r%d", i), title("x", clock(1, "a"))))
+	}
+	if err := pushOnly(s, "abc", made); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushOnly(s, "abc", []msync.Change{deleted("r0", "2026-11-02T14:00:00Z", clock(2, "a"))}); err != nil {
+		t.Fatal(err)
+	}
+	// r1 and r2 at 2 and 3, r0 deleted at 4. Pages of two: r1 and r2, then r0 left out.
+	res := syncWith(t, s, msync.Request{Cursor: 1, Snapshot: 4})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r1", "r2"}) || res.Cursor != 3 || !res.More {
+		t.Fatalf("first page: changes=%v cursor=%d more=%v", got, res.Cursor, res.More)
+	}
+	res = syncWith(t, s, msync.Request{Cursor: res.Cursor, Snapshot: 4})
+	if len(res.Changes) != 0 || res.Cursor != 4 || res.More {
+		t.Fatalf("last page: changes=%v cursor=%d more=%v", changeIDs(res.Changes), res.Cursor, res.More)
 	}
 }
 
@@ -791,7 +996,7 @@ func TestRequestShapes(t *testing.T) {
 	}
 
 	pull := spy.Queries[len(spy.Queries)-1]
-	if aws.ToString(pull.IndexName) != "by_seq" || !aws.ToBool(pull.ConsistentRead) || aws.ToInt32(pull.Limit) != 500 {
+	if aws.ToString(pull.IndexName) != "by_seq" || !aws.ToBool(pull.ConsistentRead) || aws.ToInt32(pull.Limit) != 2000 {
 		t.Fatalf("pull %+v", pull)
 	}
 }

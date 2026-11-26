@@ -115,13 +115,21 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
   it('pushes in batches and pulls in pages', async () => {
     const a = await device(clock, send);
     const ids = [];
-    for (let i = 0; i < 600; i++) ids.push(await transact(a.db, clock, (w) => w.create('task', { kind: 'one_off', title: `Paint fence board ${i}` })));
+    // More than a page of 2,000, so the pull takes two.
+    for (let i = 0; i < 2100; i++) ids.push(await transact(a.db, clock, (w) => w.create('task', { kind: 'one_off', title: `Paint fence board ${i}` })));
     await a.sync(a.db);
     expect(await outboxSize(a.db)).toBe(0);
     const b = await device(clock, send);
-    await b.sync(b.db);
-    for (const id of [ids[0]!, ids[350]!, ids[599]!]) expect(await fieldsOf(b.db, id)).toEqual(await fieldsOf(a.db, id));
-  });
+    const events: string[] = [];
+    b.db.subscribe(() => events.push('applied'));
+    await runSync(b.db, async (request) => {
+      events.push('sent');
+      return send(request);
+    });
+    // The second page is asked for before the first is applied.
+    expect(events.slice(0, 3)).toEqual(['sent', 'sent', 'applied']);
+    for (const id of [ids[0]!, ids[1050]!, ids[2099]!]) expect(await fieldsOf(b.db, id)).toEqual(await fieldsOf(a.db, id));
+  }, 60_000);
 
   it('a record just under the limit can still be deleted, and the delete reaches the other device', async () => {
     const a = await device(clock, send);
@@ -129,12 +137,39 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
     const empty = new TextEncoder().encode(JSON.stringify(await fieldsOf(a.db, id))).length;
     await transact(a.db, clock, (w) => w.set('task', id, { title: 'x'.repeat(protocol.sync.maxRecordBytes - empty - 10) }));
     await a.sync(a.db);
+    // The other device holds it first: a new one's first sync leaves out what was deleted before it began.
+    const b = await device(clock, send);
+    await b.sync(b.db);
     await transact(a.db, clock, (w) => w.delete('task', id));
     await a.sync(a.db);
     expect(await outboxSize(a.db)).toBe(0);
-    const b = await device(clock, send);
     await b.sync(b.db);
     expect((await getRecord(b.db, 'task', id))?.deleted_at).toBeTruthy();
+  });
+
+  it("a first sync's snapshot leaves out what was deleted by then, and nothing deleted or restored since", async () => {
+    // A user of its own, so its counter starts at 0 and the sequence numbers below are known.
+    const auth = await signIn(`ts-snapshot-${crypto.randomUUID()}`, clock);
+    const own = createHttpSend({ apiUrl: API!, auth, fetch: (url, init) => fetch(url, init) });
+    const a = await device(clock, own);
+    for (const id of ['s1', 's2', 's3']) await transact(a.db, clock, (w) => w.create('task', { kind: 'inbox', title: `Task ${id}` }, id));
+    await a.sync(a.db);
+    await transact(a.db, clock, (w) => w.delete('task', 's2'));
+    await a.sync(a.db);
+
+    const first = await own({ cursor: 0, changes: [] });
+    expect(first.snapshot).toBe(4);
+    const later = await own({ cursor: 1, changes: [], snapshot: first.snapshot });
+    expect(later.changes.map((c) => c.id)).toEqual(['s3']);
+    expect(later.cursor).toBe(4);
+    // An app from before sends no snapshot, and gets the delete.
+    expect((await own({ cursor: 1, changes: [] })).changes.map((c) => c.id)).toEqual(['s3', 's2']);
+
+    await transact(a.db, clock, (w) => w.delete('task', 's3'));
+    await a.sync(a.db);
+    const since = await own({ cursor: 1, changes: [], snapshot: first.snapshot });
+    expect(since.changes.map((c) => c.id)).toEqual(['s3']);
+    expect(since.changes[0]!.fields.deleted_at?.v).toBeTruthy();
   });
 
   it('a device clock a day ahead is refused and keeps its outbox', async () => {

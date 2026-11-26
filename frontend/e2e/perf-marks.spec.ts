@@ -46,7 +46,8 @@ test('each action makes one measure: Today interactive, opening capture, typing,
     // Its measure ends once it's drawn with its data.
     await expect.poll(() => counts(page)).toEqual({ [`nav.${label.toLowerCase()}`]: 1 });
   };
-  await open('Week');
+  // The phone has no Week: its Today draws the week.
+  if (!phone) await open('Week');
   await open('Done');
   await open('Analytics');
   await open('Today');

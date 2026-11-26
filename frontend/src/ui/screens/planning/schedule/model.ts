@@ -1,14 +1,17 @@
-// What the Schedule step shows: each practice, then every picked task in scheduling order, with what's left to place,
-// and the week's blocks. Practices come first since their days and times are set. The order and the rules come from
-// core; this only joins them up.
+// What the Schedule step shows: each practice with something to place, then every picked task in scheduling order, with
+// what's left to place, and the week's blocks. Practices come first since their days and times are set, and one whose set
+// time is taken leads them. Sessions at their set times are placed already (core/setTimes.ts), so they're a ticked group
+// of their own. The order and the rules come from core; this only joins them up.
 
 import { isBacklog } from '../../../../core/backlog';
 import type { Clock } from '../../../../core/clock';
-import { blockMinutes, formatMinutes } from '../../../../core/dates';
+import { blockMinutes, formatMinutes, formatTimeOfDay, formatWeekday } from '../../../../core/dates';
 import { FIRST_BLOCK_MIN, pickToPlace, scheduleOrder, taskDue, taskWork } from '../../../../core/plan';
+import { atSetTime, setTimeFit } from '../../../../core/setTimes';
+import type { SetTimeWhy } from '../../../../core/setTimes';
 import { practicesLeft } from '../../../../core/slots';
 import type { Work } from '../../../../core/slots';
-import type { Minutes, Practice, Task, TimeBlock } from '../../../../core/types';
+import type { LocalDate, Minutes, Practice, Task, TimeBlock } from '../../../../core/types';
 import { practiceRule } from '../../../components/editors/PracticeSchedule';
 import { placedBlocks } from '../../../components/weekgrid';
 import type { PlacedBlock } from '../../../components/weekgrid';
@@ -32,6 +35,23 @@ export interface SchedRow {
   length: Minutes;
   /** This week's blocks for it, soonest first. */
   blocks: PlacedBlock[];
+  /** A practice's first day waiting because its set time can't be used, and why. */
+  why?: { date: LocalDate; why: SetTimeWhy };
+}
+
+/** A practice's sessions this week at their set times: 'Tue and Wed at 7am'. */
+export interface SetTimesRow {
+  id: string;
+  title: string;
+  line: string;
+  sessions: PlacedBlock[];
+}
+
+/** 'Mon, Tue and Fri at 7am', or by time, 'Mon and Tue at 7am, Fri at 9:30am'. */
+function atLine(sessions: readonly PlacedBlock[]): string {
+  const days = new Intl.ListFormat('en-GB');
+  const times = [...new Set(sessions.map((b) => b.start))];
+  return times.map((t) => `${days.format(sessions.filter((b) => b.start === t).map((b) => formatWeekday(b.date)))} at ${formatTimeOfDay(t)}`).join(', ');
 }
 
 export interface PracticeRow {
@@ -71,10 +91,22 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
   const skipped = m.weekPlan?.skipped_practices ?? [];
   const active = d.records.practices.filter((p) => p.state === 'active');
   const left = new Map(practicesLeft(active, m.slot, skipped, m.weekPlan?.skipped_sessions ?? []).map((x) => [x.practice.id, x]));
+  const zone = clock.zone();
   const list: SchedRow[] = [];
+  const setTimes: SetTimesRow[] = [];
   for (const p of active.filter((x) => !skipped.includes(x.id))) {
     const own = blocks.filter((b) => b.practice_id === p.id);
-    if (!left.has(p.id) && own.length === 0) continue;
+    const row = d.blocks.filter((b) => b.practice_id === p.id);
+    // Those at their set times are ticked in their own group; any others, moved or placed by hand, stay with the practice.
+    const set = own.filter((b) => row.some((r) => r.id === b.id && atSetTime(p, r, zone)));
+    if (set.length) setTimes.push({ id: p.id, title: p.title, line: atLine(set), sessions: set });
+    const rest = own.filter((b) => !set.includes(b));
+    if (!left.has(p.id) && rest.length === 0) continue;
+    const date = left.get(p.id)?.dates?.find((x) => {
+      const fit = setTimeFit(p, x, m.slot);
+      return fit && 'why' in fit;
+    });
+    const fit = date ? setTimeFit(p, date, m.slot) : null;
     list.push({
       id: p.id,
       title: p.title,
@@ -85,9 +117,12 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
       toPlace: left.get(p.id)?.minutes ?? 0,
       estimateLeft: null,
       length: left.get(p.id)?.length ?? p.target_min,
-      blocks: own,
+      blocks: rest,
+      ...(date && fit && 'why' in fit ? { why: { date, why: fit } } : {}),
     });
   }
+  // A session whose set time is taken asks first.
+  list.sort((a, b) => Number(!a.why) - Number(!b.why));
   const practices: PracticeRow[] = active.map((p) => {
     const own = sessions.filter((b) => b.practice_id === p.id && !b.cancelled);
     const total = own.reduce((sum, b) => sum + blockMinutes(b), 0);
@@ -99,5 +134,5 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
     };
   });
 
-  return { blocks, rows: [...list, ...tasks], practices };
+  return { blocks, rows: [...list, ...tasks], practices, setTimes, atSetTimes: setTimes.reduce((n, g) => n + g.sessions.length, 0) };
 }

@@ -113,7 +113,7 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   const queries = await timeQueries(page, 'web');
   // Recorded before the count is checked, so the report sees a short count even when only reporting.
   record('web', { first_sync_ms: firstSync, ...queries });
-  expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
+  expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).live);
 
   // A setting turned off and on twice, so the account ends as it began.
   const toggle = pane(page, 'Settings').getByRole('checkbox', { name: 'Notify at block start' });

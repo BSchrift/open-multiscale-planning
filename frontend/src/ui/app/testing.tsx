@@ -26,7 +26,7 @@ import { NavProvider, useNav, useOverlay } from './nav';
 import type { Nav, Overlay, Route } from './nav';
 import { AREAS } from './registry';
 import type { AreaId, Layout, Presentation, RouteParams } from './registry';
-import { Shell } from './Shell';
+import { MorePage, Shell } from './Shell';
 import { AppProvider } from './store';
 import type { AppSync } from '../../core/syncRunner';
 import type { AppPlace, NativeUpdates, UpdateStatus, Updater } from '../../core/updates';
@@ -56,6 +56,8 @@ export interface HarnessOptions {
   showMenu?: Platform['showMenu'];
   /** As on an iPhone with the App Group the widgets read: usually memoryWidgets(). */
   widgets?: Widgets;
+  /** When the running bundle was built, in seconds, as main.tsx passes it. */
+  build?: number;
 }
 
 export interface Harness extends RenderResult {
@@ -67,7 +69,12 @@ export interface Harness extends RenderResult {
   nav(): Nav & { overlay: Overlay | null };
 }
 
+// The app loads the code of Capture, a task's popup and the More tab as soon as it has drawn, so a tap opens them at
+// once. Tests start from there.
+const loadedAhead = Promise.all([AREAS.capture.Screen, AREAS.task.Screen, MorePage].map((s) => s.preload?.()));
+
 async function prepare(options: HarnessOptions) {
+  await loadedAhead;
   const clock = fixedClock(options.now ?? '2026-11-02T20:00:00Z', options.zone ?? 'America/Chicago');
   const platform: TestPlatform = Object.assign(
     await createTestPlatform(),
@@ -92,7 +99,7 @@ function harness(
 ): Harness {
   const { platform, clock, write } = prepared;
   const result = render(
-    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})}>
+    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})} {...(options.build ? { build: options.build } : {})}>
       {ui}
     </AppProvider>,
   );
@@ -141,7 +148,7 @@ export function renderScreen(
   return renderInApp(
     <Screen params={options.params ?? {}} layout={layout} presentation={options.presentation ?? 'page'} close={options.close ?? (() => undefined)} />,
     options,
-    area !== 'task',
+    area !== 'task' && area !== 'practice',
   );
 }
 
@@ -157,13 +164,13 @@ export async function renderInApp(ui: ReactElement, options: HarnessOptions = {}
     nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
-  // A task's popup opens over whatever showed the task, so it renders here as the shell renders it. Other overlays,
-  // such as Process, are screens of their own, tested on their own.
+  // A task's popup, and a practice's, open over whatever showed them, so they render here as the shell renders them.
+  // Other overlays, such as Process, are screens of their own, tested on their own.
   const TaskPopup = () => {
     const overlay = useOverlay();
     const { closeOverlay } = useNav();
-    if (overlay?.area !== 'task') return null;
-    const { Screen: Popup } = AREAS.task;
+    if (overlay?.area !== 'task' && overlay?.area !== 'practice') return null;
+    const { Screen: Popup } = AREAS[overlay.area];
     return <Popup params={overlay.params} layout={layout} presentation="overlay" close={closeOverlay} />;
   };
   return harness(

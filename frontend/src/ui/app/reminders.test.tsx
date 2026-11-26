@@ -41,6 +41,7 @@ function fakeSync() {
     signIn: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
     syncNow: vi.fn(async () => undefined),
+    settled: vi.fn(async () => undefined),
     connectCalendar: vi.fn(async () => undefined),
     refreshCalendar: vi.fn(async () => undefined),
     disconnectCalendar: vi.fn(async () => undefined),

@@ -8,6 +8,8 @@ import { blocksInRange, completionsSince, inboxCount, needsNewTime } from '../..
 import { busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { isSignedIn, syncStatus } from '../../../core/sync';
+import type { LocalDate } from '../../../core/types';
+import type { WeekData } from '../week/data';
 
 const DAY_MS = 86_400_000;
 /** Welcome back looks this far back for missed blocks. */
@@ -60,3 +62,27 @@ async function stretchPlanning(sql: Sql, date: string) {
 }
 
 export type TodayData = Awaited<ReturnType<typeof loadToday>>;
+
+/** What a day's timeline reads: today's, from loadToday, or another day of a week, from dayOfWeek. */
+export type DayData = Pick<TodayData, 'date' | 'blocks' | 'events' | 'tasks' | 'projects' | 'objectives' | 'practices' | 'settings' | 'sources' | 'calendar' | 'away' | 'planned'>;
+
+/** A day of a week Week's query read, for the phone's Today to draw any day of the week as it draws today. */
+export function dayOfWeek(week: WeekData, date: LocalDate, zone: string): DayData {
+  const day = dayRange(date, zone);
+  const [from, to] = [instantMs(day.from_utc), instantMs(day.to_utc)];
+  const { records } = week;
+  return {
+    date,
+    blocks: week.blocks.filter((b) => b.start >= day.from_utc && b.start < day.to_utc),
+    events: busyEvents(week.calendar ?? undefined, week.sources).filter((e) => instantMs(e.start) < to && from < instantMs(e.end)),
+    tasks: records.tasks,
+    projects: records.projects,
+    objectives: records.objectives,
+    practices: records.practices,
+    settings: week.settings,
+    sources: week.sources,
+    calendar: week.calendar,
+    away: records.away,
+    planned: week.weekPlans.some((p) => p.week_start === week.week && !!p.finished_at),
+  };
+}

@@ -15,6 +15,7 @@ import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useQuery, useToday } from '../../app/store';
 import { formatRange, KIND_WORD } from '../../components/blocks/describe';
+import { BlockName } from '../../components/blocks/BlockName';
 import { MissedSheet } from '../../components/blocks/MissedSheet';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { TaskName } from '../../components/task/TaskName';
@@ -36,13 +37,17 @@ const SEGMENTS: { kind: DoneKind; label: string; cls: string }[] = [
   { kind: 'planning', label: 'Planning', cls: 'seg-planning' },
 ];
 
-/** A task's name opens its popup, unless it was deleted since. */
+/**
+ * A name opens its popup: a task's, unless it was deleted since, and a practice's session or planning, with the block's
+ * section at its top, as a calendar opens it.
+ */
 function Name(props: { item: DoneBlock | DoneFinish; title: string; taskId: string | null }) {
   const { item, title, taskId } = props;
   const opens = !!taskId && !item.deleted && (item.kind === 'project' || item.kind === 'one_off');
+  const block = 'block' in item && (item.kind === 'practice' || item.kind === 'planning') && !item.deleted ? item.block : null;
   return (
     <span>
-      {opens ? <TaskName id={taskId} title={title} className="rowname" /> : title}
+      {block ? <BlockName block={block} className="rowname" /> : opens ? <TaskName id={taskId} title={title} className="rowname" /> : title}
       {item.deleted && <span className="donedel">deleted</span>}
     </span>
   );

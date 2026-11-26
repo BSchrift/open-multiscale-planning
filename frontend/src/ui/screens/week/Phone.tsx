@@ -1,56 +1,60 @@
 // Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
-// shared time axis above one day's timeline. Tapping a task's block opens the task's popup, with the block's section
-// at its top, and a practice's session or planning opens its sheet. Holding a block still to come lifts it, to be let
+// shared time axis above one day's timeline, which a swipe moves to the day before or after, on into the weeks either
+// side, keeping the time of day (DayPager). Tapping a block opens its popup, its task's, practice's or planning's, with
+// the block's section at its top, its length among it. Holding a block still to come lifts it, to be let
 // go on another row of the day at the time under the finger. Move, or Choose another time for a
 // task or for planning, makes the block draggable on the day, the strip carries it to another day, and planning's
 // week arrows to another week. To schedule sits above the
 // day: a card opens its suggested times, and while editing, cards drag onto the day and blocks drag back up to it.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
-import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
+import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { addDays, diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today, weekday, weekStart } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
-import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
+import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, offers, slotNotes } from '../../../core/slots';
 import { SLIDER_STEP } from '../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
-import { useApp } from '../../app/store';
-import { PlanPrompt } from '../../components/PlanPrompt';
-import { PlanningSet } from '../../components/planning/PlanningRow';
+import { useApp, useQuery } from '../../app/store';
 import { PlanningTimes } from '../../components/planning/PlanningTimes';
 import { planningWeekOf } from '../../../core/planning';
 import { usePlanningActions } from '../../components/planning/usePlanning';
+import { DayPager } from '../../components/week/DayPager';
+import type { KeptTime } from '../../components/week/DayPager';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
-import { fitZoom, usePinchZoom } from '../../components/week/pinch';
+import { StripFold } from '../../components/week/StripFold';
+import type { Dot } from '../../components/week/StripFold';
+import type { MenuEntry } from '../../components/Menu';
 import { Sheet } from '../../components/Sheet';
-import { TaskName } from '../../components/task/TaskName';
+import { opensPopup, popFor } from '../../components/blocks/BlockName';
+import type { PopFor } from '../../components/blocks/BlockName';
 import { BlockSection } from '../../components/blocks/BlockSection';
-import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
+import { isTaskBlock } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
-import { clearLane, columnStyle, dayName, dragCard, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
-import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
+import { clearLane, columnStyle, dayName, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
+import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
 import { DraftCapture } from '../capture/DraftCapture';
-import { landOn, rowItem } from './data';
-import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
+import { landOn, loadWeek, rowItem } from './data';
+import type { AddRow, LaneItem, Placeable, WeekData, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { ResetWeek, resetShown } from './reset';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useWeekActions } from './useWeekActions';
-import { TaskPopupFor } from '../task';
+import { BlockPopup } from '../practice';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
-const CELL_PX = 46;
 const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
 
 /** A block being moved, or a task or planning being placed, before Move here or Place here. */
@@ -59,12 +63,61 @@ type Placing =
   | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean }
   | { mode: 'planning'; plan: PlacingPlanning; length: Minutes };
 
-type Open = { kind: 'block'; id: string } | { kind: 'task'; block: string; task: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
+type Open = { kind: 'pop'; pop: PopFor } | { kind: 'add' } | { kind: 'item'; id: string } | null;
 
-/** Work, which opens the task's popup, rather than a practice's session or planning, which open their own sheet. */
 const isTask = (b: PlacedBlock) => isTaskBlock(b.kind);
 
-export function PhoneWeek(props: WeekProps) {
+const LONG_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+const longDay = (date: LocalDate) => LONG_DAYS[weekday(date)];
+
+/** A day said from today, as the phone's Today heads it: "Today" and "Tue, Nov 24", or "Thursday" and "Nov 26". */
+export function dayHeading(date: LocalDate, today: LocalDate): { name: string; date: string } {
+  if (date === today) return { name: 'Today', date: `${formatWeekday(date)}, ${formatDate(date)}` };
+  if (date === addDays(today, 1)) return { name: 'Tomorrow', date: formatDate(date) };
+  if (date === addDays(today, -1)) return { name: 'Yesterday', date: formatDate(date) };
+  return { name: longDay(date), date: formatDate(date) };
+}
+
+/**
+ * The phone's Today draws a week as Week does, with its own pieces in it (today/Phone.tsx): its title, its rows on
+ * today, and each day as it draws one, in place of Week's rows. Week's own jobs, placing and editing, stay Week's.
+ */
+export interface WeekHost {
+  className: string;
+  busy: boolean;
+  head(w: HostWeek): ReactNode;
+  /** Above the strip, on this week: the evening's Done line. */
+  above: ReactNode;
+  /** Below the strip, on today only: a conflict, planning rows and what's due. */
+  rows: ReactNode;
+  /** The strip footer's action for the day shown: planning this week or next, and what's waiting for a time. */
+  foot(w: HostWeek): ReactNode;
+  /** A day as Today draws it, with its week's data, or null while the week beside is read. */
+  day(date: LocalDate, shown: boolean, week: WeekData | null, w: HostWeek): ReactNode;
+  /** Sheets, menus and prompts. */
+  extra: ReactNode;
+  /** An hour's height while editing or placing, as Today draws its own day. */
+  hourPx: number;
+}
+
+/** What Today's pieces get from the week. */
+export interface HostWeek {
+  day: LocalDate;
+  offset: number;
+  heading: { name: string; date: string };
+  /** The week's entries for the title's menu, and what choosing one does. */
+  menu: MenuEntry[];
+  choose(id: string): void;
+  goToday(): void;
+  /** Choose another time for a block: it waits on the day, ready to drag or carry to another day on the strip. */
+  move(id: string): void;
+  add(): void;
+  drafting(on: boolean): void;
+  /** A block's Length slider and slot note for its popup, this week's blocks only. */
+  length(id: string): ReactNode;
+}
+
+export function PhoneWeek(props: WeekProps & { host: WeekHost }) {
   const { data, model, offset, editing } = props;
   const { clock } = useApp();
   const nav = useNav();
@@ -74,7 +127,16 @@ export function PhoneWeek(props: WeekProps) {
   const now = clock.now();
   const day0 = today(clock);
   const nowMin = localMinutes(now, clock.zone());
-  const [selDay, setSelDay] = useState<LocalDate>(isThis ? day0 : data.week);
+  // A swipe past the week's end opens the week beside it on the day it reached, with the time of day it kept.
+  const [arrived] = useState(() => (props.openDay && weekStart(props.openDay.date) === data.week ? props.openDay : null));
+  const arrivedTime = useRef(arrived?.time ?? null);
+  useEffect(() => void (arrivedTime.current = null), []);
+  const [selDay, setSelDay] = useState<LocalDate>(arrived?.date ?? (isThis ? day0 : data.week));
+  // The day nearest the middle while the day is swiped, which the strip follows. The heading waits for the day to
+  // change, since it's above the day and a heading that changed height mid-swipe would move the day.
+  const [near, setNear] = useState<LocalDate | null>(null);
+  // While a hold's draft waits on the day for Capture, swiping to another day would take it away.
+  const [drafting, setDrafting] = useState(false);
   const [open, setOpen] = useState<Open>(null);
   const [placing, setPlacing] = useState<Placing | null>(null);
   const [at, setAt] = useState<Slot | null>(null);
@@ -84,11 +146,24 @@ export function PhoneWeek(props: WeekProps) {
   const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   // A task's block made shorter asks what about the rest, until answered or another block is opened.
   const [split, setSplit] = useState<Shortened | null>(null);
-  const swipe = useRef<{ x: number; y: number } | null>(null);
-  // Pinching the day draws its hours taller or shorter, kept on this device. At its smallest the whole day fits between
-  // the week's sticky top and whatever covers the bottom of the screen.
-  const dayCard = useRef<HTMLDivElement>(null);
-  const { zoom, handlers: pinch } = usePinchZoom('week.zoom', () => leastZoom(root.current, dayCard.current, zoom));
+  // The phone's Today asks to reset the week from its title's menu.
+  const [resetAsking, setResetAsking] = useState(false);
+  // Left on today, the day shown follows it when the day turns over, as the week does.
+  const [seenDay, setSeenDay] = useState(day0);
+  if (seenDay !== day0) {
+    setSeenDay(day0);
+    if (selDay === seenDay) setSelDay(day0);
+  }
+  // On the phone's Today, tapping Today again comes back to today, as it does to this week.
+  const signal = useRef(nav.topSignal);
+  useEffect(() => {
+    if (props.host && signal.current !== nav.topSignal && nav.tab === 'today' && !placing) {
+      setSelDay(day0);
+      setNear(null);
+    }
+    signal.current = nav.topSignal;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.topSignal]);
 
   const workOf = (p: Placing): Work => (p.mode === 'move' ? { kind: p.block.kind === 'one_off' ? 'one_off' : 'project' } : p.mode === 'planning' ? { kind: 'project' } : p.item.work);
   const kindOf = (p: Placing): Work['kind'] => workOf(p).kind;
@@ -140,6 +215,7 @@ export function PhoneWeek(props: WeekProps) {
 
   const pickDay = (date: LocalDate) => {
     setSelDay(date);
+    setNear(null);
     if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
@@ -210,27 +286,16 @@ export function PhoneWeek(props: WeekProps) {
     props.donePlacing();
     if (placing.mode === 'planning' && placing.plan.flow) props.close();
   };
-  /**
-   * A block held on the day and let go on another asks first, as Move here does. Holds stay on their day. Resolves to
-   * whether it moved, so false when the ask was cancelled or the save failed.
-   */
-  const holdMove = async (b: PlacedBlock, slot: Slot, undone?: () => void) => {
-    const { go, off } = await landing(b.title, slot, b.id, b);
-    if (!go || !(await moveTo(b, slot, undone))) return false;
-    takeOff(off);
-    return true;
-  };
   /** Planning carried to another week keeps its day of the week and time. */
   const carryTo = (days: number) => props.goWeek(addDays(props.week, days), plan && at ? { ...at, date: addDays(at.date, days) } : undefined);
 
   const blocksOn = (date: LocalDate) => model.blocks.filter((b) => b.date === date);
-  const opened = open?.kind === 'block' ? model.blocks.find((b) => b.id === open.id) : undefined;
   const openBlock = (id: string) => {
-    const b = model.blocks.find((x) => x.id === id);
-    setOpen(b?.task_id && isTask(b) ? { kind: 'task', block: id, task: b.task_id } : { kind: 'block', id });
+    const row = data.blocks.find((x) => x.id === id);
+    if (row && opensPopup(row)) setOpen({ kind: 'pop', pop: popFor(row) });
   };
   // The popup stays open when its block comes off the calendar; only the block's section goes.
-  const popped = open?.kind === 'task' ? open : null;
+  const popped = open?.kind === 'pop' ? open.pop : null;
   const popRow = popped && data.blocks.find((b) => b.id === popped.block);
   const popPlaced = popped && model.blocks.find((b) => b.id === popped.block);
   const popEdit = !!popPlaced && offset >= 0 && !popPlaced.past;
@@ -254,21 +319,17 @@ export function PhoneWeek(props: WeekProps) {
   const dayTitle = dayName(selDay);
   const showDrag = !!placing || editing;
 
-  // One finger swiped sideways changes the day; a second finger makes it a pinch instead.
-  const onTouchStart = (e: TouchEvent) => {
-    swipe.current = e.touches.length === 1 ? { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY } : null;
-  };
-  const onTouchEnd = (e: TouchEvent) => {
-    const from = swipe.current;
-    if (!from) return;
-    const dx = e.changedTouches[0]!.clientX - from.x;
-    const dy = e.changedTouches[0]!.clientY - from.y;
-    if (Math.abs(dx) >= 48 && Math.abs(dx) > 2 * Math.abs(dy)) {
-      setSelDay(addDays(data.week, Math.max(0, Math.min(6, dayIndex + (dx < 0 ? 1 : -1)))));
-    }
+  // The week beside this one, on its first or last day or once a swipe has gone past them, so a swipe past the end draws
+  // the day there and carries on into that week.
+  const besideWeek = showDrag ? null : weekStart(selDay) !== data.week ? weekStart(selDay) : dayIndex === 0 ? addDays(data.week, -7) : dayIndex === 6 ? addDays(data.week, 7) : null;
+  const besideData = useQuery((sql, c) => (besideWeek ? loadWeek(sql, c, besideWeek) : Promise.resolve(null)), [besideWeek]).data;
+  /** Swiped to the day before or after. Past the week's ends, it goes on into the week beside, as the week arrows do. */
+  const swipeTo = (date: LocalDate, time: KeptTime | null) => {
+    setSelDay(date);
+    setNear(null);
+    if (weekStart(date) !== data.week) props.goWeek(weekStart(date), undefined, { date, time });
   };
 
-  const capLine = `${formatMinutes(model.planned.project)} projects, ${formatMinutes(model.planned.practice)} practices, ${formatMinutes(model.planned.one_off)} one offs`;
   const placingText = placing && at
     ? `${placing.mode === 'move' ? 'Moving' : 'Placing'} ${drawnOf(placing).title}, ${formatMinutes(at.end - at.start)}${
         placing.mode === 'move' ? `, from ${formatWeekday(placing.block.date)} ${formatTimeOfDay(placing.block.start)}` : ''
@@ -286,329 +347,329 @@ export function PhoneWeek(props: WeekProps) {
   const nextFit = noFit(selDay) ? [1, 2, 3, 4, 5, 6].map((n) => addDays(data.week, (dayIndex + n) % 7)).find((d) => !noFit(d)) : undefined;
   const edBlock = edSel ? model.blocks.find((b) => b.id === edSel) : undefined;
 
-  return (
-    <div ref={root} className="stack8 week">
-      <div className="weektop stack8">
-        <div className="between">
-          {/* While placing, only planning goes to another week: from this one to the week of its last day. */}
-          <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing && !(plan && offset > 0)} onClick={() => carryTo(-7)}>
-            <Icon name="chevron-left" />
-          </button>
-          <div className="wktitle">
-            <div className="small quiet">{props.label}</div>
-            {props.planningAt && <div className="small quiet">{props.planningAt}</div>}
-            <h2>{props.title}</h2>
-          </div>
-          <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing && !(plan && addDays(data.week, 7) <= plan.last)} onClick={() => carryTo(7)}>
-            <Icon name="chevron-right" />
-          </button>
-        </div>
-        {props.gated && <PlanPrompt week={data.week} />}
-        {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
-        {planningFor && <PlanningTimes for={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
-        {!isThis && !placing && (
-          <div className="wkcenter">
-            <Button type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>
-              This week
-            </Button>
-          </div>
-        )}
-        <div className="card stack8 wksum">
-          <div className="small wkkeys">
-            <span className="keyitem">
-              <span className="skey" />
-              <span className="strong">{formatMinutes(weekFree(data.week, ctx))} free</span>
-              <span className="quiet"> of {formatMinutes(model.open)} available</span>
-            </span>
-            <span className="keyitem">
-              <span className="skey planned" />
-              <span>{formatMinutes(model.planned.total)} planned</span>
-            </span>
-            <span className="keyitem">
-              <span className="skey busy" />
-              <span>busy</span>
-            </span>
-          </div>
-          <div className="small quiet">{capLine}</div>
-          <DayStrip
-            week={data.week}
-            label="Choose a day"
-            selected={selDay}
-            ctx={ctx}
-            placed={ctx.placed}
-            draft={placing ? at : null}
-            hint={(date) => ({ noFit: noFit(date), waiting: model.unscheduled.filter((x) => x.dates && x.dates.from <= date && date <= x.dates.to).length })}
-            onPick={pickDay}
-          />
-        </div>
+  const toSchedule = (
+    <section className="card stack8 tosched" aria-label="To schedule" data-unscheduled>
+      <div className="small">
+        <span className="strong">To schedule</span>{' '}
+        <span className="quiet">{model.unscheduled.length ? laneCount(model.unscheduled) : 'Everything this week is on the calendar.'}</span>
       </div>
-
-      {offset < 0 && (
-        <>
-          <p className="small quiet">Past weeks can be viewed but not changed.</p>
-          <Button type="button" onClick={() => nav.go('analytics', { week: data.week })}>
-            See that week's analytics
-          </Button>
-        </>
+      {laneItems.length > 0 && <div className="lanerow">{laneItems.map(card)}</div>}
+      {isThis && laneItems.length > 0 && (
+        <p className="small quiet">
+          {editing ? 'Hold a card, then drag it down onto the day. Hold a block, then drag it up here to take it off the calendar.' : 'Hold a card, then drag it down onto the day, or tap it for suggested times.'}
+        </p>
       )}
-      <PackedDay date={selDay} ctx={ctx} />
-      {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
-      {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
-
-      {offset >= 0 && !placing && (
-        <section className="card stack8 tosched" aria-label="To schedule" data-unscheduled>
-          <div className="small">
-            <span className="strong">To schedule</span>{' '}
-            <span className="quiet">{model.unscheduled.length ? laneCount(model.unscheduled) : 'Everything this week is on the calendar.'}</span>
-          </div>
-          {laneItems.length > 0 && <div className="lanerow">{laneItems.map(card)}</div>}
-          {isThis && laneItems.length > 0 && (
-            <p className="small quiet">
-              {editing ? 'Hold a card, then drag it down onto the day. Hold a block, then drag it up here to take it off the calendar.' : 'Hold a card, then drag it down onto the day, or tap it for suggested times.'}
-            </p>
-          )}
-          {model.unscheduled.length > 0 && (
-            <Button type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
-              Schedule one at a time
-            </Button>
-          )}
-        </section>
+      {model.unscheduled.length > 0 && (
+        <Button type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
+          Schedule one at a time
+        </Button>
       )}
-
-      {showDrag ? (
-        <div>
-          <h3 className="wkday">{dayTitle}</h3>
-          {placing && at && noFit(selDay) && (
-            <button className="tlnoslot" type="button" onClick={() => nextFit && pickDay(nextFit)}>
-              No {formatMinutes(at.end - at.start)} slot on {formatWeekday(selDay)}
-              {nextFit ? `. Next: ${formatWeekday(nextFit)}` : ' or any other day.'}
-            </button>
-          )}
-          <p className="small quiet wkhint">
-            {placing
-              ? 'Hold the block, then drag it to any time, or pick another day above. Hold its bottom edge and drag to change its length.'
-              : 'Hold anything from now on, then drag to move or resize it, or tap it to change it. Changes save as you go.'}
-          </p>
-          <div ref={dayCard} className="card wkdaycard" {...pinch}>
-            <DragDay
-              date={selDay}
-              hour={HOUR_PX * zoom}
-              ctx={ctx}
-              info={model.info}
-              floor={floorOf(selDay)}
-              blocks={blocksOn(selDay).filter((b) => !(placing?.mode === 'move' && placing.block.id === b.id))}
-              moving={
-                placing && at && at.date === selDay && !locked
-                  ? { title: drawnOf(placing).title, kind: drawnOf(placing).kind, slot: at }
-                  : dropAt && dropAt.slot.date === selDay
-                    ? { title: dropAt.item.title, kind: dropAt.item.kind, slot: dropAt.slot }
-                    : null
-              }
-              editing={editing && !placing}
-              holdToCreate={!placing}
-              onMoving={setAt}
-              onDone={() => void finishPlacing()}
-              onChange={changeBlock}
-              onUnschedule={(b) => {
-                setEdSel(null);
-                void act.unschedule(b.id, b.title, data.week);
-              }}
-              onOpen={(id) => {
-                if (split?.blockId !== id) setSplit(null);
-                setEdSel(id);
-                openBlock(id);
-              }}
-            />
-          </div>
-        </div>
-      ) : (
-        <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          {props.finished[selDay] !== undefined ? (
-            // Today or a day gone by: what was finished, which opens Done on that day.
-            <div className="between dnday">
-              <h3 className="wkday">{dayTitle}</h3>
-              <button className="link dnlink" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
-                {finishedCount(props.finished[selDay])} <Icon name="chevron-right" size={16} />
-              </button>
-            </div>
-          ) : (
-            <h3 className="wkday">{dayTitle}</h3>
-          )}
-          <div ref={dayCard} className="card wkdaycard" {...pinch}>
-            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={holdMove} />
-          </div>
-          {isThis && (
-            <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
-              See this week's analytics
-            </Button>
-          )}
-        </div>
-      )}
-
-      {placing && at ? (
-        <div className="tray dragbar">
-          <div role="status">
-            <div className="strong">
-              {dayName(at.date)}, {slotRange(at)}
-            </div>
-            <div className="small">{placingText}</div>
-            {placingNote && <div className="small">{placingNote}</div>}
-          </div>
-          <div className="row">
-            <Button variant="primary" size="compact" className="grow" type="button" disabled={locked} onClick={() => void finishPlacing()}>
-              {placing.mode === 'move' ? 'Move here' : 'Place here'}
-            </Button>
-            <Button size="compact" type="button" onClick={cancelPlacing}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : editing ? (
-        <div className="tray dragbar">
-          <div role="status">
-            {edBlock && (
-              <div className="small strong">
-                {edBlock.title}, {dayName(edBlock.date)}, {slotRange(edBlock)}
-              </div>
-            )}
-            {edBlock && <div className="small">{slotNotes(edBlock, { kind: edBlock.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ')}</div>}
-          </div>
-          <div className="row">
-            <Button
-              variant="primary" size="compact" className="grow"
-              type="button"
-              onClick={() => {
-                setEdSel(null);
-                props.donePlacing();
-                props.setEditing(false);
-              }}
-            >
-              Done editing
-            </Button>
-            <Button size="compact" type="button" onClick={() => setOpen({ kind: 'add' })}>
-              Add a task
-            </Button>
-          </div>
-        </div>
-      ) : isThis && !props.gated ? (
-        <button
-          className="tray go"
-          type="button"
-          onClick={() => {
-            if (selDay < day0) setSelDay(day0);
-            props.setEditing(true);
-          }}
-        >
-          Edit this week's plan
+    </section>
+  );
+  const dragDay = (
+    <div>
+      <h3 className="wkday">{dayTitle}</h3>
+      {placing && at && noFit(selDay) && (
+        <button className="tlnoslot" type="button" onClick={() => nextFit && pickDay(nextFit)}>
+          No {formatMinutes(at.end - at.start)} slot on {formatWeekday(selDay)}
+          {nextFit ? `. Next: ${formatWeekday(nextFit)}` : ' or any other day.'}
         </button>
-      ) : offset === 1 ? (
-        <button className="tray go" type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
-          {model.thisPlanned ? 'Plan next week' : 'Start planning'}
-        </button>
-      ) : null}
-
-      {asking}
-      {opened && (
-        <BlockSheet
-          block={opened}
-          model={model}
-          canEdit={offset >= 0 && !opened.past}
-          onClose={() => setOpen(null)}
-          onLength={(end) => changeBlock(opened, { date: opened.date, start: opened.start, end })}
-          onMove={() => startPlacing({ mode: 'move', block: opened, length: opened.end - opened.start }, opened)}
-          onRemove={() => {
-            setOpen(null);
-            setEdSel(null);
-            void act.remove(opened.id, opened.title);
-          }}
-        />
       )}
-      {popped && (
-        <TaskPopupFor
-          id={popped.task}
-          close={() => setOpen(null)}
-          block={
-            popRow && (
-              <BlockSection
-                block={popRow}
-                {...(popEdit && popPlaced
-                  ? {
-                      move: { ctx: model.ctx, choose: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced) },
-                      onRemove: () => {
-                        setEdSel(null);
-                        void act.remove(popPlaced.id, popPlaced.title);
-                      },
-                    }
-                  : {})}
-              >
-                {popPlaced && <LengthAndNote block={popPlaced} model={model} canEdit={popEdit} onLength={(end) => changeBlock(popPlaced, { date: popPlaced.date, start: popPlaced.start, end })} />}
-              </BlockSection>
-            )
+      <p className="small quiet wkhint">
+        {placing
+          ? 'Hold the block, then drag it to any time, or pick another day above. Hold its bottom edge and drag to change its length.'
+          : 'Hold anything from now on, then drag to move or resize it, or tap it to change it. Changes save as you go.'}
+      </p>
+      <div className="card wkdaycard">
+        <DragDay
+          date={selDay}
+          hour={props.host.hourPx}
+          ctx={ctx}
+          info={model.info}
+          floor={floorOf(selDay)}
+          blocks={blocksOn(selDay).filter((b) => !(placing?.mode === 'move' && placing.block.id === b.id))}
+          moving={
+            placing && at && at.date === selDay && !locked
+              ? { title: drawnOf(placing).title, kind: drawnOf(placing).kind, slot: at }
+              : dropAt && dropAt.slot.date === selDay
+                ? { title: dropAt.item.title, kind: dropAt.item.kind, slot: dropAt.slot }
+                : null
           }
-        />
-      )}
-      {item && (
-        <Sheet label={item.title} onClose={() => setOpen(null)}>
-          <LaneActions
-            item={item}
-            canPlace={isThis}
-            onPlace={(slot) => {
-              setOpen(null);
-              setSelDay(slot.date);
-              void act.place(item, slot);
-            }}
-            onChoose={() => chooseTime(item)}
-            onSkipDay={() => {
-              setOpen(null);
-              void act.skipDay(item, data.week);
-            }}
-            onTakeOut={() => {
-              setOpen(null);
-              void act.takeOut(item, data.week);
-            }}
-            onDone={() => {
-              setOpen(null);
-              void act.markDone(item.task!);
-            }}
-            onClose={() => setOpen(null)}
-          />
-        </Sheet>
-      )}
-      {open?.kind === 'add' && (
-        <AddDrawer
-          model={model}
-          onClose={() => setOpen(null)}
-          onPlace={async (row, slot) => {
-            if (await act.place(rowItem(row), slot)) {
-              setOpen(null);
-              setSelDay(slot.date);
-            }
+          editing={editing && !placing}
+          holdToCreate={!placing}
+          onMoving={setAt}
+          onDone={() => void finishPlacing()}
+          onChange={changeBlock}
+          onUnschedule={(b) => {
+            setEdSel(null);
+            void act.unschedule(b.id, b.title, data.week);
           }}
-          onChoose={(row, length) => startPlacing({ mode: 'place', item: rowItem(row), length, fromDrawer: true }, null)}
+          onOpen={(id) => {
+            if (split?.blockId !== id) setSplit(null);
+            setEdSel(id);
+            openBlock(id);
+          }}
         />
-      )}
+      </div>
     </div>
   );
-}
+  const placingTray = placing && at && (
+    <div className="tray dragbar">
+      <div role="status">
+        <div className="strong">
+          {dayName(at.date)}, {slotRange(at)}
+        </div>
+        <div className="small">{placingText}</div>
+        {placingNote && <div className="small">{placingNote}</div>}
+      </div>
+      <div className="row">
+        <Button variant="primary" size="compact" className="grow" type="button" disabled={locked} onClick={() => void finishPlacing()}>
+          {placing.mode === 'move' ? 'Move here' : 'Place here'}
+        </Button>
+        <Button size="compact" type="button" onClick={cancelPlacing}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+  const editTray = (
+    <div className="tray dragbar">
+      <div role="status">
+        {edBlock && (
+          <div className="small strong">
+            {edBlock.title}, {dayName(edBlock.date)}, {slotRange(edBlock)}
+          </div>
+        )}
+        {edBlock && <div className="small">{slotNotes(edBlock, { kind: edBlock.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ')}</div>}
+      </div>
+      <div className="row">
+        <Button
+          variant="primary" size="compact" className="grow"
+          type="button"
+          onClick={() => {
+            setEdSel(null);
+            props.donePlacing();
+            props.setEditing(false);
+          }}
+        >
+          Done editing
+        </Button>
+        <Button size="compact" type="button" onClick={() => setOpen({ kind: 'add' })}>
+          Add a task
+        </Button>
+      </div>
+    </div>
+  );
+  const sheets = (
+    <>
+    {asking}
+    {popped && (
+      <BlockPopup
+        pop={popped}
+        close={() => setOpen(null)}
+        section={
+          popRow && (
+            <BlockSection
+              block={popRow}
+              {...(popEdit && popPlaced
+                ? {
+                    move: { ctx: model.ctx, choose: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced) },
+                    onRemove: () => {
+                      setEdSel(null);
+                      void act.remove(popPlaced.id, popPlaced.title);
+                    },
+                  }
+                : {})}
+            >
+              {popPlaced && <LengthAndNote block={popPlaced} model={model} canEdit={popEdit} onLength={(end) => changeBlock(popPlaced, { date: popPlaced.date, start: popPlaced.start, end })} />}
+            </BlockSection>
+          )
+        }
+      />
+    )}
+    {item && (
+      <Sheet label={item.title} onClose={() => setOpen(null)}>
+        <LaneActions
+          item={item}
+          canPlace={isThis}
+          onPlace={(slot) => {
+            setOpen(null);
+            setSelDay(slot.date);
+            void act.place(item, slot);
+          }}
+          onChoose={() => chooseTime(item)}
+          onSkipDay={() => {
+            setOpen(null);
+            void act.skipDay(item, data.week);
+          }}
+          onTakeOut={() => {
+            setOpen(null);
+            void act.takeOut(item, data.week);
+          }}
+          onDone={() => {
+            setOpen(null);
+            void act.markDone(item.task!);
+          }}
+          onClose={() => setOpen(null)}
+        />
+      </Sheet>
+    )}
+    {open?.kind === 'add' && (
+      <AddDrawer
+        model={model}
+        onClose={() => setOpen(null)}
+        onPlace={async (row, slot) => {
+          if (await act.place(rowItem(row), slot)) {
+            setOpen(null);
+            setSelDay(slot.date);
+          }
+        }}
+        onChoose={(row, length) => startPlacing({ mode: 'place', item: rowItem(row), length, fromDrawer: true }, null)}
+      />
+    )}
+    </>
+  );
 
-/**
- * The zoom at which the drawn day fits between the week's sticky top and whatever covers the bottom of the screen: the
- * tray and the tab bar. Rows of time that's closed or gone by keep their height, so only the rest scales.
- * shortcut: a block is never drawn under a tap target's height, so a day of many short blocks can still run a little
- * past the screen at its smallest; fit those too if it turns out to matter.
- */
-function leastZoom(root: HTMLElement | null, card: HTMLElement | null, zoom: number) {
-  const top = root?.querySelector('.weektop')?.getBoundingClientRect().bottom;
-  if (!card || top === undefined) return 1;
-  const bottom = Math.min(innerHeight, ...[...document.querySelectorAll('.tray, .tabs')].map((el) => el.getBoundingClientRect().top));
-  const scales = [...card.querySelectorAll('.day, .tlfree, .tlrow > .tlblock, .tlcols')].reduce((h, el) => h + el.getBoundingClientRect().height, 0);
-  if (!scales) return 1;
-  const fixed = card.getBoundingClientRect().height - scales;
-  return fitZoom(bottom - top - fixed, scales / zoom);
+  const host = props.host;
+  if (host) {
+    const words = dayHeading(selDay, day0);
+    const w: HostWeek = {
+      day: selDay,
+      offset,
+      heading: words,
+      menu: [
+        ...(isThis && !props.gated && !editing && !placing ? [{ id: 'week.edit', label: "Edit this week's plan", icon: 'pen' as const }] : []),
+        ...(!placing && resetShown(data, offset, now) ? [{ id: 'week.reset', label: `Reset ${offset === 0 ? 'this' : 'next'} week's plan`, icon: 'undo' as const }] : []),
+        ...(offset <= 0 ? [{ id: 'week.analytics', label: isThis ? "See this week's analytics" : "See that week's analytics", icon: 'week' as const }] : []),
+      ],
+      choose: (id) => {
+        if (id === 'week.edit') {
+          if (selDay < day0) setSelDay(day0);
+          props.setEditing(true);
+        } else if (id === 'week.reset') setResetAsking(true);
+        else if (id === 'week.analytics') nav.go('analytics', { week: data.week });
+      },
+      goToday: () => {
+        setNear(null);
+        if (isThis) setSelDay(day0);
+        else props.goWeek(weekStart(day0), undefined, { date: day0, time: null });
+      },
+      move: (id) => {
+        const b = model.blocks.find((x) => x.id === id);
+        if (b && offset >= 0 && !b.past) startPlacing({ mode: 'move', block: b, length: b.end - b.start }, b);
+      },
+      add: () => setOpen({ kind: 'add' }),
+      drafting: setDrafting,
+      length: (id) => {
+        const b = model.blocks.find((x) => x.id === id);
+        return b && <LengthAndNote block={b} model={model} canEdit={offset >= 0 && !b.past} onLength={(end) => changeBlock(b, { date: b.date, start: b.start, end })} />;
+      },
+    };
+    const dataOn = (date: LocalDate) => (weekStart(date) === data.week ? data : weekStart(date) === besideWeek && besideData?.week === besideWeek ? besideData : null);
+    // Under each day, its hours planned; before the week's planned, its hours free, as Week says.
+    const plannedOn = (date: LocalDate) => {
+      const mins = model.blocks.filter((b) => b.date === date && b.kind !== 'planning').reduce((sum, b) => sum + b.end - b.start, 0);
+      return { text: mins ? formatMinutes(mins) : '', say: mins ? `${formatMinutes(mins)} planned` : '' };
+    };
+    const dots: Dot[] = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const date = addDays(data.week, i);
+      return date === selDay ? 'on' : date < day0 ? 'past' : '';
+    });
+    return (
+      <div ref={root} className={`${host.className} week tdweek`} aria-busy={host.busy}>
+        {host.head(w)}
+        {isThis && host.above}
+        <StripFold
+          label={`${props.title}, ${props.label}`}
+          week={
+            <div className="sfwkrow">
+              {/* While placing, only planning goes to another week: from this one to the week of its last day. */}
+              <Button variant="icon" icon="chevron-left" label="Previous week" type="button" disabled={!!placing && !(plan && offset > 0)} onClick={() => carryTo(-7)} />
+              <div className="sfwktitle">
+                <span className="strong">{props.title}</span> <span className="quiet">{props.label}</span>
+                {props.planningAt && <div className="small quiet">{props.planningAt}</div>}
+              </div>
+              <Button variant="icon" icon="chevron-right" label="Next week" type="button" disabled={!!placing && !(plan && addDays(data.week, 7) <= plan.last)} onClick={() => carryTo(7)} />
+            </div>
+          }
+          days={
+            <DayStrip
+              week={data.week}
+              label="Choose a day"
+              selected={near ?? selDay}
+              ctx={ctx}
+              placed={ctx.placed}
+              draft={placing ? at : null}
+              hint={(date) => ({ noFit: noFit(date), waiting: 0 })}
+              {...(props.gated ? {} : { under: plannedOn })}
+              onPick={pickDay}
+            />
+          }
+          foot={
+            <div className="sffootrow">
+              <span className="sfsum">
+                <span className="strong">{props.gated ? 'Not planned yet' : `${formatMinutes(model.planned.total)} planned`}</span>{' '}
+                <span className="quiet">{formatMinutes(weekFree(data.week, ctx))} free</span>
+              </span>
+              {!placing && host.foot(w)}
+            </div>
+          }
+          slim={{
+            name: words.name,
+            date: words.name === longDay(selDay) ? words.date : `${formatWeekday(selDay)} ${Number(selDay.slice(8))}`,
+            label: `${words.name === longDay(selDay) ? '' : `${words.name}, `}${longDay(selDay)} ${Number(selDay.slice(8))}. Show the week`,
+            dots,
+          }}
+        />
+        {offset < 0 && <p className="small quiet">Past weeks can be viewed but not changed.</p>}
+        <PackedDay date={selDay} ctx={ctx} />
+        {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
+        {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
+        {selDay === day0 && !showDrag && host.rows}
+        {editing && !placing && toSchedule}
+        {showDrag ? (
+          dragDay
+        ) : (
+          <div className="tdpaged">
+            {/* A day gone by opens Done on that day. Its count is a read of its own, which can come after the day has
+                drawn, so its place is held from the start and the day under it never moves when the count arrives. */}
+            {selDay < day0 &&
+              (props.finishedRead ? (
+                props.finished[selDay] !== undefined && (
+                  <button className="attn tdrow" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
+                    <span>
+                      <span className="strong">Done on {longDay(selDay)}</span> <span className="quiet">{finishedCount(props.finished[selDay])}</span>
+                    </span>
+                    <Icon name="chevron-right" size={16} className="chev" />
+                  </button>
+                )
+              ) : (
+                <div className="attn tdrow tdheld" aria-hidden="true">
+                  <span className="strong">Done on {longDay(selDay)}</span>
+                </div>
+              ))}
+            {/* Swiped sideways, the day follows the finger to the day before or after, the week's ends included. */}
+            <DayPager
+              className="tdpager"
+              day={selDay}
+              enabled={!drafting}
+              onDay={swipeTo}
+              onNear={(date) => setNear(date === selDay ? null : date)}
+              top={() => root.current?.querySelector('.sfbg')?.getBoundingClientRect().bottom ?? 0}
+              time={arrivedTime.current}
+              render={(date, current) => host.day(date, current, dataOn(date), w)}
+            />
+          </div>
+        )}
+        {planningFor && <PlanningTimes for={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
+        {placingTray || (editing && editTray)}
+        {sheets}
+        <ResetWeek data={data} offset={offset} asking={{ open: resetAsking, set: setResetAsking }} />
+        {host.extra}
+      </div>
+    );
+  }
 }
-
-/** The id of a hold's draft among a day's rows, drawn as a block until Capture saves or cancels it. */
-const HELD = 'holddraft';
 
 /**
  * A block let go at a new time, drawn there until the saved position comes back in `blocks`, so it doesn't jump back to
@@ -619,245 +680,6 @@ function useLanded(blocks: readonly PlacedBlock[]) {
   const placed = blocks.map((b) => `${b.id} ${b.date} ${b.start} ${b.end}`).join();
   useEffect(() => setLanded(null), [placed]);
   return [landed, setLanded] as const;
-}
-
-/**
- * One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. Blocks at the
- * same time share a row, side by side. A press held on a stretch of time drafts an hour there, in a row of its own that
- * splits the stretch around it, and opens Capture on it.
- */
-function DayRows(props: {
-  date: LocalDate;
-  model: WeekModel;
-  /** A half hour's height. */
-  cell: number;
-  readOnly: boolean;
-  onOpen(id: string): void;
-  /** Resolves to whether it moved. `undone` runs as its Undo is pressed. */
-  onMove(block: PlacedBlock, slot: Slot, undone: () => void): Promise<boolean>;
-}) {
-  const { date, model, cell } = props;
-  const { clock, layout, platform } = useApp();
-  // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
-  const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
-  const { availability, busy, earliest } = model.ctx;
-  // The minute under the finger, from the time the row covers and the height it's drawn, which for a closed row isn't
-  // its time's. After the hold the draft moves at the rows' scale, a half hour a cell.
-  const holdNew = useHoldToCreate({
-    at: (_x, py, el) => {
-      const [from, to] = [Number(el.dataset.dropFrom), Number(el.dataset.dropTo)];
-      const tall = el.getBoundingClientRect().height || ((to - from) / 30) * cell;
-      return { date, minute: from + (py / tall) * (to - from) };
-    },
-    move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 30) / cell, [], { from: date === earliest.date ? Math.max(DAY_FROM, Math.ceil(earliest.minutes / GRID) * GRID) : DAY_FROM, to: DAY_TO }),
-    earliest,
-  });
-  const held = holdNew.draft?.slot;
-  const draftBlock: PlacedBlock | null = held ? { ...held, id: HELD, title: holdNew.draft!.name.trim() || 'New task', kind: 'project', draft: true, task_id: null, practice_id: null, past: false, ended: false, result: null } : null;
-  const saved = model.blocks.filter((b) => b.date === date);
-  // A block let go on another row is drawn at its new time while it saves.
-  const [landed, setLanded] = useLanded(saved);
-  const blocks = [...saved.map((b) => (b.id === landed?.id ? { ...b, ...landed.slot } : b)), ...(draftBlock?.date === date ? [draftBlock] : [])];
-  const groups = overlapGroups(blocks);
-  const info = model.info.filter((x) => x.date === date);
-  const shown = new Set<unknown>();
-  const startsIn = (m: number) => blocks.filter((b) => b.start < m + 30 && !shown.has(b)).sort((a, b) => a.start - b.start)[0];
-  const busyAt = (m: number) => busy.find((b) => b.date === date && b.start <= m && m < b.end);
-  const infoIn = (m: number) => info.find((x) => x.start < m + 30 && !shown.has(x));
-  // Open time that has gone by shows what happened, so it's never free.
-  const kindAt = (m: number) => (!isOpen(availability, date, m, 'project') ? 'closed' : isPast(date, m, model.ctx) ? 'gone' : 'free');
-  const rows: ReactElement[] = [];
-  // Each row says the time it covers, so a card dropped on it lands where it was let go.
-  const row = (key: string, time: number, body: ReactElement, from: number, to: number, holdable = false) =>
-    rows.push(
-      <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to} onPointerDown={holdable ? holdNew.press : undefined}>
-        <span className="tltime">{formatTimeOfDay(time)}</span>
-        {body}
-        {nowMin !== null && from <= nowMin && nowMin < to && <NowLine top={`${((nowMin - from) / (to - from)) * 100}%`} />}
-      </div>,
-    );
-
-  // A task's block always opens, to its popup; a practice's or planning's only while it can still change.
-  const shut = (block: PlacedBlock) => (props.readOnly || block.ended) && !isTask(block);
-  // Held, a block still to come lifts and drags as a card does, onto whichever row it's let go over, at the time under
-  // the finger there. Its own time is free while it moves. The press stays with the block, so the row under it never
-  // takes it for a hold on empty time.
-  const hold = (block: PlacedBlock) => (e: ReactPointerEvent<HTMLElement>) => {
-    e.stopPropagation();
-    dragCard(e, { length: block.end - block.start, offers: [] }, { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== block.id) }, {
-      preview: () => undefined,
-      drop: (slot) => {
-        const put = { id: block.id, slot };
-        setLanded(put);
-        // A failed save puts it back, and so does Undo pressed before the day has redrawn from the save: the day's next
-        // drawing then matches the one before the move, which wouldn't redraw it.
-        const back = () => setLanded((l) => (l === put ? null : l));
-        void props.onMove(block, slot, back).then((moved) => moved || back());
-      },
-      ...(platform.haptic ? { haptic: platform.haptic } : {}),
-    });
-  };
-  /** A block filling its row, or in its column of its group's row, whose time is `from`: one starting later says when. */
-  const draw = (block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties) => {
-    if (block.id === HELD) {
-      return (
-        <div key={HELD} ref={holdNew.draftRef} className={`tlblock holddraft ${blockClass('project', 'placing')}${holdNew.draft!.fresh ? ' pop' : ''}`} style={style} title={slotRange(block)} aria-hidden="true">
-          <span className="tlname">
-            <span className="blktitle">{block.title}</span>
-          </span>
-          <span className="tlkind">{slotRange(block)}</span>
-        </div>
-      );
-    }
-    const word = KIND_WORD[block.kind];
-    const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.start > from ? `, from ${formatTimeOfDay(block.start)}` : ''}${block.note ? `. ${block.note}` : ''}`;
-    const state = blockState({ result: block.result, ended: block.ended, now: block.now });
-    const cls = `tlblock ${blockClass(LOOK[block.kind], state)}`;
-    const inner = (
-      <>
-        <span className="tlname">
-          <BlockMarks state={state} look={LOOK[block.kind]} />
-          <OutcomeTag result={block.result} />
-          <span className="blktitle">{block.title}</span>
-        </span>
-        <span className="tlkind">{kindLine}</span>
-      </>
-    );
-    return shut(block) ? (
-      <div key={block.id} className={cls} style={style}>
-        {inner}
-      </div>
-    ) : (
-      <button
-        key={block.id}
-        className={cls}
-        type="button"
-        aria-haspopup="dialog"
-        style={style}
-        aria-label={`${block.title}, ${slotRange(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}${overlapNote(others)}`}
-        onClick={() => props.onOpen(block.id)}
-        onPointerDown={props.readOnly || block.past ? undefined : hold(block)}
-      >
-        {inner}
-      </button>
-    );
-  };
-
-  let m = DAY_FROM;
-  while (m < DAY_TO) {
-    const block = startsIn(m);
-    const event = busyAt(m);
-    const inf = infoIn(m);
-    if (block) {
-      // The row runs to the end of the last block overlapping it, so no free time shows inside them.
-      const group = groups.find((g) => g.items.some((c) => c.item === block))!;
-      for (const c of group.items) shown.add(c.item);
-      const cells = Math.max(1, Math.ceil((group.end - m) / 30));
-      row(
-        block.id,
-        group.start,
-        group.items.length === 1 ? (
-          draw(block, [], block.start, { height: cells * cell - 2 })
-        ) : (
-          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => b.id !== HELD && !shut(b)} onOpen={props.onOpen} />
-        ),
-        m,
-        m + cells * 30,
-      );
-      m += cells * 30;
-      continue;
-    }
-    // It doesn't take up time, so a block already over it leaves the clock where it is.
-    if (inf) {
-      shown.add(inf);
-      row(
-        `i${inf.id}${inf.start}`,
-        inf.start,
-        <div className={`tlblock ${blockClass('info', 'planned')}`} style={{ height: cell - 2 }}>
-          <span className="tlname">{inf.title}</span>
-          <span className="tlkind">Information, {slotRange(inf)}</span>
-        </div>,
-        inf.start,
-        inf.end,
-      );
-      m = Math.max(m, m + Math.ceil((inf.end - m) / 30) * 30);
-      continue;
-    }
-    if (event) {
-      row(`b${event.id}${m}`, event.start, <div className={`tlblock ${blockClass('event', 'planned')} small wkbusy`}>Busy, {slotRange(event)}</div>, m, event.end);
-      m = event.end;
-      continue;
-    }
-    const kind = kindAt(m);
-    let n = m + 30;
-    while (n < DAY_TO && kindAt(n) === kind && !busyAt(n) && !startsIn(n) && !infoIn(n)) n += 30;
-    const text = `${formatTimeOfDay(m)} to ${formatTimeOfDay(n)}`;
-    row(
-      `f${m}`,
-      m,
-      kind !== 'free' ? (
-        <div className="tlclosed">
-          {kind === 'closed' ? 'Not available' : 'Gone by'}, {text}
-        </div>
-      ) : (
-        <div className="tlfree" style={{ height: ((n - m) / 30) * cell - 2 }}>
-          Free, {text}
-        </div>
-      ),
-      m,
-      n,
-      true,
-    );
-    m = n;
-  }
-  return (
-    // A finger moving the draft sideways isn't a swipe to the next day.
-    <div className="tlrows" onTouchEnd={(e) => holdNew.draft && e.stopPropagation()}>
-      {rows}
-      <HoldRing ring={holdNew.ring} />
-      {holdNew.draft?.open && (
-        <DraftCapture
-          layout={layout}
-          close={holdNew.close}
-          slot={holdNew.slot(overlapWords(holdNew.draft.slot, [...model.blocks, ...busy].filter((o) => o.date === date).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * Blocks at the same time, side by side in their row from the half hour `from`, each from its own half hour to the end
- * of its own. As many columns as stay readable are drawn; +N more under them lists the whole group.
- */
-function DayGroup(props: {
-  group: OverlapGroup<PlacedBlock>;
-  from: number;
-  cells: number;
-  cell: number;
-  draw(block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties): ReactElement;
-  canOpen(block: PlacedBlock): boolean;
-  onOpen(id: string): void;
-}) {
-  const { group, from } = props;
-  const [measure, width] = useWidth<HTMLDivElement>();
-  const shown = shownColumns(group.cols, width);
-  // shortcut: the current time's line is placed down the whole row, +N more included, so in such a row it sits up to
-  // a button's height low; place it by the columns alone if three or more at once turn out common.
-  return (
-    <>
-      <div ref={measure} className="tlcols" style={{ height: props.cells * props.cell - 2 }}>
-        {group.items
-          .filter((c) => c.col < shown)
-          .map(({ item, col, with: others }) => {
-            const top = Math.max(0, Math.floor((item.start - from) / 30));
-            const cells = Math.max(1, Math.ceil((item.end - from) / 30) - top);
-            return props.draw(item, others, group.start, { top: top * props.cell, height: cells * props.cell - 2, ...columnStyle(col, shown) });
-          })}
-      </div>
-      {shown < group.cols && <MoreButton group={group} shown={shown} className="tlmore" canOpen={props.canOpen} onOpen={(b) => props.onOpen(b.id)} />}
-    </>
-  );
 }
 
 /**
@@ -1131,7 +953,7 @@ export function DragDay(props: {
   );
 }
 
-/** A block's length on a slider, while it can change, and what's off about its time: in its sheet, or in a task's popup. */
+/** A block's length on a slider, while it can change, and what's off about its time, in its popup's block section. */
 function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: boolean; onLength(end: number): void }) {
   const { block, model } = props;
   const id = useId();
@@ -1167,43 +989,6 @@ function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: b
         </p>
       )}
     </>
-  );
-}
-
-/** A tapped practice's session or planning block: its length on a slider, Move and Remove. */
-function BlockSheet(props: {
-  block: PlacedBlock;
-  model: WeekModel;
-  canEdit: boolean;
-  onClose(): void;
-  onLength(end: number): void;
-  onMove(): void;
-  onRemove(): void;
-}) {
-  const { block } = props;
-  return (
-    <Sheet label={block.title} onClose={props.onClose}>
-      <div>
-        <div className="small quiet">
-          {dayName(block.date)}, {slotRange(block)}
-        </div>
-        <h2>{block.task_id ? <TaskName id={block.task_id} title={block.title} /> : block.title}</h2>
-      </div>
-      <LengthAndNote block={block} model={props.model} canEdit={props.canEdit} onLength={props.onLength} />
-      {props.canEdit && (
-        <>
-          <Button variant="primary" type="button" onClick={props.onMove}>
-            Move
-          </Button>
-          <Button type="button" onClick={props.onRemove}>
-            Remove
-          </Button>
-        </>
-      )}
-      <Button type="button" onClick={props.onClose}>
-        Close
-      </Button>
-    </Sheet>
   );
 }
 

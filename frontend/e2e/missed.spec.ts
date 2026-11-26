@@ -4,6 +4,8 @@ import { expectTapTarget, openSeeded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 // The missed blocks sheet: a sheet over the lower part of the screen on phone, a small dialog in the middle on desktop.
+// On phone, a day's own blocks ask on themselves on Today's day, and missed blocks from earlier days wait behind Today's
+// row of what's waiting, whose Review opens the sheet; so the phone's tests open it the next day.
 
 test.use({ timezoneId: 'America/Chicago' });
 
@@ -15,6 +17,7 @@ const at = (day: number, time: string) => {
 };
 const THU = 29; // Thursday, Oct 29.
 const MON = 33; // Monday, Nov 2, as a day of October.
+const TUE = 34;
 
 const task = (id: string, title: string, fields: Record<string, unknown> = {}): Seed => ({
   type: 'task',
@@ -48,6 +51,17 @@ async function open(page: Page) {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
+  return errors;
+}
+
+/** On phone: Tuesday, when Monday's blocks are from an earlier day too, and the practice's session, a day's own, has passed. */
+async function openOnPhone(page: Page) {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: new Date(at(TUE, '14:00')) });
+  await openSeeded(page, records);
+  await page.getByRole('button', { name: '5 missed blocks to check in on' }).click();
+  await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Review' }).click();
   return errors;
 }
 
@@ -135,8 +149,8 @@ test('on desktop, a small dialog in the middle, answered row by row, in Select m
 
 test('on phone, a sheet from the bottom: tap a row, Partly for a selection, and a swipe down is Later', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'phone layout');
-  const errors = await open(page);
-  const dialog = sheet(page, 6);
+  const errors = await openOnPhone(page);
+  const dialog = sheet(page, 5);
   await expect(dialog).toBeVisible();
 
   // Along the bottom once it has slid up, as tall as its rows up to about 60% of the screen.
@@ -151,48 +165,48 @@ test('on phone, a sheet from the bottom: tap a row, Partly for a selection, and 
 
   await dialog.getByRole('button', { name: 'Not done: Email the editor' }).click();
   await expect(page.getByText("Email the editor: not done. It's in Needs a new time.")).toBeVisible();
-  const five = sheet(page, 5);
-  await expect(five.getByRole('group')).toHaveCount(5);
+  const four = sheet(page, 4);
+  await expect(four.getByRole('group')).toHaveCount(4);
 
-  await five.getByRole('button', { name: 'Select', exact: true }).click();
-  await five.getByRole('checkbox', { name: 'Pay the water bill' }).check();
-  await five.getByRole('checkbox', { name: 'Piano' }).check();
-  await expect(five.getByRole('status')).toHaveText('2 selected');
-  await five.getByRole('button', { name: 'Partly', exact: true }).click();
-  await expect(five.getByText('15m done')).toBeVisible();
-  await five.getByRole('button', { name: 'Less time done: Piano' }).click();
-  await expectTapTarget(five.getByRole('button', { name: 'More time done: Piano' }));
-  await five.getByRole('button', { name: 'Save 2 answers' }).click();
+  await four.getByRole('button', { name: 'Select', exact: true }).click();
+  await four.getByRole('checkbox', { name: 'Pay the water bill' }).check();
+  await four.getByRole('checkbox', { name: 'Book the dentist' }).check();
+  await expect(four.getByRole('status')).toHaveText('2 selected');
+  await four.getByRole('button', { name: 'Partly', exact: true }).click();
+  await expectTapTarget(four.getByRole('button', { name: /^More time left: Book the dentist/ }));
+  await four.getByRole('button', { name: 'Save 2 answers' }).click();
   await expect(page.getByText('Answered 2 blocks.')).toBeVisible();
-  await expect(sheet(page, 3)).toBeVisible();
+  await expect(sheet(page, 2)).toBeVisible();
 
-  // A swipe down from its top puts it away, and Review brings it back.
-  const three = sheet(page, 3);
-  const top = await box(three);
-  await touchDrag(page, three.locator('.missgrab'), { x: top.x + top.width / 2, y: top.y + 200 }, 0);
+  // A swipe down from its top puts it away, and Review, behind the waiting row, brings it back.
+  const two = sheet(page, 2);
+  const top = await box(two);
+  await touchDrag(page, two.locator('.missgrab'), { x: top.x + top.width / 2, y: top.y + 200 }, 0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: /^Check in on 3 missed blocks/ }).click();
-  await expect(three).toBeVisible();
+  await page.getByRole('button', { name: /2 missed blocks to check in on$/ }).click();
+  await page.getByRole('dialog', { name: 'To schedule' }).getByRole('button', { name: 'Review' }).click();
+  await expect(two).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('turns off the slide with reduced motion', async ({ page }) => {
+test('turns off the slide with reduced motion', async ({ page }, info) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await open(page);
-  await expect(sheet(page, 6)).toHaveCSS('animation-name', 'none');
+  const phone = info.project.name === 'phone';
+  await (phone ? openOnPhone(page) : open(page));
+  await expect(sheet(page, phone ? 5 : 6)).toHaveCSS('animation-name', 'none');
 });
 
 test('screenshots of each state, for comparing with the design', async ({ page }, info) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}.png`) });
   if (info.project.name === 'phone') {
-    await open(page);
-    const dialog = sheet(page, 6);
+    await openOnPhone(page);
+    const dialog = sheet(page, 5);
     await dialog.getByRole('button', { name: 'What the icons mean' }).click();
     await shot('phone-1-rows-key');
     await dialog.getByRole('button', { name: 'Select', exact: true }).click();
     await dialog.getByRole('checkbox', { name: 'Email the editor' }).check();
-    await dialog.getByRole('checkbox', { name: 'Piano' }).check();
+    await dialog.getByRole('checkbox', { name: 'Book the dentist' }).check();
     await shot('phone-2-select');
     await dialog.getByRole('button', { name: 'Partly', exact: true }).click();
     await shot('phone-3-partly');

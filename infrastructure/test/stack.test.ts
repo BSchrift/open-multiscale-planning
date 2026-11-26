@@ -255,6 +255,14 @@ describe('Lambdas', () => {
     assert.equal(accounts.Timeout, 900);
   });
 
+  it('gives the API four times the CPU of the calendar and retention functions, for building and gzipping pages', () => {
+    // Lambda's CPU grows with its memory, and a first sync's pages are up to 2,000 records each.
+    const memory = (prefix: string) => all[logicalId(prefix)].Properties.MemorySize;
+    assert.equal(memory('Api'), 1024);
+    assert.equal(memory('Calendar'), 256);
+    assert.equal(memory('Retention'), 256);
+  });
+
   it("gives the account function the memory a zip's upload needs, no reserved concurrency, and no retries", () => {
     const accounts = all[logicalId('Account')].Properties;
     assert.ok(accounts.MemorySize >= 1024, String(accounts.MemorySize));

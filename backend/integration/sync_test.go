@@ -160,17 +160,18 @@ func TestIdsMayHoldTheKeySeparator(t *testing.T) {
 
 func TestPagingReturnsEverythingOnceInOrder(t *testing.T) {
 	needs(t)
-	// Its 594 records stay in the test user's partition as deleted records for prod's 30-day deleted period, and every new
+	// Its 2,079 records stay in the test user's partition as deleted records for prod's 30-day deleted period, and every new
 	// device of that user downloads them all. Run twice on every prod release, they left the shared test user with tens
 	// of thousands, and the deployed web app suite's first sync with them. Staging, whose deleted period is minutes, and
 	// the local stack still run it, against the same code and, on staging, the same DynamoDB.
 	if target.Env == "prod" {
-		t.Skip("leaves 594 deleted records on prod's shared test user for 30 days; local and staging run it")
+		t.Skip("leaves 2,079 deleted records on prod's shared test user for 30 days; local and staging run it")
 	}
 	a := signIn(t)
 	start := a.startCursor()
 	want := map[string]bool{}
-	for batch := 0; batch < 6; batch++ {
+	// One more batch than a page of 2,000 holds.
+	for batch := 0; batch < 21; batch++ {
 		if batch > 0 {
 			time.Sleep(fullBatchPause)
 		}
@@ -183,7 +184,7 @@ func TestPagingReturnsEverythingOnceInOrder(t *testing.T) {
 		a.sync(a.startCursor(), changes...)
 	}
 	first := a.sync(start)
-	if !first.More || len(first.Changes) != 500 {
+	if !first.More || len(first.Changes) != 2000 {
 		t.Fatalf("first page: more %v with %d changes", first.More, len(first.Changes))
 	}
 	if first.Cursor <= start {

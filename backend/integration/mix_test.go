@@ -28,7 +28,7 @@ func TestNightlyRequestMix(t *testing.T) {
 		cursor = a.sync(cursor, batch...).Cursor
 		time.Sleep(fullBatchPause)
 	}
-	// Pulls of full pages: 990 records from where the pushes began is two pages of 500.
+	// Pulls of every record pushed: 990 records from where the pushes began, one page of up to 2,000.
 	for pull := 0; pull < 10; pull++ {
 		if got, _ := a.pullAll(start); len(got) < 990 {
 			t.Fatalf("pulled %d of the 990 records pushed", len(got))

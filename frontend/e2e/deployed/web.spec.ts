@@ -20,9 +20,8 @@ const NETWORK = { timeout: 60_000 };
 // On prod's shared test user, which held tens of thousands of deleted records, it ran past 70 seconds on 15 November.
 const CATCH_UP = 180_000;
 // The history project (playwright.config.ts) signs in as staging's history user, whose five-year account
-// (history-seed.setup.ts) is about 33,000 records: 78 to 83 pages for a new browser on staging's runs from 19 to 23
-// November, of about 400 records each. Fewer means it isn't seeded.
-const HISTORY_PAGES = 50;
+// (history-seed.setup.ts) is about 33,000 records for a new browser. Fewer than this means it isn't seeded.
+const HISTORY_RECORDS = 25_000;
 const HISTORY_ONLY = 'The history project checks only what a long history changes: sign-in, a reload, OPFS, the journey, planning and the console';
 
 test.describe.configure({ mode: 'serial' });
@@ -76,13 +75,17 @@ async function stateOf(p: Page): Promise<string> {
   return `It was at ${p.url().split('?')[0]}, still waiting on ${waiting.join(', ') || 'no request'}, and showed:\n${shown}`;
 }
 
-/** Counts the pages of records a page's syncs pull, as they arrive. */
+/** Counts the pages of records a page's syncs pull, and the records on them, as they arrive. */
 function pullsOf(p: Page) {
-  const pulled = { pages: 0 };
+  const pulled = { pages: 0, records: 0 };
   p.on('response', (res) => {
     if (res.request().method() !== 'POST' || !res.url().endsWith('/sync') || !res.ok()) return;
     res.json().then(
-      (body: { changes?: unknown[] }) => void (body.changes?.length && pulled.pages++),
+      (body: { changes?: unknown[] }) => {
+        if (!body.changes?.length) return;
+        pulled.pages++;
+        pulled.records += body.changes.length;
+      },
       () => undefined,
     );
   });
@@ -198,9 +201,9 @@ test('a new browser of a five-year account pulls the whole history in its first 
   await signInAs(page, d.history.test_user!);
   // Its settings, with setup done, come last, so the app opens once the whole history is in.
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: CATCH_UP });
-  console.log(`The history user's first sync pulled ${pulled.pages} pages in ${Math.round((Date.now() - started) / 1000)} s.`);
-  const unseeded = `fewer than ${HISTORY_PAGES} pages means its five-year account isn't seeded on staging: make test-history ENV=staging seeds it`;
-  await expect.poll(() => pulled.pages, { message: unseeded }).toBeGreaterThanOrEqual(HISTORY_PAGES);
+  console.log(`The history user's first sync pulled ${pulled.records} records in ${pulled.pages} pages in ${Math.round((Date.now() - started) / 1000)} s.`);
+  const unseeded = `fewer than ${HISTORY_RECORDS} records means its five-year account isn't seeded on staging: make test-history ENV=staging seeds it`;
+  await expect.poll(() => pulled.records, { message: unseeded }).toBeGreaterThanOrEqual(HISTORY_RECORDS);
 });
 
 test('a reload in the middle of that first sync opens the database again, once the page it replaces lets go', async ({ browser }, info) => {
@@ -215,9 +218,9 @@ test('a reload in the middle of that first sync opens the database again, once t
     const pulled = pullsOf(p);
     await p.goto('/');
     await signInAs(p, d.history!.test_user!);
-    // Ten pages in, the database worker is writing what it pulled, as it was on prod's reloads that found the SQLite
+    // 5,000 records in, the database worker is writing what it pulled, as it was on prod's reloads that found the SQLite
     // pool still held. From here only GETs to the web app's own host go out, so the page reloads and nothing is sent.
-    await expect.poll(() => pulled.pages, NETWORK).toBeGreaterThanOrEqual(10);
+    await expect.poll(() => pulled.records, NETWORK).toBeGreaterThanOrEqual(5000);
     const own = new URL(baseURL!).origin;
     await other.route('**/*', (route) => {
       const r = route.request();

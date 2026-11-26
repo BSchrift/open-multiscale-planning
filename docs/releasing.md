@@ -48,15 +48,15 @@ tens of thousands of records, where a change takes seconds to read back. So each
 browser in as the history-scale test's user, whose five-year account, about 33,000 records, stays there
 (`scripts/test-deployed.sh`, the web app suite's `history` project). A setup project seeds the account first, as
 `make test-history` does, with only the live records staging keeps; a rerun writes nothing. Then it checks that the
-first sync pulls the whole history, about 80 pages of about 400 records, and fails under 50; that a reload in the
-middle of a first sync opens the database again; that the data is on OPFS; the desktop journey, from Capture to the
-calendar and back, with its clean-ups; that stretch planning's Save and exit leaves the steps; and that the console
-stays clean. The account's records carry no expiry, so a reload of a browser holding them would fill expiries in and
-send them, and staging's periods would then remove most of the account. So the main page is never reloaded, and the
-reload is a browser of its own that sends nothing once it starts to reload. A failure stops the release, as any
-staging suite's does. It began reported only, and gates since it passed ten staging runs in a row. It adds about 2 to
-3 minutes to a staging run: on staging's runs from 19 to 23 November the seed took 19 to 30 seconds, the first sync 29
-to 38 seconds, and the whole project, when it passed, 1.8 to 2.3 minutes.
+first sync pulls the whole history, about 33,000 records, and fails under 25,000; that a reload in the middle of a first sync opens
+the database again; that the data is on OPFS; the desktop journey, from Capture to the calendar and back, with its
+clean-ups; that stretch planning's Save and exit leaves the steps; and that the console stays clean. The account's
+records carry no expiry, so a reload of a browser holding them would fill expiries in and send them, and staging's
+periods would then remove most of the account. So the main page is never reloaded, and the reload is a browser of its
+own that sends nothing once it starts to reload. A failure stops the release, as any staging suite's does. It began
+reported only, and gates since it passed ten staging runs in a row. It adds about 2 to 3 minutes to a staging run: on
+staging's runs from 19 to 23 November the seed took 19 to 30 seconds, the first sync 29 to 38 seconds, and the whole
+project, when it passed, 1.8 to 2.3 minutes.
 
 Each web build carries its environment's backend addresses, from its stack's outputs as Build finds them. A release
 that changes one of those outputs, such as a new sign-in client, reaches the web app with the run after it.

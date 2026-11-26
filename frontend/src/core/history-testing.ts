@@ -362,9 +362,12 @@ export function keptHistory(deleted: Period, at: number, changes = historyChange
 /** What the tests check the apps against. */
 export function historyFacts(changes = historyChanges()) {
   const v = (c: RecordChange, field: string) => c.fields[field]?.v ?? null;
+  const deleted = changes.filter((c) => v(c, 'deleted_at') !== null).length;
   return {
     records: changes.length,
-    deleted: changes.filter((c) => v(c, 'deleted_at') !== null).length,
+    deleted,
+    /** What a new device holds once its first sync is down, which leaves out what was deleted before it began. */
+    live: changes.length - deleted,
     /** What Inbox counts once the history is down: captures not yet sorted, finished or deleted. */
     openInbox: changes.filter((c) => c.type === 'task' && v(c, 'kind') === 'inbox' && !v(c, 'done_at') && !v(c, 'cancelled_at') && !v(c, 'deleted_at')).length,
     /** Each record's fields with their clocks, as JSON: what the server measures and stores. */

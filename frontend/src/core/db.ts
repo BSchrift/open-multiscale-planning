@@ -312,6 +312,8 @@ export const META = {
   lastSyncError: 'last_sync_error',
   /** Set while a sign-in back from the browser waits for its first sync, so screens show it's under way. */
   signingIn: 'signing_in',
+  /** Set during a first sync: the server's counter when it began, so records deleted by then are left out. */
+  snapshot: 'snapshot',
 } as const;
 
 export async function getMeta(sql: Sql, key: string): Promise<string | null> {

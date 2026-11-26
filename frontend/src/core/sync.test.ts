@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fixedClock, formatClock } from './clock';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
+import { sweepOrphans } from './attachments';
 import { applyRemote, getRecord, transact } from './records';
 import { createHttpSend, runSync, SyncError, syncStatus } from './sync';
 import { fakeSyncServer } from './sync-testing';
@@ -276,6 +277,126 @@ describe('runSync pulling', () => {
     await expect(runSync(db, async () => response as never)).rejects.toThrow();
     expect(await outbox(db)).toHaveLength(2);
     expect(await cursorOf(db)).toBe('0');
+  });
+});
+
+describe('runSync on a first sync', () => {
+  const theirs = (fields: Record<string, unknown>, wall = NOW) =>
+    Object.fromEntries(Object.entries(fields).map(([f, v]) => [f, { v, c: formatClock({ wall, counter: 0, device: 'other' }) }]));
+  const ids = async (db: Db) => (await db.all<{ id: string }>('SELECT id FROM records ORDER BY id')).map((r) => r.id);
+  const snapshotOf = (db: Db) => getMeta(db, META.snapshot);
+  /** Six tasks in pages of two, two of them deleted since, which moves them to the end at seq 7 and 8. */
+  async function withDeletes() {
+    const s = server({ pageSize: 2 });
+    for (let i = 0; i < 6; i++) await s.send({ cursor: s.counter, changes: [{ type: 'task', id: `t${i}`, fields: theirs({ kind: 'inbox', title: `Task ${i}` }) }] });
+    for (const id of ['t2', 't4']) await s.send({ cursor: s.counter, changes: [{ type: 'task', id, fields: theirs({ deleted_at: '2026-11-02T14:00:00Z' }) }] });
+    s.requests.length = 0;
+    return s;
+  }
+
+  it('leaves out what was deleted before it began, and asks for it from the second request on', async () => {
+    const s = await withDeletes();
+    const db = await openTestDb();
+
+    await runSync(db, s.send);
+
+    expect(s.requests.map((r) => [r.cursor, r.snapshot])).toEqual([
+      [0, undefined],
+      [2, 8],
+      [6, 8],
+    ]);
+    expect(await ids(db)).toEqual(['t0', 't1', 't3', 't5']);
+    expect(await cursorOf(db)).toBe('8');
+    // Done, so the next sync asks as any other does.
+    expect(await snapshotOf(db)).toBeNull();
+    await runSync(db, s.send);
+    expect(s.requests.at(-1)).not.toHaveProperty('snapshot');
+  });
+
+  it('resumes with the same snapshot after a failure part way', async () => {
+    const s = await withDeletes();
+    const db = await openTestDb();
+    let calls = 0;
+    const failing = async (request: Parameters<typeof s.send>[0]) => {
+      if (++calls === 3) throw new SyncError('offline');
+      return s.send(request);
+    };
+    await expect(runSync(db, failing)).rejects.toMatchObject({ code: 'offline' });
+    expect(await snapshotOf(db)).toBe('8');
+    s.requests.length = 0;
+
+    await runSync(db, s.send);
+
+    expect(s.requests.map((r) => [r.cursor, r.snapshot])).toEqual([[6, 8]]);
+    expect(await ids(db)).toEqual(['t0', 't1', 't3', 't5']);
+    expect(await snapshotOf(db)).toBeNull();
+  });
+
+  it('still brings a record deleted while it runs, and one restored', async () => {
+    const s = await withDeletes();
+    const db = await openTestDb();
+    s.beforeHandle = async () => {
+      if (s.requests.length !== 2) return;
+      s.beforeHandle = undefined;
+      await s.send({ cursor: s.counter, changes: [{ type: 'task', id: 't3', fields: theirs({ deleted_at: '2026-11-02T15:00:00Z' }, NOW + 1) }] });
+      await s.send({ cursor: s.counter, changes: [{ type: 'task', id: 't2', fields: theirs({ deleted_at: null }, NOW + 1) }] });
+    };
+
+    await runSync(db, s.send);
+
+    expect(await ids(db)).toEqual(['t0', 't1', 't2', 't3', 't5']);
+    expect(await getRecord(db, 'task', 't3')).toMatchObject({ deleted_at: '2026-11-02T15:00:00Z' });
+    expect(await getRecord(db, 'task', 't2')).toMatchObject({ title: 'Task 2', deleted_at: null });
+  });
+
+  it('takes no snapshot when its first request sends something, and brings every record', async () => {
+    const s = await withDeletes();
+    const db = await openTestDb();
+    await transact(db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Mine' }, 'mine'));
+
+    await runSync(db, s.send);
+
+    expect(s.requests.every((r) => r.snapshot === undefined)).toBe(true);
+    expect(await ids(db)).toEqual(['mine', 't0', 't1', 't2', 't3', 't4', 't5']);
+  });
+
+  it('drops the snapshot when the server turns out to be restored', async () => {
+    const s = await withDeletes();
+    const db = await openTestDb();
+    s.beforeHandle = async () => {
+      if (s.requests.length === 2) s.restoreTo(8, 'restored');
+    };
+
+    await runSync(db, s.send);
+
+    // Everything it holds goes again, from 0, which takes no snapshot.
+    expect(s.requests.map((r) => [r.cursor, r.changes.length, r.snapshot])).toEqual([
+      [0, 0, undefined],
+      [2, 0, 8],
+      [0, 2, undefined],
+      [2, 0, undefined],
+      [6, 0, undefined],
+    ]);
+    expect(await ids(db)).toEqual(['t0', 't1', 't2', 't3', 't4', 't5']);
+    expect(await snapshotOf(db)).toBeNull();
+  });
+
+  it("leaves a deleted note's photo deleted, not live, though the note never arrives", async () => {
+    const s = server({ pageSize: 2 });
+    const old = NOW - 2 * 86_400_000;
+    const add = (type: string, id: string, fields: Record<string, unknown>) => s.send({ cursor: s.counter, changes: [{ type, id, fields: theirs(fields, old) }] });
+    for (let i = 0; i < 2; i++) await add('task', `t${i}`, { kind: 'inbox', title: `Task ${i}` });
+    await add('memo', 'n1', { title: 'Paint colours', body: '', saved_on: '2026-10-31', home: 'notes', show_on: null });
+    // Added on another device while it was offline, after this note was deleted elsewhere.
+    await add('attachment', 'a1', { memo_id: 'n1', task_id: null, kind: 'link', name: 'example.com', url: 'https://example.com/' });
+    await add('memo', 'n1', { deleted_at: '2026-10-31T12:00:00Z' });
+    const db = await openTestDb();
+
+    await runSync(db, s.send);
+    expect(await ids(db)).toEqual(['a1', 't0', 't1']);
+    await sweepOrphans(db, clock);
+
+    expect(await getRecord(db, 'attachment', 'a1')).toMatchObject({ deleted_at: expect.any(String) });
   });
 });
 

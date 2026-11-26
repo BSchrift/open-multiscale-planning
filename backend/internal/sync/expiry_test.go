@@ -149,6 +149,23 @@ func TestPullsLeaveOutWhatHasExpiredAndResetADeviceThatMayHoldIt(t *testing.T) {
 	}
 }
 
+// Records a first sync leaves out by its snapshot were deleted, not expired: no copy of them can be on the device, so they
+// never reset it, as an expired one left out does.
+func TestSnapshotSkipsNeverResetADevice(t *testing.T) {
+	s, _, now, _ := expiringStore(t)
+	c := fresh(*now, "a")
+	mustSync(t, s, "abc", 0, task("keep", title("Paint the fence", c)), task("gone", title("Oil the hinges", c)))
+	device(t, s, "abc", 2, task("gone", msync.Fields{"deleted_at": {V: at(*now), C: fresh(now.Add(time.Second), "a")}}))
+
+	res, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 2, Snapshot: 3, ExpiryReset: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Reset != "" || stats.Skipped != 0 || stats.ExpiryReset || len(res.Changes) != 0 || res.Cursor != 3 {
+		t.Fatalf("res=%+v skipped=%d reset=%v", res, stats.Skipped, stats.ExpiryReset)
+	}
+}
+
 // A record left out still counts toward the page, so a page can end on one, with its cursor past it.
 func TestAPageThatEndsOnAnExpiredRecordCarriesOn(t *testing.T) {
 	defer msync.SetPageLimits(3, 2<<20)()

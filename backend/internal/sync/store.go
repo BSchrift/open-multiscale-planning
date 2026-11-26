@@ -89,6 +89,9 @@ type Response struct {
 	// Reset is ResetExpired when records the device hasn't seen were removed as expired. It answers only a request with
 	// expiry_reset, and nothing was merged.
 	Reset string `json:"reset,omitempty"`
+	// Snapshot answers a device that holds nothing yet, at cursor 0 with nothing to send: the counter this pull read. It
+	// sends it back for the rest of its first sync, which then leaves out what was deleted by then.
+	Snapshot int64 `json:"snapshot,omitempty"`
 }
 
 // ResetExpired tells a device to pull everything from 0, keep only what comes back or what it made since it last synced,
@@ -146,11 +149,14 @@ func (s *Store) Sync(ctx context.Context, sub string, req Request) (Response, St
 	if stats.ExpiryReset {
 		return reset, stats, nil
 	}
-	res, skipped, err := s.pull(ctx, sub, req.Cursor, stats.counter)
+	res, skipped, err := s.pull(ctx, sub, req.Cursor, stats.counter, req.Snapshot)
 	if err != nil {
 		return Response{}, stats, err
 	}
 	res.Generation = stats.generation
+	if !holdsRecords(req.Cursor, req.Changes) {
+		res.Snapshot = stats.counter
+	}
 	stats.Pulled, stats.Skipped = len(res.Changes), skipped
 	// The pull left out an expired record whose last write this device hasn't had, so it may hold an older copy: it pulls
 	// everything instead, which leaves the copy out. What it sent merged, and sending it again changes nothing.
@@ -714,7 +720,10 @@ func isConflict(err error) bool {
 // transaction the counter already includes has landed whole.
 // It leaves out records that have expired but that DynamoDB hasn't removed yet, which can take days, and returns how
 // many. The cursor still moves past them.
-func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Response, int, error) {
+// With a snapshot, from a first sync, it also leaves out records deleted at or below it. The device holds no copy for
+// such a delete to reach, and a delete since has a higher sequence number, so it still arrives. These aren't counted:
+// they never mean the device may hold an older copy, which is what the count resets a device for.
+func (s *Store) pull(ctx context.Context, sub string, cursor, counter, snapshot int64) (Response, int, error) {
 	if cursor >= counter {
 		return Response{Cursor: cursor, Changes: []Change{}}, 0, nil
 	}
@@ -764,6 +773,8 @@ func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Re
 			// deleted period then would otherwise go to every new device, which would then fill in an expiry for it.
 			if expires, ok := s.expiry(fields); s.Expiry != nil && ok && expires.Before(now) {
 				skipped++
+			} else if seq <= snapshot && fields["deleted_at"].V != nil {
+				// Left out of a first sync.
 			} else {
 				size := recordBytes(fields)
 				if len(res.Changes) > 0 && bytes+size > pageBytes {

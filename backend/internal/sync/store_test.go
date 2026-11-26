@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	gosync "sync"
 	"sync/atomic"
@@ -345,6 +346,102 @@ func TestARecordLargerThanAPageGoesAlone(t *testing.T) {
 			t.Fatalf("page %d: more=%v changes=%d", want, page.More, len(page.Changes))
 		}
 		cursor = page.Cursor
+	}
+}
+
+func deleted(id, at, c string) msync.Change {
+	return task(id, map[string]msync.Field{"deleted_at": {V: at, C: c}})
+}
+
+func syncWith(t *testing.T, s *msync.Store, req msync.Request) msync.Response {
+	t.Helper()
+	res, _, err := s.Sync(context.Background(), "abc", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func changeIDs(changes []msync.Change) []string {
+	out := []string{}
+	for _, c := range changes {
+		out = append(out, c.ID)
+	}
+	return out
+}
+
+func TestAFirstSyncLeavesOutWhatWasDeletedBeforeItsSnapshot(t *testing.T) {
+	s, _ := newStore(t)
+	// r0 to r3 at 1 to 4, then r1 and r3 deleted, which moves them to 5 and 6.
+	var made []msync.Change
+	for i := range 4 {
+		made = append(made, task(fmt.Sprintf("r%d", i), title("x", clock(1, "a"))))
+	}
+	if err := pushOnly(s, "abc", made); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushOnly(s, "abc", []msync.Change{deleted("r1", "2026-11-02T14:00:00Z", clock(2, "a")), deleted("r3", "2026-11-02T14:00:00Z", clock(2, "a"))}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A device that holds nothing gets the counter, and its first page as it is.
+	first := syncWith(t, s, msync.Request{Cursor: 0})
+	if first.Snapshot != 6 || len(first.Changes) != 4 {
+		t.Fatalf("first page: snapshot=%d changes=%v", first.Snapshot, changeIDs(first.Changes))
+	}
+	// With the snapshot, the deletes at or below it are left out, and the cursor passes them.
+	res := syncWith(t, s, msync.Request{Cursor: 1, Snapshot: 6})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r2"}) || res.Cursor != 6 || res.More {
+		t.Fatalf("with a snapshot: changes=%v cursor=%d more=%v", got, res.Cursor, res.More)
+	}
+	if res.Snapshot != 0 {
+		t.Fatalf("a device past 0 got a snapshot: %d", res.Snapshot)
+	}
+
+	// A delete since, and a delete undone since, both arrive.
+	if err := pushOnly(s, "abc", []msync.Change{deleted("r2", "2026-11-02T15:00:00Z", clock(3, "a"))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushOnly(s, "abc", []msync.Change{task("r1", map[string]msync.Field{"deleted_at": {V: nil, C: clock(4, "a")}})}); err != nil {
+		t.Fatal(err)
+	}
+	res = syncWith(t, s, msync.Request{Cursor: 1, Snapshot: 6})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r2", "r1"}) {
+		t.Fatalf("after the snapshot: %v", got)
+	}
+
+	// Without one, as from an app before it, everything comes.
+	res = syncWith(t, s, msync.Request{Cursor: 1})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r3", "r2", "r1"}) {
+		t.Fatalf("without a snapshot: %v", got)
+	}
+	// A device that sends something at 0 may hold a copy one of those deletes should reach, so it gets no snapshot.
+	if res := syncWith(t, s, msync.Request{Cursor: 0, Changes: []msync.Change{task("mine", title("y", clock(5, "b")))}}); res.Snapshot != 0 {
+		t.Fatalf("a device sending at 0 got a snapshot: %d", res.Snapshot)
+	}
+}
+
+func TestASnapshotSkipStillMovesTheCursorAcrossPages(t *testing.T) {
+	defer msync.SetPageLimits(2, 1<<20)()
+	s, _ := newStore(t)
+	var made []msync.Change
+	for i := range 3 {
+		made = append(made, task(fmt.Sprintf("r%d", i), title("x", clock(1, "a"))))
+	}
+	if err := pushOnly(s, "abc", made); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushOnly(s, "abc", []msync.Change{deleted("r0", "2026-11-02T14:00:00Z", clock(2, "a"))}); err != nil {
+		t.Fatal(err)
+	}
+	// r1 and r2 at 2 and 3, r0 deleted at 4. Pages of two: r1 and r2, then r0 left out.
+	res := syncWith(t, s, msync.Request{Cursor: 1, Snapshot: 4})
+	if got := changeIDs(res.Changes); !slices.Equal(got, []string{"r1", "r2"}) || res.Cursor != 3 || !res.More {
+		t.Fatalf("first page: changes=%v cursor=%d more=%v", got, res.Cursor, res.More)
+	}
+	res = syncWith(t, s, msync.Request{Cursor: res.Cursor, Snapshot: 4})
+	if len(res.Changes) != 0 || res.Cursor != 4 || res.More {
+		t.Fatalf("last page: changes=%v cursor=%d more=%v", changeIDs(res.Changes), res.Cursor, res.More)
 	}
 }
 

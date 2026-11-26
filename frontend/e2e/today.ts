@@ -76,13 +76,25 @@ export async function phoneView(
 export async function openStrip(page: Page): Promise<Locator> {
   const days = page.getByRole('group', { name: 'Choose a day' });
   // A day just chosen keeps its time of day, which can scroll the page and fold the strip, and a half fold then springs
-  // to an end: so the page is let rest first, for longer than the spring waits before it starts (140ms).
+  // to an end: so the page is let rest first, for longer than the spring waits before it starts (140ms). A scroll, such
+  // as focus going to a block, reaches the strip only at the browser's next rendering update, which a test's clock
+  // doesn't drive, since it fakes animation frames: so each frame also waits for one, which a resize observer's first
+  // call comes after. Without it the strip can still be open over a day already scrolled, and fold under the tap.
   await page.evaluate(
     () =>
       new Promise<void>((done) => {
         const pane = document.querySelector('.pane')!;
+        const drawn = () =>
+          new Promise<void>((after) => {
+            const seen = new ResizeObserver(() => {
+              seen.disconnect();
+              after();
+            });
+            seen.observe(document.documentElement);
+          });
         let [last, still] = [-1, 0];
-        const tick = () => {
+        const tick = async () => {
+          await drawn();
           still = pane.scrollTop === last ? still + 1 : 0;
           last = pane.scrollTop;
           if (still >= 15) done();

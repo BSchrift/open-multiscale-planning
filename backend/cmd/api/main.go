@@ -129,6 +129,12 @@ func adapter(next http.Handler) lambdaHandler {
 		for name, values := range res.header {
 			headers[name] = strings.Join(values, ", ")
 		}
+		// API Gateway takes a body as text unless it's marked as base64, and a gzipped one isn't text.
+		if res.header.Get("Content-Encoding") != "" {
+			return events.APIGatewayV2HTTPResponse{
+				StatusCode: res.status, Headers: headers, Body: base64.StdEncoding.EncodeToString(res.body.Bytes()), IsBase64Encoded: true,
+			}, nil
+		}
 		return events.APIGatewayV2HTTPResponse{StatusCode: res.status, Headers: headers, Body: res.body.String()}, nil
 	}
 }

@@ -327,7 +327,7 @@ at the 90th percentile of a good week plus a margin, reported and never failing 
 
 | Event | From | When | Attributes |
 | --- | --- | --- | --- |
-| `app.sync.count` | Web, Mac, iPhone | Each minute, with the heartbeat | `sync.count`, the sync requests the server answered since the last one, and `sync.bytes`, about the bytes they sent and received |
+| `app.sync.count` | Web, Mac, iPhone | Each minute, with the heartbeat | `sync.count`, the sync requests the server answered since the last one, and `sync.bytes`, about the bytes of JSON they sent and received, counted before the gzip a large answer travels in, so up to about eight times what crossed the network |
 | `app.energy.sample` | Mac | Each minute, with the heartbeat, one for each kind of process | `energy.process` (main, renderer or gpu), `energy.cpu_percent` and `energy.idle_wakeups_per_s` over the minute, from Electron's `app.getAppMetrics()`, and `energy.window_visible` |
 | On `app.heartbeat` | Mac | Each minute | `device.battery.charging` (on AC power) and `device.thermal_state` |
 | On `app.heartbeat` | iPhone | Each minute | `device.battery.charging` (plugged in), `device.low_power` (Low Power Mode) and `device.thermal_state` |

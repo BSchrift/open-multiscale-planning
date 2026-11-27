@@ -1,0 +1,1377 @@
+{
+ "kind": "nightly",
+ "commit": "601cefb9de3ad1bb436d4aad074e08644a459eee",
+ "runner": "ubuntu-latest",
+ "at": "2026-11-27T14:36:42.206Z",
+ "rows": [
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 8.2,
+   "p95": 17,
+   "p99": 18.6
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 1500,
+   "p50": 5.9,
+   "p95": 17.4,
+   "p99": 24.2
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 30.8,
+   "p95": 41.5,
+   "p99": 45.7
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 1193,
+   "p95": 1276.8,
+   "p99": 1283.2
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 817.7,
+   "p95": 836.3,
+   "p99": 850.5
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 15.9,
+   "p95": 18.2,
+   "p99": 23
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 16.8,
+   "p95": 19.7,
+   "p99": 22.3
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 15.5,
+   "p95": 18,
+   "p99": 24.4
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 16.4,
+   "p95": 17.8,
+   "p99": 22
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 13.6,
+   "p95": 13.6,
+   "p99": 13.6
+  },
+  {
+   "kpi": "web.firstload",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 517,
+   "p95": 517,
+   "p99": 517
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 8.4,
+   "p95": 16.5,
+   "p99": 17.9
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 300,
+   "p50": 3,
+   "p95": 16.3,
+   "p99": 19.1
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 19.6,
+   "p95": 32.9,
+   "p99": 42.4
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 16.1,
+   "p95": 16.3,
+   "p99": 18.3
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 16.8,
+   "p95": 17.2,
+   "p99": 19.2
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 15.7,
+   "p95": 16.3,
+   "p99": 21.5
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 16.5,
+   "p95": 16.9,
+   "p99": 17.5
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-desktop",
+   "scenario": "one-year+offline",
+   "n": 1,
+   "p50": 50.7,
+   "p95": 50.7,
+   "p99": 50.7
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 24.7,
+   "p95": 41,
+   "p99": 45.2
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 300,
+   "p50": 13.5,
+   "p95": 26.2,
+   "p99": 33.6
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 214.8,
+   "p95": 578.7,
+   "p99": 602.6
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 5,
+   "p50": 10428.2,
+   "p95": 10606.9,
+   "p99": 10606.9
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 5,
+   "p50": 5786.3,
+   "p95": 5835.1,
+   "p99": 5835.1
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 176.9,
+   "p95": 198.3,
+   "p99": 201.6
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 149.8,
+   "p95": 186.3,
+   "p99": 5787.3
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 1346.2,
+   "p95": 1457.8,
+   "p99": 1490.7
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-phone",
+   "scenario": "five-year",
+   "n": 1,
+   "p50": 31.7,
+   "p95": 31.7,
+   "p99": 31.7
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 3.2,
+   "p95": 37.1,
+   "p99": 42.6
+  },
+  {
+   "kpi": "capture.global",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 2.6,
+   "p95": 13.1,
+   "p99": 16
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 1500,
+   "p50": 4.8,
+   "p95": 16.7,
+   "p99": 32.1
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 7.4,
+   "p95": 37.7,
+   "p99": 89.1
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 2089.1,
+   "p95": 3030.8,
+   "p99": 3177.1
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 1343.9,
+   "p95": 1411.3,
+   "p99": 1459.8
+  },
+  {
+   "kpi": "start.resume",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 13,
+   "p95": 18.2,
+   "p99": 22.1
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 15.1,
+   "p95": 16.3,
+   "p99": 17
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 15.8,
+   "p95": 18.4,
+   "p99": 19.7
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 14.7,
+   "p95": 15.9,
+   "p99": 22.8
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 15.6,
+   "p95": 16.7,
+   "p99": 17.1
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 88,
+   "p50": 10.5,
+   "p95": 36.3,
+   "p99": 351.3
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 14.6,
+   "p95": 14.6,
+   "p99": 14.6
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 9.8,
+   "p95": 14.3,
+   "p99": 16.6
+  },
+  {
+   "kpi": "capture.global",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 9.3,
+   "p95": 15.9,
+   "p99": 16.6
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 300,
+   "p50": 1.3,
+   "p95": 15.4,
+   "p99": 16.1
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 3.9,
+   "p95": 14.8,
+   "p99": 20.4
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 10,
+   "p50": 1196.5,
+   "p95": 1212.4,
+   "p99": 1212.4
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 10,
+   "p50": 460.1,
+   "p95": 483.8,
+   "p99": 483.8
+  },
+  {
+   "kpi": "start.resume",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 5.7,
+   "p95": 15.5,
+   "p99": 16.8
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15,
+   "p95": 15.8,
+   "p99": 16
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15.4,
+   "p95": 16.4,
+   "p99": 16.5
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 14.9,
+   "p95": 15.7,
+   "p99": 15.9
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15.1,
+   "p95": 16.1,
+   "p99": 16.3
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 34,
+   "p50": 11.5,
+   "p95": 20.1,
+   "p99": 21.2
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "mac",
+   "scenario": "empty",
+   "n": 1,
+   "p50": 40.7,
+   "p95": 40.7,
+   "p99": 40.7
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 20.7,
+   "p95": 29.8,
+   "p99": 34.6
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 300,
+   "p50": 10.3,
+   "p95": 24.3,
+   "p99": 30.5
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 61.8,
+   "p95": 78.6,
+   "p99": 185.3
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 86.9,
+   "p95": 98.8,
+   "p99": 101.4
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 85.9,
+   "p95": 103.6,
+   "p99": 114.8
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 100,
+   "p50": 260.2,
+   "p95": 295.9,
+   "p99": 348.6
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-phone",
+   "scenario": "one-year+offline",
+   "n": 1,
+   "p50": 38.5,
+   "p95": 38.5,
+   "p99": 38.5
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 5.2,
+   "p95": 14.4,
+   "p99": 17
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 300,
+   "p50": 4.4,
+   "p95": 16.2,
+   "p99": 17.9
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 61.8,
+   "p95": 227.3,
+   "p99": 258.3
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 10,
+   "p50": 1351.2,
+   "p95": 1393.3,
+   "p99": 1393.3
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 10,
+   "p50": 1009.3,
+   "p95": 1040.2,
+   "p99": 1040.2
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 22.2,
+   "p95": 23.9,
+   "p99": 25
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 20.6,
+   "p95": 24.2,
+   "p99": 26.6
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 19.2,
+   "p95": 22.6,
+   "p99": 30.5
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 22.8,
+   "p95": 24.2,
+   "p99": 27.5
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 1,
+   "p50": 109.8,
+   "p95": 109.8,
+   "p99": 109.8
+  },
+  {
+   "kpi": "web.firstload",
+   "platform": "web-desktop",
+   "scenario": "five-year",
+   "n": 10,
+   "p50": 517,
+   "p95": 517,
+   "p99": 517
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 7.3,
+   "p95": 16.5,
+   "p99": 17.4
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 300,
+   "p50": 2.1,
+   "p95": 13.8,
+   "p99": 16.8
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 26.1,
+   "p95": 29.7,
+   "p99": 34.7
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 10,
+   "p50": 574.6,
+   "p95": 595.1,
+   "p99": 595.1
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 10,
+   "p50": 244,
+   "p95": 260.5,
+   "p99": 260.5
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15.3,
+   "p95": 15.6,
+   "p99": 15.8
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15.9,
+   "p95": 16.1,
+   "p99": 16.2
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15.3,
+   "p95": 15.5,
+   "p99": 15.5
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 100,
+   "p50": 15.5,
+   "p95": 15.7,
+   "p99": 15.8
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 1,
+   "p50": 7.8,
+   "p95": 7.8,
+   "p99": 7.8
+  },
+  {
+   "kpi": "web.firstload",
+   "platform": "web-desktop",
+   "scenario": "empty",
+   "n": 10,
+   "p50": 496,
+   "p95": 517,
+   "p99": 517
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 3.5,
+   "p95": 8.5,
+   "p99": 18.8
+  },
+  {
+   "kpi": "capture.global",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 10.6,
+   "p95": 16.1,
+   "p99": 16.7
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 300,
+   "p50": 3.3,
+   "p95": 30,
+   "p99": 71.7
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 12.5,
+   "p95": 28.7,
+   "p99": 38.2
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 10,
+   "p50": 3628.8,
+   "p95": 3794.7,
+   "p99": 3794.7
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 10,
+   "p50": 2942.4,
+   "p95": 3083.3,
+   "p99": 3083.3
+  },
+  {
+   "kpi": "start.resume",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 28.4,
+   "p95": 42.3,
+   "p99": 45.8
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 32.7,
+   "p95": 34.7,
+   "p99": 39.8
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 30.9,
+   "p95": 32.8,
+   "p99": 36.8
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 28.7,
+   "p95": 31.2,
+   "p99": 35.6
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 100,
+   "p50": 33.8,
+   "p95": 35.4,
+   "p99": 42
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 12,
+   "p50": 65.2,
+   "p95": 702.9,
+   "p99": 702.9
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "mac",
+   "scenario": "five-year",
+   "n": 1,
+   "p50": 402,
+   "p95": 402,
+   "p99": 402
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 20.9,
+   "p95": 32,
+   "p99": 38
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 1500,
+   "p50": 12,
+   "p95": 25.8,
+   "p99": 33
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 71.2,
+   "p95": 101.9,
+   "p99": 132.4
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 7329.9,
+   "p95": 7504.5,
+   "p99": 7504.5
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 3432.1,
+   "p95": 3461.6,
+   "p99": 3461.6
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 87.1,
+   "p95": 98.2,
+   "p99": 103.4
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 84.9,
+   "p95": 114,
+   "p99": 129.4
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 500,
+   "p50": 256.2,
+   "p95": 298.8,
+   "p99": 327.7
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-phone",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 26.2,
+   "p95": 26.2,
+   "p99": 26.2
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 10,
+   "p50": 2.7,
+   "p95": 17.7,
+   "p99": 17.7
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 10,
+   "p50": 3,
+   "p95": 19.8,
+   "p99": 19.8
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 5.7,
+   "p95": 14.6,
+   "p99": 14.6
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 30,
+   "p50": 8.9,
+   "p95": 17.1,
+   "p99": 17.5
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 30,
+   "p50": 5.7,
+   "p95": 17.1,
+   "p99": 17.8
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 5.5,
+   "p95": 17.8,
+   "p99": 17.9
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 10,
+   "p50": 19.4,
+   "p95": 24.3,
+   "p99": 24.3
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 10,
+   "p50": 21.7,
+   "p95": 25.6,
+   "p99": 25.6
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 24.3,
+   "p95": 41.8,
+   "p99": 41.8
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 11,
+   "p50": 15.6,
+   "p95": 16.2,
+   "p99": 16.2
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 11,
+   "p50": 15.5,
+   "p95": 18,
+   "p99": 18
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 15.7,
+   "p95": 23.7,
+   "p99": 23.7
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 10,
+   "p50": 12.3,
+   "p95": 46,
+   "p99": 46
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 10,
+   "p50": 15.9,
+   "p95": 19.9,
+   "p99": 19.9
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 16.1,
+   "p95": 17.3,
+   "p99": 17.3
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 10,
+   "p50": 15.3,
+   "p95": 32.9,
+   "p99": 32.9
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 10,
+   "p50": 15.2,
+   "p95": 18.3,
+   "p99": 18.3
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 15.2,
+   "p95": 17.3,
+   "p99": 17.3
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 10,
+   "p50": 15.4,
+   "p95": 33.8,
+   "p99": 33.8
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 10,
+   "p50": 15.6,
+   "p95": 18.3,
+   "p99": 18.3
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 10,
+   "p50": 15.5,
+   "p95": 18.9,
+   "p99": 18.9
+  },
+  {
+   "kpi": "sync.send",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 1,
+   "p50": 37,
+   "p95": 37,
+   "p99": 37
+  },
+  {
+   "kpi": "sync.send",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 2,
+   "p50": 47.3,
+   "p95": 98.5,
+   "p99": 98.5
+  },
+  {
+   "kpi": "sync.send",
+   "platform": "web-desktop",
+   "scenario": "flaky",
+   "n": 30,
+   "p50": 13.9,
+   "p95": 834.7,
+   "p99": 926.5
+  },
+  {
+   "kpi": "sync.send",
+   "platform": "web-desktop",
+   "scenario": "good",
+   "n": 30,
+   "p50": 19,
+   "p95": 32,
+   "p99": 52.3
+  },
+  {
+   "kpi": "sync.send",
+   "platform": "web-desktop",
+   "scenario": "slow-3g",
+   "n": 30,
+   "p50": 2060.2,
+   "p95": 2062.3,
+   "p99": 2066
+  },
+  {
+   "kpi": "sync.send",
+   "platform": "web-desktop",
+   "scenario": "two-devices",
+   "n": 2,
+   "p50": 37.5,
+   "p95": 41.9,
+   "p99": 41.9
+  },
+  {
+   "kpi": "sync.push",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 1,
+   "p50": 489.7,
+   "p95": 489.7,
+   "p99": 489.7
+  },
+  {
+   "kpi": "sync.push",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 2,
+   "p50": 222.9,
+   "p95": 5636,
+   "p99": 5636
+  },
+  {
+   "kpi": "sync.push",
+   "platform": "web-desktop",
+   "scenario": "flaky",
+   "n": 30,
+   "p50": 2018.3,
+   "p95": 2840,
+   "p99": 2929.7
+  },
+  {
+   "kpi": "sync.push",
+   "platform": "web-desktop",
+   "scenario": "good",
+   "n": 30,
+   "p50": 2022.3,
+   "p95": 2035.8,
+   "p99": 2055.3
+  },
+  {
+   "kpi": "sync.push",
+   "platform": "web-desktop",
+   "scenario": "slow-3g",
+   "n": 30,
+   "p50": 4064.1,
+   "p95": 4068.9,
+   "p99": 4069.7
+  },
+  {
+   "kpi": "sync.push",
+   "platform": "web-desktop",
+   "scenario": "two-devices",
+   "n": 2,
+   "p50": 60814.8,
+   "p95": 61069.3,
+   "p99": 61069.3
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "web-desktop",
+   "scenario": "background-idle",
+   "n": 1,
+   "p50": 2.1,
+   "p95": 2.1,
+   "p99": 2.1
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "web-desktop",
+   "scenario": "background-sync",
+   "n": 2,
+   "p50": 159.5,
+   "p95": 168.5,
+   "p99": 168.5
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "web-desktop",
+   "scenario": "flaky",
+   "n": 59,
+   "p50": 47.6,
+   "p95": 969.6,
+   "p99": 1022.4
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "web-desktop",
+   "scenario": "good",
+   "n": 59,
+   "p50": 47.2,
+   "p95": 52.9,
+   "p99": 85.7
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "web-desktop",
+   "scenario": "slow-3g",
+   "n": 59,
+   "p50": 2084.1,
+   "p95": 2091.1,
+   "p99": 2097.9
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "web-desktop",
+   "scenario": "two-devices",
+   "n": 3,
+   "p50": 80.4,
+   "p95": 82.9,
+   "p99": 82.9
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-desktop",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 61.4,
+   "p95": 61.4,
+   "p99": 61.4
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 100,
+   "p50": 24.5,
+   "p95": 36.4,
+   "p99": 48.5
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 300,
+   "p50": 15.9,
+   "p95": 27,
+   "p99": 33.9
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 100,
+   "p50": 63.7,
+   "p95": 106.7,
+   "p99": 184.2
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 100,
+   "p50": 88.1,
+   "p95": 104.1,
+   "p99": 108.5
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 100,
+   "p50": 95.5,
+   "p95": 125.5,
+   "p99": 174.2
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 100,
+   "p50": 237.1,
+   "p95": 292.1,
+   "p99": 315
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "web-phone",
+   "scenario": "one-year+cpu6x",
+   "n": 1,
+   "p50": 28.6,
+   "p95": 28.6,
+   "p99": 28.6
+  }
+ ],
+ "flagged": []
+}

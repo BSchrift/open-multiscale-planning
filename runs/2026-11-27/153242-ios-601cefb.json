@@ -1,0 +1,242 @@
+{
+ "kind": "ios",
+ "commit": "601cefb9de3ad1bb436d4aad074e08644a459eee",
+ "runner": "macos-15",
+ "at": "2026-11-27T15:32:42.215Z",
+ "rows": [
+  {
+   "kpi": "capture.open",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 125,
+   "p95": 220,
+   "p99": 271
+  },
+  {
+   "kpi": "capture.open",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 30,
+   "p50": 139,
+   "p95": 348,
+   "p99": 385
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 90,
+   "p50": 140,
+   "p95": 338,
+   "p99": 408
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 90,
+   "p50": 162,
+   "p95": 307,
+   "p99": 347
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 225,
+   "p95": 467,
+   "p99": 558
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 30,
+   "p50": 223,
+   "p95": 531,
+   "p99": 554
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 72874.1,
+   "p95": 72874.1,
+   "p99": 72874.1
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 1,
+   "p50": 126627.1,
+   "p95": 126627.1,
+   "p99": 126627.1
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 5,
+   "p50": 26282.5,
+   "p95": 40438.4,
+   "p99": 40438.4
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 5,
+   "p50": 48451.9,
+   "p95": 66993.1,
+   "p99": 66993.1
+  },
+  {
+   "kpi": "start.resume",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 5,
+   "p50": 88,
+   "p95": 572,
+   "p99": 572
+  },
+  {
+   "kpi": "start.resume",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 5,
+   "p50": 86,
+   "p95": 236,
+   "p99": 236
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 60,
+   "p50": 185,
+   "p95": 372,
+   "p99": 622
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 60,
+   "p50": 171,
+   "p95": 318,
+   "p99": 533
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 197,
+   "p95": 525,
+   "p99": 571
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 30,
+   "p50": 198,
+   "p95": 379,
+   "p99": 726
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 30,
+   "p50": 388,
+   "p95": 620,
+   "p99": 665
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 30,
+   "p50": 400,
+   "p95": 682,
+   "p99": 1094
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 5,
+   "p50": 47,
+   "p95": 270,
+   "p99": 270
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 5,
+   "p50": 34,
+   "p95": 44,
+   "p99": 44
+  },
+  {
+   "kpi": "mem.app",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 66,
+   "p95": 66,
+   "p99": 66
+  },
+  {
+   "kpi": "mem.app",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 1,
+   "p50": 64,
+   "p95": 64,
+   "p99": 64
+  },
+  {
+   "kpi": "mem.webview",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 343,
+   "p95": 343,
+   "p99": 343
+  },
+  {
+   "kpi": "mem.webview",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 1,
+   "p50": 377,
+   "p95": 377,
+   "p99": 377
+  },
+  {
+   "kpi": "mem.events",
+   "platform": "iphone",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 0,
+   "p95": 0,
+   "p99": 0
+  },
+  {
+   "kpi": "mem.events",
+   "platform": "iphone",
+   "scenario": "one-year+older",
+   "n": 1,
+   "p50": 0,
+   "p95": 0,
+   "p99": 0
+  }
+ ]
+}
